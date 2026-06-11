@@ -34,7 +34,6 @@ export default async function ChatPage() {
       initialUsage={usage}
       initialUser={serializeCurrentUser(user)}
       initialWebSearchEnabled={aiSettings.webSearchEnabled}
-      initialWebSearchProvider={aiSettings.webSearchProvider}
     />
   );
 }

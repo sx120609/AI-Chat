@@ -79,14 +79,8 @@ async function serializeSettings() {
     codeInterpreterAllowPackageInstall: settings.codeInterpreterAllowPackageInstall,
     codeInterpreterPipIndexUrl: settings.codeInterpreterPipIndexUrl || "https://pypi.org/simple",
     webSearchEnabled: settings.webSearchEnabled,
-    webSearchProvider:
-      settings.webSearchProvider === "bing" || settings.webSearchProvider === "google"
-        ? settings.webSearchProvider
-        : "duckduckgo",
+    webSearchProvider: "duckduckgo",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
-    hasGoogleSearchApiKey: Boolean(settings.googleSearchApiKey),
-    googleSearchApiKeyPreview: maskKey(settings.googleSearchApiKey),
-    googleSearchCx: settings.googleSearchCx || "",
     updatedAt: settings.updatedAt.toISOString()
   };
 }
@@ -144,9 +138,7 @@ export async function POST(request: NextRequest) {
         codeInterpreterPipIndexUrl: runtimeSettings.codeInterpreterPipIndexUrl,
         webSearchEnabled: runtimeSettings.webSearchEnabled,
         webSearchProvider: runtimeSettings.webSearchProvider,
-        webSearchMaxResults: runtimeSettings.webSearchMaxResults,
-        googleSearchApiKey: runtimeSettings.googleSearchApiKey || null,
-        googleSearchCx: runtimeSettings.googleSearchCx || null
+        webSearchMaxResults: runtimeSettings.webSearchMaxResults
       }
     });
 

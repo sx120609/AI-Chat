@@ -81,11 +81,11 @@ type ToolEventPayload = {
 function normalizeRequestWebSearchProvider(value: string | undefined, fallback: string) {
   const provider = value?.trim().toLowerCase();
 
-  if (provider === "auto" || provider === "bing" || provider === "duckduckgo" || provider === "google") {
+  if (provider === "auto" || provider === "duckduckgo") {
     return provider;
   }
 
-  return fallback === "bing" || fallback === "google" ? fallback : "duckduckgo";
+  return fallback === "auto" ? fallback : "duckduckgo";
 }
 
 function sse(controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) {

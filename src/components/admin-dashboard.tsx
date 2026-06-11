@@ -86,9 +86,6 @@ type SettingsForm = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
-  googleSearchApiKey: string;
-  clearGoogleSearchApiKey: boolean;
-  googleSearchCx: string;
 };
 
 type DiagnosticCheck = {
@@ -138,10 +135,7 @@ const emptySettings: SettingsForm = {
   codeInterpreterPipIndexUrl: "https://pypi.org/simple",
   webSearchEnabled: false,
   webSearchProvider: "duckduckgo",
-  webSearchMaxResults: 5,
-  googleSearchApiKey: "",
-  clearGoogleSearchApiKey: false,
-  googleSearchCx: ""
+  webSearchMaxResults: 5
 };
 
 export function AdminDashboard({ currentUser }: AdminDashboardProps) {
@@ -209,10 +203,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       codeInterpreterPipIndexUrl: nextSettings.codeInterpreterPipIndexUrl,
       webSearchEnabled: nextSettings.webSearchEnabled,
       webSearchProvider: nextSettings.webSearchProvider,
-      webSearchMaxResults: nextSettings.webSearchMaxResults,
-      googleSearchApiKey: "",
-      clearGoogleSearchApiKey: false,
-      googleSearchCx: nextSettings.googleSearchCx
+      webSearchMaxResults: nextSettings.webSearchMaxResults
     });
   }
 
@@ -757,7 +748,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                 <Globe2 className="size-4 text-[color:var(--claude-accent)]" />
                 <span className="text-xs font-semibold ios-muted">联网搜索</span>
               </div>
-              <div className="grid gap-3 p-3 lg:grid-cols-3">
+              <div className="grid gap-3 p-3 lg:grid-cols-2">
                 <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
                   <input
                     checked={settingsForm.webSearchEnabled}
@@ -771,23 +762,6 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     type="checkbox"
                   />
                   允许用户联网搜索
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium ios-muted">搜索提供方</span>
-                  <select
-                    className="ios-select w-full"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        webSearchProvider: event.target.value
-                      }))
-                    }
-                    value={settingsForm.webSearchProvider}
-                  >
-                    <option value="duckduckgo">DuckDuckGo（服务端）</option>
-                    <option value="bing">Bing（服务端）</option>
-                    <option value="google">Google（服务端）</option>
-                  </select>
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium ios-muted">来源数量</span>
@@ -805,57 +779,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     value={settingsForm.webSearchMaxResults}
                   />
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium ios-muted">
-                    Google API Key
-                  </span>
-                  <input
-                    className="ios-input w-full"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        googleSearchApiKey: event.target.value
-                      }))
-                    }
-                    placeholder={settings?.googleSearchApiKeyPreview || "Google API Key"}
-                    type="password"
-                    value={settingsForm.googleSearchApiKey}
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium ios-muted">
-                    Google 搜索引擎 ID
-                  </span>
-                  <input
-                    className="ios-input w-full"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        googleSearchCx: event.target.value
-                      }))
-                    }
-                    placeholder="cx / Search engine ID"
-                    value={settingsForm.googleSearchCx}
-                  />
-                </label>
-                <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
-                  <input
-                    checked={settingsForm.clearGoogleSearchApiKey}
-                    className="size-4 accent-[color:var(--claude-accent)]"
-                    disabled={!settings?.hasGoogleSearchApiKey}
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        clearGoogleSearchApiKey: event.target.checked,
-                        googleSearchApiKey: event.target.checked ? "" : current.googleSearchApiKey
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  清除 Google Key
-                </label>
-                <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-3">
-                  开启后，用户可在聊天输入框为单次消息打开联网搜索；后端按所选提供方搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。Google 建议配置 API Key 和搜索引擎 ID。
+                <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-2">
+                  开启后，用户可在聊天输入框为单次消息打开联网搜索；后端通过 DuckDuckGo 搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。
                 </div>
               </div>
             </div>

@@ -163,7 +163,5 @@ model AiSettings {
   webSearchEnabled    Boolean @default(false)
   webSearchProvider   String  @default("duckduckgo")
   webSearchMaxResults Int     @default(5)
-  googleSearchApiKey  String?
-  googleSearchCx      String?
   updatedAt             DateTime @updatedAt
 }

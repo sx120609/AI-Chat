@@ -72,7 +72,6 @@ type ChatShellProps = {
   initialModels: ChatModelView[];
   initialDefaultReasoningEffort: ReasoningEffort;
   initialWebSearchEnabled: boolean;
-  initialWebSearchProvider: string;
 };
 
 type SseEvent = {
@@ -112,8 +111,6 @@ type ToolEventView = {
 };
 type ToolEventUpdate = Omit<ToolEventView, "finishedAt" | "startedAt"> &
   Partial<Pick<ToolEventView, "finishedAt" | "startedAt">>;
-
-type WebSearchProviderOption = "auto" | "bing" | "duckduckgo" | "google";
 
 type ComposerDraftState = {
   focusToken: number;
@@ -327,14 +324,6 @@ function groupConversations(conversations: ConversationSummary[]) {
     .filter((group) => group.conversations.length > 0);
 }
 
-function normalizeWebSearchProviderOption(value: string): WebSearchProviderOption {
-  if (value === "auto" || value === "bing" || value === "duckduckgo" || value === "google") {
-    return value;
-  }
-
-  return "auto";
-}
-
 function useEventCallback<Args extends unknown[], Result>(callback: (...args: Args) => Result) {
   const callbackRef = useRef(callback);
 
@@ -351,8 +340,7 @@ export function ChatShell({
   initialSiteSettings,
   initialUser,
   initialUsage,
-  initialWebSearchEnabled,
-  initialWebSearchProvider
+  initialWebSearchEnabled
 }: ChatShellProps) {
   const [user] = useState(initialUser);
   const [siteSettings, setSiteSettings] = useState(initialSiteSettings);
@@ -372,10 +360,6 @@ export function ChatShell({
   const [sourceImageMessage, setSourceImageMessage] = useState<MessageView | null>(null);
   const [webSearchAvailable, setWebSearchAvailable] = useState(initialWebSearchEnabled);
   const [webSearchEnabledForMessage, setWebSearchEnabledForMessage] = useState(false);
-  const [webSearchProvider, setWebSearchProvider] = useState<WebSearchProviderOption>(
-    normalizeWebSearchProviderOption(initialWebSearchProvider)
-  );
-  const [searchProviderMenuOpen, setSearchProviderMenuOpen] = useState(false);
   const [model, setModel] = useState<string>(initialModels[0]?.id ?? "");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
     initialDefaultReasoningEffort
@@ -404,7 +388,6 @@ export function ChatShell({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const headerControlsRef = useRef<HTMLDivElement | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
-  const searchProviderMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const quotaBlocked = usage.remainingCostCents <= 0;
@@ -421,14 +404,8 @@ export function ChatShell({
     () => REASONING_EFFORTS.find((item) => item.id === reasoningEffort) ?? REASONING_EFFORTS[0],
     [reasoningEffort]
   );
-  const webSearchProviderLabel =
-    webSearchProvider === "auto"
-      ? "自动"
-      : webSearchProvider === "bing"
-        ? "Bing"
-        : webSearchProvider === "google"
-          ? "Google"
-          : "DuckDuckGo";
+  const webSearchProvider = "duckduckgo";
+  const webSearchProviderLabel = "DuckDuckGo";
   const selectedConversationIdSet = useMemo(
     () => new Set(selectedConversationIds),
     [selectedConversationIds]
@@ -453,7 +430,6 @@ export function ChatShell({
         chatModels?: ChatModelView[];
         defaultReasoningEffort?: ReasoningEffort;
         webSearchEnabled?: boolean;
-        webSearchProvider?: string;
       };
       setUsage(payload.usage);
 
@@ -624,12 +600,7 @@ export function ChatShell({
         return;
       }
 
-      if (target instanceof Node && searchProviderMenuRef.current?.contains(target)) {
-        return;
-      }
-
       setModelPickerOpen(false);
-      setSearchProviderMenuOpen(false);
     }
 
     document.addEventListener("mousedown", closeMenus);
@@ -663,7 +634,6 @@ export function ChatShell({
     setSelectingConversations(false);
     setRenamingConversationId(null);
     setRenamingTitle("");
-    setSearchProviderMenuOpen(false);
     setComposerText("");
   }
 
@@ -2309,13 +2279,10 @@ export function ChatShell({
                   <ImageIcon className="size-4" />
                 </button>
                 {webSearchAvailable ? (
-                  <div
-                    className="relative flex min-w-0 shrink-0 items-center"
-                    ref={searchProviderMenuRef}
-                  >
+                  <div className="relative flex min-w-0 shrink-0 items-center">
                     <button
                       aria-pressed={webSearchEnabledForMessage}
-                      className={`grid size-9 place-items-center rounded-l-full border border-r-0 transition ${
+                      className={`grid size-9 place-items-center rounded-full border transition ${
                         webSearchEnabledForMessage
                           ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                           : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
@@ -2338,54 +2305,6 @@ export function ChatShell({
                     >
                       <Search className="size-4" />
                     </button>
-                    <button
-                      aria-expanded={searchProviderMenuOpen}
-                      className={`flex h-9 min-w-0 items-center gap-1 rounded-r-full border px-2 text-[11px] font-semibold transition ${
-                        webSearchEnabledForMessage
-                          ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                          : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
-                      }`}
-                      disabled={loading || quotaBlocked}
-                      onClick={() => setSearchProviderMenuOpen((current) => !current)}
-                      title="选择搜索引擎"
-                      type="button"
-                    >
-                      <span className="max-w-16 truncate sm:max-w-12">{webSearchProviderLabel}</span>
-                      <ChevronDown
-                        className={`size-3.5 shrink-0 transition ${
-                          searchProviderMenuOpen ? "rotate-180" : ""
-                        }`}
-                      />
-                    </button>
-                    {searchProviderMenuOpen ? (
-                      <div className="absolute bottom-full left-0 z-50 mb-2 w-36 rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 shadow-[0_18px_45px_rgba(83,69,54,0.16)]">
-                        {[
-                          { id: "auto", label: "自动" },
-                          { id: "bing", label: "Bing" },
-                          { id: "google", label: "Google" },
-                          { id: "duckduckgo", label: "DuckDuckGo" }
-                        ].map((option) => (
-                          <button
-                            className={`flex h-9 w-full items-center justify-between gap-2 rounded-md px-2.5 text-left text-sm transition ${
-                              option.id === webSearchProvider
-                                ? "bg-[#f3d8ca] font-semibold text-[color:var(--claude-accent-dark)]"
-                                : "text-stone-700 hover:bg-[#f6eadf]"
-                            }`}
-                            key={option.id}
-                            onClick={() => {
-                              setWebSearchProvider(option.id as WebSearchProviderOption);
-                              setSearchProviderMenuOpen(false);
-                            }}
-                            type="button"
-                          >
-                            <span className="min-w-0 truncate">{option.label}</span>
-                            {option.id === webSearchProvider ? (
-                              <Check className="size-4 shrink-0" />
-                            ) : null}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>

@@ -58,9 +58,6 @@ type SettingsBody = {
   webSearchEnabled?: boolean;
   webSearchProvider?: string;
   webSearchMaxResults?: number;
-  googleSearchApiKey?: string;
-  clearGoogleSearchApiKey?: boolean;
-  googleSearchCx?: string;
 };
 
 function maskKey(key: string | null | undefined) {
@@ -97,8 +94,6 @@ function serializeSettings(settings: {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
-  googleSearchApiKey: string | null;
-  googleSearchCx: string | null;
   updatedAt: Date;
 }) {
   const chatModelMap = parseModelMap(settings.chatModelMapJson);
@@ -137,14 +132,8 @@ function serializeSettings(settings: {
     codeInterpreterPipIndexUrl:
       settings.codeInterpreterPipIndexUrl || "https://pypi.org/simple",
     webSearchEnabled: settings.webSearchEnabled,
-    webSearchProvider:
-      settings.webSearchProvider === "bing" || settings.webSearchProvider === "google"
-        ? settings.webSearchProvider
-        : "duckduckgo",
+    webSearchProvider: "duckduckgo",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
-    hasGoogleSearchApiKey: Boolean(settings.googleSearchApiKey),
-    googleSearchApiKeyPreview: maskKey(settings.googleSearchApiKey),
-    googleSearchCx: settings.googleSearchCx || "",
     updatedAt: settings.updatedAt.toISOString()
   };
 }
@@ -227,16 +216,6 @@ function normalizePipIndexUrl(value: string | undefined) {
   }
 }
 
-function normalizeWebSearchProvider(value: string | undefined) {
-  const provider = value?.trim().toLowerCase() || "duckduckgo";
-
-  if (provider !== "duckduckgo" && provider !== "bing" && provider !== "google") {
-    throw new Error("联网搜索当前只支持 DuckDuckGo、Bing 或 Google。");
-  }
-
-  return provider;
-}
-
 function normalizeWebSearchMaxResults(value: number | undefined) {
   if (!Number.isFinite(value)) {
     return 5;
@@ -287,13 +266,10 @@ export async function GET(request: NextRequest) {
       codeInterpreterPipIndexUrl:
         process.env.CODE_INTERPRETER_PIP_INDEX_URL || "https://pypi.org/simple",
       webSearchEnabled: process.env.WEB_SEARCH_ENABLED === "true",
-      webSearchProvider: normalizeWebSearchProvider(process.env.WEB_SEARCH_PROVIDER),
+      webSearchProvider: "duckduckgo",
       webSearchMaxResults: normalizeWebSearchMaxResults(
         Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5
-      ),
-      googleSearchApiKey: process.env.GOOGLE_SEARCH_API_KEY || null,
-      googleSearchCx:
-        process.env.GOOGLE_SEARCH_CX || process.env.GOOGLE_SEARCH_ENGINE_ID || null
+      )
     }
   });
 
@@ -325,14 +301,12 @@ export async function PATCH(request: NextRequest) {
   let apiBaseUrl: string;
   let codeInterpreterPipIndexUrl: string;
   let codeInterpreterSandbox: string;
-  let webSearchProvider: string;
   let siteUrl: string;
 
   try {
     apiBaseUrl = normalizeBaseUrl(body.apiBaseUrl);
     codeInterpreterSandbox = normalizeCodeInterpreterSandbox(body.codeInterpreterSandbox);
     codeInterpreterPipIndexUrl = normalizePipIndexUrl(body.codeInterpreterPipIndexUrl);
-    webSearchProvider = normalizeWebSearchProvider(body.webSearchProvider);
     siteUrl = normalizeSiteUrl(body.siteUrl);
   } catch (validationError) {
     return jsonError(
@@ -370,8 +344,6 @@ export async function PATCH(request: NextRequest) {
     webSearchEnabled: boolean;
     webSearchProvider: string;
     webSearchMaxResults: number;
-    googleSearchApiKey?: string | null;
-    googleSearchCx: string | null;
   } = {
     siteName: normalizeSiteName(body.siteName),
     siteUrl,
@@ -398,9 +370,8 @@ export async function PATCH(request: NextRequest) {
     codeInterpreterAllowPackageInstall: Boolean(body.codeInterpreterAllowPackageInstall),
     codeInterpreterPipIndexUrl,
     webSearchEnabled: Boolean(body.webSearchEnabled),
-    webSearchProvider,
-    webSearchMaxResults: normalizeWebSearchMaxResults(body.webSearchMaxResults),
-    googleSearchCx: body.googleSearchCx?.trim() || null
+    webSearchProvider: "duckduckgo",
+    webSearchMaxResults: normalizeWebSearchMaxResults(body.webSearchMaxResults)
   };
   data.enabledChatModelsJson = JSON.stringify(
     normalizeEnabledModelIds(
@@ -423,15 +394,6 @@ export async function PATCH(request: NextRequest) {
     data.apiKey = null;
   } else if (typeof body.apiKey === "string" && body.apiKey.trim()) {
     data.apiKey = body.apiKey.trim();
-  }
-
-  if (body.clearGoogleSearchApiKey) {
-    data.googleSearchApiKey = null;
-  } else if (
-    typeof body.googleSearchApiKey === "string" &&
-    body.googleSearchApiKey.trim()
-  ) {
-    data.googleSearchApiKey = body.googleSearchApiKey.trim();
   }
 
   const settings = await prisma.aiSettings.upsert({

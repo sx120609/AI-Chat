@@ -132,8 +132,5 @@ export type AiSettingsView = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
-  hasGoogleSearchApiKey: boolean;
-  googleSearchApiKeyPreview: string;
-  googleSearchCx: string;
   updatedAt: string;
 };

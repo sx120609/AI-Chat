@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import { cacheDelete } from "@/lib/cache";
 import { coerceInt, jsonError, readJson, requireAdmin } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
+import { usageCacheKey } from "@/lib/quota";
 
 export const runtime = "nodejs";
 
@@ -82,6 +84,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     data,
     select: { id: true }
   });
+  await cacheDelete([usageCacheKey(user.id)]);
 
   return NextResponse.json({ id: user.id });
 }

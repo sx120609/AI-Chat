@@ -51,6 +51,7 @@ async function getRedisClient() {
   if (!redisClientPromise) {
     redisClientPromise = (async () => {
       const client = createClient({
+        RESP: 2,
         socket: {
           connectTimeout: 1_000,
           reconnectStrategy: false

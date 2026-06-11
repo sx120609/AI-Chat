@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import { cacheDelete } from "@/lib/cache";
 import { jsonError, requireAdmin } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { usageCacheKey } from "@/lib/quota";
 
 export const runtime = "nodejs";
 
@@ -32,6 +34,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         quotaResetAt: new Date()
       }
     });
+    await cacheDelete([usageCacheKey(id)]);
   } catch {
     return jsonError("用户不存在。", 404);
   }

@@ -24,6 +24,10 @@ function usageSummaryCacheKey(userId: string) {
   return `usage-summary:${userId}`;
 }
 
+export function usageCacheKey(userId: string) {
+  return usageSummaryCacheKey(userId);
+}
+
 function monthStart(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }

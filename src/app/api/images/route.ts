@@ -1,0 +1,334 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  attachmentToView,
+  contentWithAttachmentContext,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  readAttachmentBuffer
+} from "@/lib/attachments";
+import { ensureAttachmentsText } from "@/lib/attachment-repair";
+import { getUserFromRequest } from "@/lib/auth";
+import { jsonError, readJson, requireActiveUser } from "@/lib/http";
+import { estimateImageCostCents } from "@/lib/models";
+import { prisma } from "@/lib/prisma";
+import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
+import { compactTitle, estimateTokens } from "@/lib/tokens";
+import { assertUpstreamConfigured, generateImage, getAiRuntimeSettings } from "@/lib/upstream";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type ImageBody = {
+  conversationId?: string;
+  model?: string;
+  prompt?: string;
+  size?: string;
+  attachmentIds?: string[];
+  sourceImageMessageId?: string;
+};
+
+function uniqueAttachmentIds(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(value.filter((item): item is string => typeof item === "string"))].slice(
+    0,
+    MAX_ATTACHMENTS_PER_MESSAGE
+  );
+}
+
+async function sourceImageFromMessageUrl(imageUrl: string) {
+  if (imageUrl.startsWith("data:")) {
+    const match = imageUrl.match(/^data:([^;,]+);base64,(.+)$/);
+
+    if (!match) {
+      throw new Error("源图片格式无效。");
+    }
+
+    const buffer = Buffer.from(match[2], "base64");
+
+    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
+      throw new Error("源图片不能超过 25 MB。");
+    }
+
+    return {
+      buffer,
+      mimeType: match[1] || "image/png",
+      originalName: "generated-image.png"
+    };
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(imageUrl);
+  } catch {
+    throw new Error("源图片地址无效。");
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("源图片地址协议无效。");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        accept: "image/*",
+        "user-agent": "TeamAIGateway/1.0"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error("源图片下载失败。");
+    }
+
+    const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+
+    if (!mimeType.startsWith("image/")) {
+      throw new Error("源图片不是有效图片。");
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
+      throw new Error("源图片不能超过 25 MB。");
+    }
+
+    const extension = mimeType.split("/")[1] || "png";
+
+    return {
+      buffer,
+      mimeType,
+      originalName: `generated-image.${extension}`
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const user = await getUserFromRequest(request);
+  const authError = requireActiveUser(user);
+
+  if (!user) {
+    return jsonError("请先登录。", 401);
+  }
+
+  if (authError) {
+    return authError;
+  }
+
+  let body: ImageBody;
+
+  try {
+    body = await readJson<ImageBody>(request);
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "生图失败。", 400);
+  }
+
+  const attachmentIds = uniqueAttachmentIds(body.attachmentIds);
+  const prompt =
+    body.prompt?.trim() ||
+    (attachmentIds.length || body.sourceImageMessageId
+      ? "请基于这张图片生成新图片。"
+      : "");
+
+  if (!prompt) {
+    return jsonError("提示词不能为空。", 400);
+  }
+
+  const aiSettings = await getAiRuntimeSettings();
+
+  try {
+    assertUpstreamConfigured(aiSettings);
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
+  }
+
+  const existingConversation = body.conversationId
+    ? await prisma.conversation.findFirst({
+        where: {
+          id: body.conversationId,
+          userId: user.id
+        },
+        include: {
+          _count: {
+            select: { messages: true }
+          }
+        }
+      })
+    : null;
+
+  if (body.conversationId && !existingConversation) {
+    return jsonError("会话不存在。", 404);
+  }
+
+  const attachments = attachmentIds.length
+    ? await ensureAttachmentsText(
+        await prisma.attachment.findMany({
+          where: {
+            id: { in: attachmentIds },
+            userId: user.id
+          }
+        })
+      )
+    : [];
+
+  if (attachments.length !== attachmentIds.length) {
+    return jsonError("部分附件不存在或无权访问。", 404);
+  }
+
+  if (attachments.some((attachment) => attachment.messageId)) {
+    return jsonError("部分附件已被发送，请重新上传后再试。", 400);
+  }
+
+  const sourceImageMessage = body.sourceImageMessageId
+    ? await prisma.message.findFirst({
+        where: {
+          id: body.sourceImageMessageId,
+          imageUrl: {
+            not: null
+          },
+          conversation: {
+            userId: user.id
+          }
+        },
+        select: {
+          imageUrl: true
+        }
+      })
+    : null;
+
+  if (body.sourceImageMessageId && !sourceImageMessage?.imageUrl) {
+    return jsonError("源图片不存在或无权访问。", 404);
+  }
+
+  const promptWithAttachmentContext = contentWithAttachmentContext(prompt, attachments);
+  const promptTokens = estimateTokens(promptWithAttachmentContext);
+  const estimatedCostCents = estimateImageCostCents(promptTokens);
+
+  try {
+    await assertQuotaAvailable(user.id, promptTokens, estimatedCostCents);
+  } catch (error) {
+    if (error instanceof QuotaError) {
+      return jsonError(error.message, error.status, { usage: error.summary });
+    }
+
+    throw error;
+  }
+
+  const conversation =
+    existingConversation ??
+    (await prisma.conversation.create({
+      data: {
+        userId: user.id,
+        title: compactTitle(prompt),
+        model: body.model?.trim() || "image2",
+        mode: "CHAT"
+      },
+      include: {
+        _count: {
+          select: { messages: true }
+        }
+      }
+    }));
+
+  const userMessage = await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      role: "USER",
+      content: prompt,
+      model: "image2",
+      mode: "IMAGE"
+    }
+  });
+
+  if (attachments.length > 0) {
+    await prisma.attachment.updateMany({
+      where: {
+        id: { in: attachments.map((attachment) => attachment.id) },
+        userId: user.id
+      },
+      data: {
+        conversationId: conversation.id,
+        messageId: userMessage.id
+      }
+    });
+  }
+
+  try {
+    const sourceImages = await Promise.all(
+      [
+        ...attachments
+          .filter((attachment) => attachment.kind === "IMAGE")
+          .map(async (attachment) => ({
+            buffer: await readAttachmentBuffer(attachment),
+            mimeType: attachment.mimeType,
+            originalName: attachment.originalName
+          })),
+        ...(sourceImageMessage?.imageUrl
+          ? [sourceImageFromMessageUrl(sourceImageMessage.imageUrl)]
+          : [])
+      ]
+    );
+    const imageUrl = await generateImage(promptWithAttachmentContext, body.size || "1024x1024", {
+      sourceImages
+    });
+    const assistantMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "ASSISTANT",
+        content: "Image generated",
+        imageUrl,
+        model: "image2",
+        mode: "IMAGE",
+        promptTokens,
+        totalTokens: promptTokens,
+        estimatedCostCents
+      }
+    });
+
+    await prisma.usageRecord.create({
+      data: {
+        userId: user.id,
+        conversationId: conversation.id,
+        messageId: assistantMessage.id,
+        model: "image2",
+        mode: "IMAGE",
+        promptTokens,
+        totalTokens: promptTokens,
+        estimatedCostCents
+      }
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        title: conversation._count.messages === 0 ? compactTitle(prompt) : conversation.title
+      }
+    });
+
+    const usage = await getUsageSummary(user.id);
+
+    return NextResponse.json({
+      conversationId: conversation.id,
+      userMessage: {
+        ...userMessage,
+        attachments: attachments.map(attachmentToView),
+        createdAt: userMessage.createdAt.toISOString()
+      },
+      assistantMessage: {
+        ...assistantMessage,
+        createdAt: assistantMessage.createdAt.toISOString()
+      },
+      usage
+    });
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "上游生图失败。", 502);
+  }
+}

@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createSessionToken, sessionCookieOptions, SESSION_COOKIE } from "@/lib/auth";
+import { jsonError, readJson } from "@/lib/http";
+import { prisma } from "@/lib/prisma";
+import { verifyPassword } from "@/lib/password";
+
+export const runtime = "nodejs";
+
+type LoginBody = {
+  email?: string;
+  password?: string;
+};
+
+export async function POST(request: NextRequest) {
+  let body: LoginBody;
+
+  try {
+    body = await readJson<LoginBody>(request);
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "登录失败。", 400);
+  }
+
+  const email = body.email?.trim().toLowerCase();
+  const password = body.password ?? "";
+
+  if (!email || !password) {
+    return jsonError("请输入邮箱和密码。", 400);
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email }
+  });
+
+  if (!user || !(await verifyPassword(password, user.passwordHash))) {
+    return jsonError("邮箱或密码不正确。", 401);
+  }
+
+  if (!user.active) {
+    return jsonError("账号已停用。", 403);
+  }
+
+  const response = NextResponse.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role
+    }
+  });
+
+  response.cookies.set(SESSION_COOKIE, createSessionToken(user), sessionCookieOptions());
+
+  return response;
+}

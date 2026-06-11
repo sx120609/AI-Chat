@@ -47,6 +47,18 @@ function writeMemory(key: string, value: string, ttlSeconds: number) {
   });
 }
 
+function parseCachedJson<T>(value: string, key: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    console.warn(
+      `[cache] Ignoring invalid JSON for ${key}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+    return null;
+  }
+}
+
 async function getRedisClient() {
   if (!CACHE_ENABLED || !REDIS_URL) {
     return null;
@@ -101,7 +113,13 @@ export async function cacheGetJson<T>(key: string): Promise<T | null> {
   const memoryValue = readMemory(namespaced);
 
   if (memoryValue) {
-    return JSON.parse(memoryValue) as T;
+    const parsed = parseCachedJson<T>(memoryValue, namespaced);
+
+    if (parsed !== null) {
+      return parsed;
+    }
+
+    memoryCache.delete(namespaced);
   }
 
   const redis = await getRedisClient();
@@ -111,7 +129,13 @@ export async function cacheGetJson<T>(key: string): Promise<T | null> {
     return null;
   }
 
-  return JSON.parse(redisValue) as T;
+  const parsed = parseCachedJson<T>(redisValue, namespaced);
+
+  if (parsed === null) {
+    await redis?.del([namespaced]).catch(() => undefined);
+  }
+
+  return parsed;
 }
 
 export async function cacheSetJson(key: string, value: unknown, ttlSeconds: number) {

@@ -37,6 +37,7 @@ import {
   type ReactElement,
   type ReactNode,
   isValidElement,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -97,7 +98,7 @@ type ToolEventView = {
   type: "router" | "attachments" | "web_search" | "file_analysis" | "image";
 };
 
-type WebSearchProviderOption = "auto" | "bing" | "duckduckgo";
+type WebSearchProviderOption = "auto" | "bing" | "duckduckgo" | "google";
 
 type ComposerDraftState = {
   focusToken: number;
@@ -142,6 +143,7 @@ function usagePercent(used: number, limit: number) {
 }
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
+const STREAM_RENDER_INTERVAL_MS = 48;
 
 function isLikelyImagePrompt(prompt: string) {
   const normalized = prompt.trim().toLowerCase();
@@ -240,7 +242,13 @@ function groupConversations(conversations: ConversationSummary[]) {
 
   for (const conversation of conversations) {
     const label = conversationGroupLabel(conversation);
-    groups.set(label, [...(groups.get(label) ?? []), conversation]);
+    const group = groups.get(label);
+
+    if (group) {
+      group.push(conversation);
+    } else {
+      groups.set(label, [conversation]);
+    }
   }
 
   return order
@@ -252,11 +260,21 @@ function groupConversations(conversations: ConversationSummary[]) {
 }
 
 function normalizeWebSearchProviderOption(value: string): WebSearchProviderOption {
-  if (value === "auto" || value === "bing" || value === "duckduckgo") {
+  if (value === "auto" || value === "bing" || value === "duckduckgo" || value === "google") {
     return value;
   }
 
   return "auto";
+}
+
+function useEventCallback<Args extends unknown[], Result>(callback: (...args: Args) => Result) {
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
 }
 
 export function ChatShell({
@@ -337,7 +355,9 @@ export function ChatShell({
       ? "自动"
       : webSearchProvider === "bing"
         ? "Bing"
-        : "DuckDuckGo";
+        : webSearchProvider === "google"
+          ? "Google"
+          : "DuckDuckGo";
   const selectedConversationIdSet = useMemo(
     () => new Set(selectedConversationIds),
     [selectedConversationIds]
@@ -897,9 +917,50 @@ export function ChatShell({
     let buffer = "";
     let resolvedConversationId = activeConversationId;
     let receivedDelta = false;
+    let pendingContentDelta = "";
+    let pendingReasoningDelta = "";
+    let streamStatusStarted = false;
+    let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
     setStreamStatus("工具路由完成，等待模型输出...");
 
+    const clearStreamFlushTimer = () => {
+      if (streamFlushTimer) {
+        clearTimeout(streamFlushTimer);
+        streamFlushTimer = null;
+      }
+    };
+    const flushPendingOutput = () => {
+      if (!pendingContentDelta && !pendingReasoningDelta) {
+        clearStreamFlushTimer();
+        return;
+      }
+
+      const contentDelta = pendingContentDelta;
+      const reasoningDelta = pendingReasoningDelta;
+      pendingContentDelta = "";
+      pendingReasoningDelta = "";
+      clearStreamFlushTimer();
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === localAssistant.id
+            ? {
+                ...message,
+                content: contentDelta ? `${message.content}${contentDelta}` : message.content,
+                reasoningContent: reasoningDelta
+                  ? `${message.reasoningContent || ""}${reasoningDelta}`
+                  : message.reasoningContent
+              }
+            : message
+        )
+      );
+    };
+    const scheduleStreamFlush = () => {
+      if (!streamFlushTimer) {
+        streamFlushTimer = setTimeout(flushPendingOutput, STREAM_RENDER_INTERVAL_MS);
+      }
+    };
     const upsertToolEvent = (toolEvent: ToolEventView) => {
       setToolEvents((current) => {
         const index = current.findIndex((item) => item.id === toolEvent.id);
@@ -951,35 +1012,32 @@ export function ChatShell({
 
       if (event.event === "delta") {
         const delta = String(event.data.delta ?? "");
-        receivedDelta = true;
-        setStreamStatus("正在流式输出...");
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === localAssistant.id
-              ? { ...message, content: `${message.content}${delta}` }
-              : message
-          )
-        );
+
+        if (delta) {
+          receivedDelta = true;
+          pendingContentDelta += delta;
+          scheduleStreamFlush();
+
+          if (!streamStatusStarted) {
+            streamStatusStarted = true;
+            setStreamStatus("正在流式输出...");
+          }
+        }
       }
 
       if (event.event === "reasoning") {
         const delta = String(event.data.delta ?? "");
 
         if (delta) {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === localAssistant.id
-                ? {
-                    ...message,
-                    reasoningContent: `${message.reasoningContent || ""}${delta}`
-                  }
-                : message
-            )
-          );
+          pendingReasoningDelta += delta;
+          scheduleStreamFlush();
         }
       }
 
       if (event.event === "done") {
+        clearStreamFlushTimer();
+        pendingContentDelta = "";
+        pendingReasoningDelta = "";
         const assistantMessage = event.data.assistantMessage as MessageView;
         setMessages((current) =>
           current.map((message) =>
@@ -995,6 +1053,9 @@ export function ChatShell({
       }
 
       if (event.event === "error") {
+        clearStreamFlushTimer();
+        pendingContentDelta = "";
+        pendingReasoningDelta = "";
         const message = String(event.data.error ?? "上游调用失败。");
         setMessages((current) =>
           current.map((item) =>
@@ -1036,6 +1097,7 @@ export function ChatShell({
       }
     } catch (streamError) {
       if (controller.signal.aborted) {
+        flushPendingOutput();
         setStreamStatus("已停止。");
         setMessages((current) =>
           current.map((item) =>
@@ -1045,6 +1107,9 @@ export function ChatShell({
         return;
       }
 
+      clearStreamFlushTimer();
+      pendingContentDelta = "";
+      pendingReasoningDelta = "";
       const message =
         streamError instanceof Error ? `流式连接中断：${streamError.message}` : "流式连接中断。";
       setMessages((current) =>
@@ -1055,6 +1120,8 @@ export function ChatShell({
       setError(message);
       setStreamStatus("流式连接中断。");
     }
+
+    flushPendingOutput();
 
     if (abortControllerRef.current === controller) {
       abortControllerRef.current = null;
@@ -1415,6 +1482,15 @@ export function ChatShell({
       void refreshMe();
     }
   }
+
+  const copyMessageHandler = useEventCallback(copyMessage);
+  const deleteMessageHandler = useEventCallback(deleteMessage);
+  const editMessageHandler = useEventCallback(startEditMessage);
+  const editImageHandler = useEventCallback(startEditImage);
+  const regenerateMessageHandler = useEventCallback(regenerateMessage);
+  const continueGeneratingHandler = useEventCallback(continueGenerating);
+  const sendHandler = useEventCallback(send);
+  const stopGenerationHandler = useEventCallback(stopGeneration);
 
   const sidebarContent = (
     <>
@@ -1876,12 +1952,12 @@ export function ChatShell({
               <MessageBubble
                 key={message.id}
                 message={message}
-                onContinue={continueGenerating}
-                onCopy={copyMessage}
-                onDelete={deleteMessage}
-                onEdit={startEditMessage}
-                onEditImage={startEditImage}
-                onRegenerate={regenerateMessage}
+                onContinue={continueGeneratingHandler}
+                onCopy={copyMessageHandler}
+                onDelete={deleteMessageHandler}
+                onEdit={editMessageHandler}
+                onEditImage={editImageHandler}
+                onRegenerate={regenerateMessageHandler}
               />
             ))}
             <div ref={scrollRef} />
@@ -2069,6 +2145,7 @@ export function ChatShell({
                       {[
                         { id: "auto", label: "自动" },
                         { id: "bing", label: "Bing" },
+                        { id: "google", label: "Google" },
                         { id: "duckduckgo", label: "DuckDuckGo" }
                       ].map((option) => (
                         <button
@@ -2099,8 +2176,8 @@ export function ChatShell({
                 draftText={composerDraft.text}
                 imageToolEnabled={imageToolEnabled}
                 loading={loading}
-                onSend={send}
-                onStop={stopGeneration}
+                onSend={sendHandler}
+                onStop={stopGenerationHandler}
                 pendingAttachmentCount={pendingAttachments.length}
                 quotaBlocked={quotaBlocked}
                 sourceImageSelected={Boolean(sourceImageMessage)}
@@ -2115,7 +2192,7 @@ export function ChatShell({
   );
 }
 
-function ComposerInputArea({
+const ComposerInputArea = memo(function ComposerInputArea({
   draftFocusToken,
   draftText,
   imageToolEnabled,
@@ -2207,7 +2284,7 @@ function ComposerInputArea({
       </button>
     </>
   );
-}
+});
 
 function MenuSelect({
   menuId,
@@ -2696,7 +2773,7 @@ const markdownComponents: Components = {
   }
 };
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   message,
   onContinue,
   onCopy,
@@ -2836,4 +2913,4 @@ function MessageBubble({
       </div>
     </div>
   );
-}
+});

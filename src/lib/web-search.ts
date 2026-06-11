@@ -9,6 +9,8 @@ export type WebSearchSettings = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  googleSearchApiKey?: string;
+  googleSearchCx?: string;
 };
 
 export type WebSearchResult = {
@@ -76,6 +78,23 @@ function normalizeDuckDuckGoUrl(rawUrl: string) {
 
 function normalizeBingUrl(rawUrl: string) {
   return decodeHtml(rawUrl);
+}
+
+function normalizeGoogleUrl(rawUrl: string) {
+  const decoded = decodeHtml(rawUrl);
+
+  try {
+    const url = new URL(decoded, "https://www.google.com");
+    const redirected = url.searchParams.get("q") || url.searchParams.get("url");
+
+    if (redirected && /(^|\.)google\./i.test(url.hostname)) {
+      return decodeURIComponent(redirected);
+    }
+
+    return url.href;
+  } catch {
+    return decoded;
+  }
 }
 
 function displayUrlFromUrl(value: string) {
@@ -148,6 +167,61 @@ function parseBingHtml(html: string, maxResults: number) {
     const snippet = stripTags(block.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || "");
 
     if (!title || !url || seen.has(url) || url.includes("bing.com/search")) {
+      continue;
+    }
+
+    seen.add(url);
+    sources.push({
+      displayUrl: displayUrlFromUrl(url),
+      snippet,
+      title,
+      url
+    });
+
+    if (sources.length >= maxResults) {
+      break;
+    }
+  }
+
+  return sources;
+}
+
+function isSearchEngineInternalUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "");
+
+    return (
+      /(^|\.)google\./i.test(host) ||
+      /(^|\.)bing\.com$/i.test(host) ||
+      /(^|\.)duckduckgo\.com$/i.test(host)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseGoogleHtml(html: string, maxResults: number) {
+  const sources: WebSearchSource[] = [];
+  const seen = new Set<string>();
+  const anchorPattern =
+    /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?<h3[^>]*>[\s\S]*?<\/h3>[\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = anchorPattern.exec(html))) {
+    const url = normalizeGoogleUrl(match[1] || "");
+    const title = stripTags(match[2]?.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i)?.[1] || "");
+    const followingHtml = html.slice(
+      match.index + match[0].length,
+      match.index + match[0].length + 1800
+    );
+    const snippet = stripTags(
+      followingHtml.match(
+        /<(?:div|span)[^>]+class="[^"]*(?:VwiC3b|kb0PBd|IsZvec|ITZIwc|aCOpRe|hgKElc)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|span)>/i
+      )?.[1] || ""
+    );
+
+    if (!title || !url || seen.has(url) || isSearchEngineInternalUrl(url)) {
       continue;
     }
 
@@ -240,7 +314,12 @@ export function shouldUseWebSearch(prompt: string) {
 function normalizeProvider(value: string | undefined) {
   const provider = value?.trim().toLowerCase();
 
-  if (provider === "auto" || provider === "bing" || provider === "duckduckgo") {
+  if (
+    provider === "auto" ||
+    provider === "bing" ||
+    provider === "duckduckgo" ||
+    provider === "google"
+  ) {
     return provider;
   }
 
@@ -345,8 +424,8 @@ function providerOrder(provider: string, query: string) {
 
   if (normalized === "auto") {
     return /[\u4e00-\u9fff]/.test(query)
-      ? ["bing", "duckduckgo"]
-      : ["duckduckgo", "bing"];
+      ? ["bing", "duckduckgo", "google"]
+      : ["duckduckgo", "bing", "google"];
   }
 
   return [normalized];
@@ -497,6 +576,128 @@ async function searchBing(query: string, maxResults: number, signal?: AbortSigna
   }
 }
 
+function googleSearchCredentials(settings: WebSearchSettings) {
+  return {
+    apiKey: settings.googleSearchApiKey?.trim() || process.env.GOOGLE_SEARCH_API_KEY?.trim() || "",
+    cx:
+      settings.googleSearchCx?.trim() ||
+      process.env.GOOGLE_SEARCH_CX?.trim() ||
+      process.env.GOOGLE_SEARCH_ENGINE_ID?.trim() ||
+      ""
+  };
+}
+
+async function searchGoogleJson(
+  query: string,
+  maxResults: number,
+  settings: WebSearchSettings,
+  signal?: AbortSignal
+) {
+  const { apiKey, cx } = googleSearchCredentials(settings);
+
+  if (!apiKey || !cx) {
+    return [];
+  }
+
+  const timeout = withTimeout(signal);
+  const url = new URL("https://www.googleapis.com/customsearch/v1");
+  url.searchParams.set("key", apiKey);
+  url.searchParams.set("cx", cx);
+  url.searchParams.set("q", query);
+  url.searchParams.set("num", String(Math.min(10, maxResults)));
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        accept: "application/json"
+      },
+      signal: timeout.signal
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as {
+      items?: Array<{
+        displayLink?: string;
+        formattedUrl?: string;
+        htmlSnippet?: string;
+        link?: string;
+        snippet?: string;
+        title?: string;
+      }>;
+    };
+
+    return (payload.items ?? [])
+      .map((item) => {
+        const url = item.link || "";
+        const title = item.title || "";
+
+        if (!url || !title) {
+          return null;
+        }
+
+        return {
+          displayUrl: item.displayLink || displayUrlFromUrl(url),
+          snippet: stripTags(item.snippet || item.htmlSnippet || ""),
+          title,
+          url
+        };
+      })
+      .filter((item): item is WebSearchSource => Boolean(item))
+      .slice(0, maxResults);
+  } catch {
+    return [];
+  } finally {
+    timeout.clear();
+  }
+}
+
+async function searchGoogleHtml(query: string, maxResults: number, signal?: AbortSignal) {
+  const timeout = withTimeout(signal);
+
+  try {
+    const response = await fetch(
+      `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&hl=zh-CN`,
+      {
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+          "user-agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+        },
+        signal: timeout.signal
+      }
+    );
+
+    if (!response.ok) {
+      return [];
+    }
+
+    return parseGoogleHtml(await response.text(), maxResults);
+  } catch {
+    return [];
+  } finally {
+    timeout.clear();
+  }
+}
+
+async function searchGoogle(
+  query: string,
+  maxResults: number,
+  settings: WebSearchSettings,
+  signal?: AbortSignal
+) {
+  const jsonSources = await searchGoogleJson(query, maxResults, settings, signal);
+
+  if (jsonSources.length > 0) {
+    return jsonSources;
+  }
+
+  return searchGoogleHtml(query, maxResults, signal);
+}
+
 export function formatWebSearchContext(result: WebSearchResult) {
   if (result.sources.length === 0) {
     return "";
@@ -582,6 +783,8 @@ export async function searchWeb(
     const rawSources =
       provider === "bing"
         ? await searchBing(query, maxResults, options?.signal)
+        : provider === "google"
+          ? await searchGoogle(query, maxResults, settings, options?.signal)
         : await searchDuckDuckGo(query, maxResults, options?.signal);
     sources = rankSearchSources(query, rawSources, maxResults);
 

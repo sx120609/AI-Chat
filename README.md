@@ -18,7 +18,7 @@
 - 原生 `image2` 生图与编辑：同一个聊天输入框内可直接说“画一张...”，可上传图片让 image2 编辑，也可对已生成图片继续修改
 - 支持上传 ZIP、PDF、Word、Excel、CSV、TXT 和图片；后端会提取可用文本作为聊天上下文
 - 预留代码解释器式文件分析底座：可由管理员开启 Docker 沙箱，后续用于让 AI 生成 Python 分析附件
-- 可选服务端联网搜索：管理员允许后，后端会先规划是否需要搜索，用户也可为单次消息强制开启并选择自动/Bing/DuckDuckGo，回答保留来源卡片
+- 可选服务端联网搜索：管理员允许后，后端会先规划是否需要搜索，用户也可为单次消息强制开启并选择自动/Bing/Google/DuckDuckGo，回答保留来源卡片
 - 管理后台可设置站点名称、站点地址、API Base URL、API Key、Org ID 和 Mock 模式
 - 用户级月度费用额度，费用按模型输入/输出 token 单价估算
 - 超额前置拦截，超额后禁止继续调用
@@ -154,9 +154,11 @@ CODE_INTERPRETER_PACKAGE_INSTALL_TIMEOUT_MS="120000"
 CODE_INTERPRETER_DOCKER_MEMORY="768m"
 CODE_INTERPRETER_DOCKER_CPUS="1"
 WEB_SEARCH_ENABLED="false"
-# duckduckgo or bing
+# duckduckgo, bing or google
 WEB_SEARCH_PROVIDER="duckduckgo"
 WEB_SEARCH_MAX_RESULTS="5"
+GOOGLE_SEARCH_API_KEY=""
+GOOGLE_SEARCH_CX=""
 ```
 
 如果允许沙箱内安装 Python 包，后端会强制使用 `CODE_INTERPRETER_PIP_INDEX_URL`，默认是 PyPI 官方源 `https://pypi.org/simple`。包缓存默认开启：首次遇到同一 Docker 镜像、pip 源和包集合时会安装到 `CODE_INTERPRETER_CACHE_DIR`，后续分析容器以只读 `/deps` 复用，不再重复安装；正式分析容器仍使用 `--network none`。这只限制 pip 的包源参数；生产环境如果需要严格网络白名单，仍建议在 Docker/宿主机/防火墙层面限制容器 egress。
@@ -169,9 +171,11 @@ WEB_SEARCH_MAX_RESULTS="5"
 WEB_SEARCH_ENABLED="false"
 WEB_SEARCH_PROVIDER="duckduckgo"
 WEB_SEARCH_MAX_RESULTS="5"
+GOOGLE_SEARCH_API_KEY=""
+GOOGLE_SEARCH_CX=""
 ```
 
-搜索由服务端请求 DuckDuckGo 或 Bing HTML 结果，前端用户浏览器不会直接访问搜索引擎。管理员开启后，后端会先用 AI 规划搜索词，再对最新/今天/实时/新闻/价格/版本等问题自动搜索；用户也可以点亮聊天输入框的联网按钮，强制下一条消息搜索，并在“自动 / Bing / DuckDuckGo”之间临时选择搜索引擎。来源会作为卡片保存到助手消息中。天气类问题会优先补充服务端实时天气来源，提高“今天/当前天气”这类回答的稳定性。
+搜索由服务端请求 DuckDuckGo、Bing 或 Google 结果，前端用户浏览器不会直接访问搜索引擎。Google 优先使用 Programmable Search JSON API，因此建议配置 `GOOGLE_SEARCH_API_KEY` 和 `GOOGLE_SEARCH_CX`；未配置时只会尝试普通 HTML 结果。管理员开启后，后端会先用 AI 规划搜索词，再对最新/今天/实时/新闻/价格/版本等问题自动搜索；用户也可以点亮聊天输入框的联网按钮，强制下一条消息搜索，并在“自动 / Bing / Google / DuckDuckGo”之间临时选择搜索引擎。来源会作为卡片保存到助手消息中。天气类问题会优先补充服务端实时天气来源，提高“今天/当前天气”这类回答的稳定性。
 
 ## 数据库
 

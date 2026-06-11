@@ -96,7 +96,14 @@ async function main() {
       webSearchMaxResults:
         Number(process.env.WEB_SEARCH_MAX_RESULTS) ||
         existingSettings?.webSearchMaxResults ||
-        5
+        5,
+      googleSearchApiKey:
+        process.env.GOOGLE_SEARCH_API_KEY || existingSettings?.googleSearchApiKey || null,
+      googleSearchCx:
+        process.env.GOOGLE_SEARCH_CX ||
+        process.env.GOOGLE_SEARCH_ENGINE_ID ||
+        existingSettings?.googleSearchCx ||
+        null
     },
     create: {
       id: "default",
@@ -124,7 +131,9 @@ async function main() {
         process.env.CODE_INTERPRETER_PIP_INDEX_URL || "https://pypi.org/simple",
       webSearchEnabled: process.env.WEB_SEARCH_ENABLED === "true",
       webSearchProvider: process.env.WEB_SEARCH_PROVIDER || "duckduckgo",
-      webSearchMaxResults: Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5
+      webSearchMaxResults: Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5,
+      googleSearchApiKey: process.env.GOOGLE_SEARCH_API_KEY || null,
+      googleSearchCx: process.env.GOOGLE_SEARCH_CX || process.env.GOOGLE_SEARCH_ENGINE_ID || null
     }
   });
 

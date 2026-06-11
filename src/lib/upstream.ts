@@ -54,6 +54,8 @@ export type AiRuntimeSettings = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  googleSearchApiKey: string;
+  googleSearchCx: string;
 };
 
 const CHAT_HEADERS_TIMEOUT_MS = 60_000;
@@ -63,7 +65,7 @@ export const AI_RUNTIME_SETTINGS_CACHE_KEY = "ai-runtime-settings:v1";
 const AI_RUNTIME_SETTINGS_CACHE_TTL_SECONDS = 30;
 
 function normalizeWebSearchProvider(provider: string | null | undefined) {
-  return provider === "bing" ? "bing" : "duckduckgo";
+  return provider === "bing" || provider === "google" ? provider : "duckduckgo";
 }
 
 export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
@@ -118,7 +120,13 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
     webSearchMaxResults: Math.min(
       8,
       Math.max(1, settings?.webSearchMaxResults || Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5)
-    )
+    ),
+    googleSearchApiKey: settings?.googleSearchApiKey || process.env.GOOGLE_SEARCH_API_KEY || "",
+    googleSearchCx:
+      settings?.googleSearchCx ||
+      process.env.GOOGLE_SEARCH_CX ||
+      process.env.GOOGLE_SEARCH_ENGINE_ID ||
+      ""
   };
 
   await cacheSetJson(

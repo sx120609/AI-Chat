@@ -79,6 +79,9 @@ type SettingsForm = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  googleSearchApiKey: string;
+  clearGoogleSearchApiKey: boolean;
+  googleSearchCx: string;
 };
 
 type DiagnosticCheck = {
@@ -126,7 +129,10 @@ const emptySettings: SettingsForm = {
   codeInterpreterPipIndexUrl: "https://pypi.org/simple",
   webSearchEnabled: false,
   webSearchProvider: "duckduckgo",
-  webSearchMaxResults: 5
+  webSearchMaxResults: 5,
+  googleSearchApiKey: "",
+  clearGoogleSearchApiKey: false,
+  googleSearchCx: ""
 };
 
 export function AdminDashboard({ currentUser }: AdminDashboardProps) {
@@ -192,7 +198,10 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       codeInterpreterPipIndexUrl: nextSettings.codeInterpreterPipIndexUrl,
       webSearchEnabled: nextSettings.webSearchEnabled,
       webSearchProvider: nextSettings.webSearchProvider,
-      webSearchMaxResults: nextSettings.webSearchMaxResults
+      webSearchMaxResults: nextSettings.webSearchMaxResults,
+      googleSearchApiKey: "",
+      clearGoogleSearchApiKey: false,
+      googleSearchCx: nextSettings.googleSearchCx
     });
   }
 
@@ -732,6 +741,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   >
                     <option value="duckduckgo">DuckDuckGo（服务端）</option>
                     <option value="bing">Bing（服务端）</option>
+                    <option value="google">Google（服务端）</option>
                   </select>
                 </label>
                 <label className="block">
@@ -750,8 +760,57 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     value={settingsForm.webSearchMaxResults}
                   />
                 </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium ios-muted">
+                    Google API Key
+                  </span>
+                  <input
+                    className="ios-input w-full"
+                    onChange={(event) =>
+                      setSettingsForm((current) => ({
+                        ...current,
+                        googleSearchApiKey: event.target.value
+                      }))
+                    }
+                    placeholder={settings?.googleSearchApiKeyPreview || "Google API Key"}
+                    type="password"
+                    value={settingsForm.googleSearchApiKey}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium ios-muted">
+                    Google 搜索引擎 ID
+                  </span>
+                  <input
+                    className="ios-input w-full"
+                    onChange={(event) =>
+                      setSettingsForm((current) => ({
+                        ...current,
+                        googleSearchCx: event.target.value
+                      }))
+                    }
+                    placeholder="cx / Search engine ID"
+                    value={settingsForm.googleSearchCx}
+                  />
+                </label>
+                <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <input
+                    checked={settingsForm.clearGoogleSearchApiKey}
+                    className="size-4 accent-[color:var(--claude-accent)]"
+                    disabled={!settings?.hasGoogleSearchApiKey}
+                    onChange={(event) =>
+                      setSettingsForm((current) => ({
+                        ...current,
+                        clearGoogleSearchApiKey: event.target.checked,
+                        googleSearchApiKey: event.target.checked ? "" : current.googleSearchApiKey
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  清除 Google Key
+                </label>
                 <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-3">
-                  开启后，用户可在聊天输入框为单次消息打开联网搜索；后端按所选提供方搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。
+                  开启后，用户可在聊天输入框为单次消息打开联网搜索；后端按所选提供方搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。Google 建议配置 API Key 和搜索引擎 ID。
                 </div>
               </div>
             </div>

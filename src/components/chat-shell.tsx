@@ -1864,7 +1864,7 @@ export function ChatShell({
             {imageToolEnabled ? (
               <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/55 px-3 py-1 text-xs font-medium text-stone-700">
                 <ImageIcon className="size-3.5 text-[color:var(--claude-accent)]" />
-                下一条将使用 image2 生成图片
+                {sourceImageMessage ? "下一条将使用 image2 编辑所选图片" : "下一条将使用 image2 生成图片"}
               </div>
             ) : null}
             {webSearchAvailable && webSearchEnabledForMessage ? (
@@ -1899,6 +1899,31 @@ export function ChatShell({
                   type="button"
                 >
                   取消
+                </button>
+              </div>
+            ) : null}
+            {sourceImageMessage?.imageUrl ? (
+              <div className="mb-2 flex max-w-full items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-2 py-2 text-xs text-stone-700">
+                <img
+                  alt="待编辑图片"
+                  className="size-12 shrink-0 rounded-md object-cover"
+                  src={sourceImageMessage.imageUrl}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold text-stone-900">正在编辑这张图片</div>
+                  <div className="truncate ios-muted">输入修改要求后将使用 image2 编辑</div>
+                </div>
+                <button
+                  className="grid size-7 shrink-0 place-items-center rounded-md text-stone-500 hover:bg-stone-200/60 hover:text-stone-900"
+                  onClick={() => {
+                    setSourceImageMessage(null);
+                    setImageToolEnabled(false);
+                    setStreamStatus("");
+                  }}
+                  title="取消编辑图片"
+                  type="button"
+                >
+                  <X className="size-4" />
                 </button>
               </div>
             ) : null}
@@ -1945,6 +1970,10 @@ export function ChatShell({
                 onClick={() => {
                   const nextImageToolEnabled = !imageToolEnabled;
                   setImageToolEnabled(nextImageToolEnabled);
+
+                  if (!nextImageToolEnabled) {
+                    setSourceImageMessage(null);
+                  }
 
                   if (nextImageToolEnabled) {
                     setWebSearchEnabledForMessage(false);
@@ -2037,8 +2066,10 @@ export function ChatShell({
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder={
-                  imageToolEnabled
-                    ? "描述要生成的图片"
+                  sourceImageMessage
+                    ? "描述想如何修改这张图片"
+                    : imageToolEnabled
+                      ? "描述要生成的图片"
                     : webSearchEnabledForMessage
                       ? "输入需要联网查询的问题"
                       : "输入消息，或直接说“画一张...”"
@@ -2050,7 +2081,10 @@ export function ChatShell({
               <button
                 className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
                 disabled={
-                  (!loading && !input.trim() && pendingAttachments.length === 0) ||
+                  (!loading &&
+                    !input.trim() &&
+                    pendingAttachments.length === 0 &&
+                    !sourceImageMessage) ||
                   quotaBlocked ||
                   uploadingAttachments
                 }

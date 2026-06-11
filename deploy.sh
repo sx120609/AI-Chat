@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 APP_NAME="${APP_NAME:-team-ai-gateway}"
-APP_PORT="${APP_PORT:-3000}"
+APP_PORT="${APP_PORT:-20131}"
 APP_HOST="${APP_HOST:-0.0.0.0}"
 APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 APP_USER="${APP_USER:-${SUDO_USER:-$(id -un)}}"
@@ -483,7 +483,7 @@ Usage:
   ./deploy.sh logs             Follow service logs
 
 Common environment overrides:
-  APP_PORT=3001 ./deploy.sh install
+  APP_PORT=20132 ./deploy.sh install
   APP_USER=www-data ./deploy.sh install
   SKIP_LOCAL_POSTGRES=true DATABASE_URL='postgresql://user:pass@host:5432/db?schema=public' ./deploy.sh install
   SETUP_NGINX=true DOMAIN=example.com ./deploy.sh install

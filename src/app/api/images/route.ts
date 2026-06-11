@@ -38,6 +38,24 @@ function uniqueAttachmentIds(value: unknown) {
   );
 }
 
+function isPrivateImageHost(hostname: string) {
+  const host = hostname.toLowerCase();
+
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    return true;
+  }
+
+  if (/^(127|10)\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) {
+    return true;
+  }
+
+  if (host === "::1" || host.startsWith("fc") || host.startsWith("fd")) {
+    return true;
+  }
+
+  return false;
+}
+
 async function sourceImageFromMessageUrl(imageUrl: string) {
   if (imageUrl.startsWith("data:")) {
     const match = imageUrl.match(/^data:([^;,]+);base64,(.+)$/);
@@ -69,6 +87,10 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
 
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("源图片地址协议无效。");
+  }
+
+  if (isPrivateImageHost(url.hostname)) {
+    throw new Error("源图片地址不能指向本机或内网。");
   }
 
   const controller = new AbortController();

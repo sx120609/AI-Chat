@@ -15,7 +15,7 @@
 - 默认不向用户展示上游原始 `reasoning_content`，避免泄漏订阅后端的内部身份或推理噪声
 - 后端按实际请求体估算上下文窗口，聊天页以轻量状态显示；接近长上下文或裁剪历史时再提示用户新开会话
 - 支持 Markdown/GFM 消息渲染
-- 原生 `image2` 生图：同一个聊天输入框内可直接说“画一张...”，也可点击输入框左侧图片按钮强制下一条生图
+- 原生 `image2` 生图与编辑：同一个聊天输入框内可直接说“画一张...”，可上传图片让 image2 编辑，也可对已生成图片继续修改
 - 支持上传 ZIP、PDF、Word、Excel、CSV、TXT 和图片；后端会提取可用文本作为聊天上下文
 - 预留代码解释器式文件分析底座：可由管理员开启 Docker 沙箱，后续用于让 AI 生成 Python 分析附件
 - 可选服务端联网搜索：管理员允许后，后端可自动判断是否搜索，用户也可为单次消息强制开启并选择自动/Bing/DuckDuckGo，回答保留来源卡片
@@ -57,7 +57,7 @@ chmod +x deploy.sh
 ./deploy.sh install
 ```
 
-脚本会安装系统依赖、Node.js、PostgreSQL，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务 `team-ai-gateway`。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
+脚本会安装系统依赖、Node.js、PostgreSQL，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务 `team-ai-gateway`。生产服务默认监听 `20131` 端口；重新执行 `deploy` 或 `update` 会重写 systemd 服务并重启到当前端口。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
 
 从 GitHub 拉取最新代码并更新部署：
 
@@ -77,7 +77,7 @@ chmod +x deploy.sh
 常用覆盖参数：
 
 ```bash
-APP_PORT=3001 ./deploy.sh install
+APP_PORT=20132 ./deploy.sh install
 SETUP_NGINX=true DOMAIN=example.com ./deploy.sh install
 INSTALL_DOCKER=true ./deploy.sh install
 SKIP_LOCAL_POSTGRES=true DATABASE_URL="postgresql://user:pass@host:5432/db?schema=public" ./deploy.sh install

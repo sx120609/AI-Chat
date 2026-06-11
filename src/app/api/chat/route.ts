@@ -19,6 +19,14 @@ import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
 import { maybeRunFileAnalysisAgent } from "@/lib/file-analysis-agent";
 import { MESSAGE_ORDER_DESC, messagesAfter, messagesBefore } from "@/lib/message-order";
 import {
+  mergePersistedToolEvent,
+  messageProcessForClient,
+  normalizeToolEvents,
+  stringifyToolEvents,
+  type MessageGenerationStatus,
+  type PersistedToolEvent
+} from "@/lib/message-process";
+import {
   estimateChatCostForModel,
   getChatModel,
   isChatModel,
@@ -58,6 +66,7 @@ const encoder = new TextEncoder();
 // Codex 类模型高推理档位可能长时间不输出可见内容，看门狗放宽到 5 分钟
 const IDLE_TIMEOUT_MS = 300_000;
 const MAX_CONTEXT_HISTORY_MESSAGES = 120;
+const DRAFT_PERSIST_INTERVAL_MS = 1000;
 
 class UpstreamStreamError extends Error {}
 
@@ -92,8 +101,17 @@ function normalizeRequestWebSearchProvider(value: string | undefined, fallback: 
   return fallback === "auto" ? fallback : "duckduckgo";
 }
 
-function sse(controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) {
-  controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+function sse(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  event: string,
+  data: unknown
+) {
+  try {
+    controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type StreamChoice = {
@@ -266,11 +284,18 @@ function parseStreamError(payload: unknown) {
     : errorField.message || "上游在流式响应中返回了错误。";
 }
 
-function messageForClient<T extends { upstreamUsageJson?: string | null; webSourcesJson?: string | null }>(
+function messageForClient<
+  T extends {
+    toolEventsJson?: string | null;
+    upstreamUsageJson?: string | null;
+    webSourcesJson?: string | null;
+  }
+>(
   message: T
 ) {
   const view = { ...message };
 
+  delete view.toolEventsJson;
   delete view.upstreamUsageJson;
   delete view.webSourcesJson;
 
@@ -862,6 +887,35 @@ export async function POST(request: NextRequest) {
     webSearchFinishedAt,
     webSearchStartedAt
   });
+  const initialStreamStatus = "工具路由完成，等待模型输出...";
+  const initialProcessToolEvents = mergePersistedToolEvent(
+    normalizeToolEvents(toolEvents),
+    {
+      detail: "等待模型输出",
+      id: "generation",
+      label: "模型生成",
+      startedAt: routerFinishedAt,
+      status: "running",
+      type: "generation"
+    },
+    routerFinishedAt
+  );
+  const assistantDraftMessage = await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      role: "ASSISTANT",
+      content: "",
+      reasoningContent: null,
+      createdAt: new Date(Math.max(Date.now(), userMessage.createdAt.getTime() + 1)),
+      model: model.id,
+      mode: "CHAT",
+      webSourcesJson: JSON.stringify(webSearchSources),
+      generationStatus: "running",
+      streamStatus: initialStreamStatus,
+      toolEventsJson: stringifyToolEvents(initialProcessToolEvents),
+      processStartedAt: new Date(routerStartedAt)
+    }
+  });
   const streamAbortController = new AbortController();
   const abortStream = () => streamAbortController.abort();
 
@@ -875,69 +929,163 @@ export async function POST(request: NextRequest) {
     async start(controller) {
       let assistantContent = "";
       let reasoningContent = "";
+      let currentStreamStatus = initialStreamStatus;
+      let draftPersistPromise = Promise.resolve();
+      let generationStreamStarted = false;
+      let lastDraftPersistAt = 0;
+      let processToolEvents: PersistedToolEvent[] = initialProcessToolEvents;
+      let usageRecordCreated = false;
 
-      sse(controller, "meta", {
-        conversationId: conversation.id,
-        userMessage: {
-          ...userMessageView,
-          createdAt: userMessage.createdAt.toISOString()
-        },
-        context: contextStats
+      const assistantMessageForResponse = (message: typeof assistantDraftMessage) => ({
+        ...messageForClient(message),
+        ...messageProcessForClient(message),
+        webSources: webSearchSources,
+        createdAt: message.createdAt.toISOString()
       });
-      for (const toolEvent of toolEvents) {
-        sse(controller, "tool", toolEvent);
-      }
 
-      const persistAssistantMessage = async (upstreamUsage: UpstreamUsage | undefined) => {
+      const persistDraftSnapshot = async () => {
         const visibleAssistantContent = sanitizeIdentityLeak(assistantContent, model.label);
         const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
-        const tokenUsage = resolveTokenUsage({
-          completionTokensEstimate: Math.max(
-            1,
-            estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
-          ),
-          model,
-          promptTokensEstimate,
-          upstreamUsage
-        });
 
-        const assistantMessage = await prisma.message.create({
+        await prisma.message
+          .update({
+            where: { id: assistantDraftMessage.id },
+            data: {
+              content: visibleAssistantContent,
+              reasoningContent: visibleReasoningContent || null,
+              generationStatus: "running",
+              streamStatus: currentStreamStatus,
+              toolEventsJson: stringifyToolEvents(processToolEvents)
+            }
+          })
+          .catch(() => undefined);
+      };
+
+      const queueDraftPersist = (force = false) => {
+        const now = Date.now();
+
+        if (!force && now - lastDraftPersistAt < DRAFT_PERSIST_INTERVAL_MS) {
+          return;
+        }
+
+        lastDraftPersistAt = now;
+        draftPersistPromise = draftPersistPromise.then(persistDraftSnapshot, persistDraftSnapshot);
+      };
+
+      const upsertProcessToolEvent = (
+        event: Omit<PersistedToolEvent, "startedAt"> & Partial<Pick<PersistedToolEvent, "startedAt">>,
+        now = Date.now(),
+        persist = true
+      ) => {
+        processToolEvents = mergePersistedToolEvent(processToolEvents, event, now);
+
+        if (persist) {
+          queueDraftPersist(event.status !== "running");
+        }
+      };
+
+      const markModelOutputStarted = (detail: string, status: string) => {
+        if (generationStreamStarted) {
+          return;
+        }
+
+        generationStreamStarted = true;
+        currentStreamStatus = status;
+        upsertProcessToolEvent({
+          detail,
+          id: "generation",
+          label: "模型生成",
+          status: "running",
+          type: "generation"
+        });
+      };
+
+      const finalizeAssistantMessage = async (options: {
+        errorMessage?: string;
+        finishedAt?: number;
+        status: MessageGenerationStatus;
+        streamStatus: string;
+        upstreamUsage?: UpstreamUsage;
+      }) => {
+        await draftPersistPromise.catch(() => undefined);
+
+        const finishedAt = options.finishedAt ?? Date.now();
+        currentStreamStatus = options.streamStatus;
+        processToolEvents = processToolEvents.map((event) =>
+          event.status === "running"
+            ? {
+                ...event,
+                detail: event.id === "generation" ? options.streamStatus : event.detail,
+                finishedAt,
+                status: options.status === "error" ? ("error" as const) : ("skipped" as const)
+              }
+            : event
+        );
+
+        const visibleAssistantContent = sanitizeIdentityLeak(assistantContent, model.label);
+        const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
+        const contentForHistory =
+          visibleAssistantContent ||
+          (options.errorMessage && !visibleReasoningContent ? options.errorMessage : "");
+        const shouldRecordUsage = Boolean(
+          options.upstreamUsage || visibleAssistantContent || visibleReasoningContent
+        );
+        const tokenUsage = shouldRecordUsage
+          ? resolveTokenUsage({
+              completionTokensEstimate: Math.max(
+                1,
+                estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
+              ),
+              model,
+              promptTokensEstimate,
+              upstreamUsage: options.upstreamUsage
+            })
+          : null;
+
+        const assistantMessage = await prisma.message.update({
+          where: { id: assistantDraftMessage.id },
           data: {
-            conversationId: conversation.id,
-            role: "ASSISTANT",
-            content: visibleAssistantContent,
+            content: contentForHistory,
             reasoningContent: visibleReasoningContent || null,
-            model: model.id,
-            mode: "CHAT",
-            webSourcesJson: JSON.stringify(webSearchSources),
-            promptTokens: tokenUsage.promptTokens,
-            completionTokens: tokenUsage.completionTokens,
-            totalTokens: tokenUsage.totalTokens,
-            cachedPromptTokens: tokenUsage.cachedPromptTokens,
-            reasoningTokens: tokenUsage.reasoningTokens,
-            usageSource: tokenUsage.usageSource,
-            upstreamUsageJson: tokenUsage.upstreamUsageJson,
-            estimatedCostCents: tokenUsage.estimatedCostCents
+            generationStatus: options.status,
+            streamStatus: options.streamStatus,
+            toolEventsJson: stringifyToolEvents(processToolEvents),
+            processFinishedAt: new Date(finishedAt),
+            ...(tokenUsage
+              ? {
+                  promptTokens: tokenUsage.promptTokens,
+                  completionTokens: tokenUsage.completionTokens,
+                  totalTokens: tokenUsage.totalTokens,
+                  cachedPromptTokens: tokenUsage.cachedPromptTokens,
+                  reasoningTokens: tokenUsage.reasoningTokens,
+                  usageSource: tokenUsage.usageSource,
+                  upstreamUsageJson: tokenUsage.upstreamUsageJson,
+                  estimatedCostCents: tokenUsage.estimatedCostCents
+                }
+              : {})
           }
         });
 
-        await prisma.usageRecord.create({
-          data: {
-            userId: user.id,
-            conversationId: conversation.id,
-            messageId: assistantMessage.id,
-            model: model.id,
-            mode: "CHAT",
-            promptTokens: tokenUsage.promptTokens,
-            completionTokens: tokenUsage.completionTokens,
-            totalTokens: tokenUsage.totalTokens,
-            cachedPromptTokens: tokenUsage.cachedPromptTokens,
-            reasoningTokens: tokenUsage.reasoningTokens,
-            usageSource: tokenUsage.usageSource,
-            upstreamUsageJson: tokenUsage.upstreamUsageJson,
-            estimatedCostCents: tokenUsage.estimatedCostCents
-          }
-        });
+        if (tokenUsage && !usageRecordCreated) {
+          usageRecordCreated = true;
+          await prisma.usageRecord.create({
+            data: {
+              userId: user.id,
+              conversationId: conversation.id,
+              messageId: assistantDraftMessage.id,
+              model: model.id,
+              mode: "CHAT",
+              promptTokens: tokenUsage.promptTokens,
+              completionTokens: tokenUsage.completionTokens,
+              totalTokens: tokenUsage.totalTokens,
+              cachedPromptTokens: tokenUsage.cachedPromptTokens,
+              reasoningTokens: tokenUsage.reasoningTokens,
+              usageSource: tokenUsage.usageSource,
+              upstreamUsageJson: tokenUsage.upstreamUsageJson,
+              estimatedCostCents: tokenUsage.estimatedCostCents
+            }
+          });
+        }
 
         await prisma.conversation.update({
           where: { id: conversation.id },
@@ -951,12 +1099,27 @@ export async function POST(request: NextRequest) {
         return assistantMessage;
       };
 
+      sse(controller, "meta", {
+        conversationId: conversation.id,
+        userMessage: {
+          ...userMessageView,
+          createdAt: userMessage.createdAt.toISOString()
+        },
+        assistantMessage: assistantMessageForResponse(assistantDraftMessage),
+        context: contextStats
+      });
+      for (const toolEvent of toolEvents) {
+        sse(controller, "tool", toolEvent);
+      }
+
       try {
         let upstreamUsage: UpstreamUsage | undefined;
 
         if (aiSettings.mockResponses) {
           await streamMockAnswer(content, (delta) => {
             assistantContent += delta;
+            markModelOutputStarted("正在流式输出回答", "正在流式输出...");
+            queueDraftPersist();
             sse(controller, "delta", { delta });
           }, streamAbortController.signal);
         } else {
@@ -969,15 +1132,60 @@ export async function POST(request: NextRequest) {
           upstreamUsage = await pipeOpenAiSse(upstreamBody, {
             onDelta: (delta) => {
               assistantContent += delta;
+              markModelOutputStarted("正在流式输出回答", "正在流式输出...");
+              queueDraftPersist();
               sse(controller, "delta", { delta });
             },
             onReasoning: (delta) => {
               reasoningContent += delta;
+              markModelOutputStarted("正在接收思考过程", "正在思考...");
+              queueDraftPersist();
             }
           });
         }
 
-        const assistantMessage = await persistAssistantMessage(upstreamUsage);
+        const finishedAt = Date.now();
+        const doneDetail = assistantContent
+          ? "回答已生成"
+          : reasoningContent
+            ? "思考过程已保存，但没有返回可见文本"
+            : "上游已完成，但没有返回可见文本";
+        const doneStatus = assistantContent
+          ? "已完成。"
+          : reasoningContent
+            ? "已完成，未返回可见文本。"
+            : "上游已完成，但没有返回可见文本。";
+
+        upsertProcessToolEvent(
+          {
+            detail: doneDetail,
+            finishedAt,
+            id: "generation",
+            label: "模型生成",
+            status: "done",
+            type: "generation"
+          },
+          finishedAt,
+          false
+        );
+        upsertProcessToolEvent(
+          {
+            detail: "已更新本月用量和费用",
+            finishedAt,
+            id: "usage",
+            label: "用量统计",
+            status: "done",
+            type: "usage"
+          },
+          finishedAt,
+          false
+        );
+        const assistantMessage = await finalizeAssistantMessage({
+          finishedAt,
+          status: "done",
+          streamStatus: doneStatus,
+          upstreamUsage
+        });
         const usage = await getUsageSummary(user.id, { readCache: false });
         const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
 
@@ -986,27 +1194,50 @@ export async function POST(request: NextRequest) {
         }
 
         sse(controller, "done", {
-          assistantMessage: {
-            ...messageForClient(assistantMessage),
-            webSources: webSearchSources,
-            createdAt: assistantMessage.createdAt.toISOString()
-          },
+          assistantMessage: assistantMessageForResponse(assistantMessage),
           usage
         });
       } catch (error) {
-        // 流中断时若已收到部分回复，仍然保存并计费，避免已消耗的 token 不被统计
-        if (assistantContent || reasoningContent) {
-          await persistAssistantMessage(undefined).catch(() => undefined);
-        }
+        const finishedAt = Date.now();
+        const aborted = streamAbortController.signal.aborted;
+        const errorMessage = error instanceof Error ? error.message : "上游调用失败。";
+        const streamStatus = aborted
+          ? assistantContent || reasoningContent
+            ? "连接已中断，已保存部分内容。"
+            : "连接已中断，未收到模型输出。"
+          : "上游调用失败。";
+        upsertProcessToolEvent(
+          {
+            detail: aborted ? streamStatus : errorMessage,
+            finishedAt,
+            id: "generation",
+            label: "模型生成",
+            status: aborted ? "skipped" : "error",
+            type: "generation"
+          },
+          finishedAt,
+          false
+        );
+        const assistantMessage = await finalizeAssistantMessage({
+          errorMessage: assistantContent || reasoningContent ? undefined : errorMessage,
+          finishedAt,
+          status: aborted ? "stopped" : "error",
+          streamStatus
+        }).catch(() => null);
 
-        if (!streamAbortController.signal.aborted) {
+        if (!aborted) {
           sse(controller, "error", {
-            error: error instanceof Error ? error.message : "上游调用失败。"
+            assistantMessage: assistantMessage ? assistantMessageForResponse(assistantMessage) : null,
+            error: errorMessage
           });
         }
       } finally {
         request.signal.removeEventListener("abort", abortStream);
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // The browser may have already gone away; persistence above is the source of truth.
+        }
       }
     },
     cancel() {

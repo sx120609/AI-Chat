@@ -55,12 +55,12 @@ export function LoginForm() {
         />
       </label>
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="app-inline-alert rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
       ) : null}
       <button
-        className="ios-button-primary flex h-11 w-full items-center justify-center gap-2 px-4 disabled:opacity-60"
+        className="ios-button-primary app-action-button flex h-11 w-full items-center justify-center gap-2 px-4 disabled:opacity-60"
         disabled={loading}
         type="submit"
       >

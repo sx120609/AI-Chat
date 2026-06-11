@@ -24,9 +24,9 @@ export default async function LoginPage() {
   const siteSettings = await getSiteSettings();
 
   return (
-    <main className="ios-page app-shell grid place-items-center px-5 py-10">
+    <main className="ios-page app-shell app-route-enter grid place-items-center px-5 py-10">
       <DocumentTitle title={siteSettings.siteName} />
-      <div className="ios-panel w-full max-w-sm p-6">
+      <div className="ios-panel app-card-enter motion-lift w-full max-w-sm p-6">
         <div className="mb-6">
           <div className="flex items-center gap-2">
             <SiteLogo className="size-8 shrink-0" />

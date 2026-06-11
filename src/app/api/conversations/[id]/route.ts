@@ -6,6 +6,7 @@ import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { sanitizeReasoningContent } from "@/lib/identity";
 import { isMessageAfter, MESSAGE_ORDER_ASC } from "@/lib/message-order";
+import { messageProcessForClient } from "@/lib/message-process";
 import { getChatModel } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { resolveSystemPrompt } from "@/lib/system-prompt";
@@ -40,11 +41,18 @@ function serializeConversation<
   };
 }
 
-function messageForClient<T extends { upstreamUsageJson?: string | null; webSourcesJson?: string | null }>(
+function messageForClient<
+  T extends {
+    toolEventsJson?: string | null;
+    upstreamUsageJson?: string | null;
+    webSourcesJson?: string | null;
+  }
+>(
   message: T
 ) {
   const view = { ...message };
 
+  delete view.toolEventsJson;
   delete view.upstreamUsageJson;
   delete view.webSourcesJson;
 
@@ -142,6 +150,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       ...serializeConversation(conversation),
       messages: messages.map((message) => ({
         ...messageForClient(message),
+        ...messageProcessForClient(message),
         attachments: message.attachments.map(attachmentToView),
         reasoningContent: message.reasoningContent
           ? sanitizeReasoningContent(message.reasoningContent, message.model || model.label)

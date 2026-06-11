@@ -52,6 +52,7 @@ import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORTS } from "@/lib/models";
 import { formatCents, formatNumber } from "@/lib/format";
 import { formatPromptClock } from "@/lib/system-prompt";
+import { SiteConfirmDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
 import type {
   AttachmentView,
@@ -61,6 +62,7 @@ import type {
   MessageView,
   ReasoningEffort,
   SiteSettingsView,
+  ToolEventView,
   UsageSummary,
   UserView
 } from "@/types/gateway";
@@ -92,23 +94,6 @@ type ContextStats = {
   compressedSummaryTokens: number;
 };
 
-type ToolEventView = {
-  detail?: string;
-  finishedAt?: number;
-  id: string;
-  label: string;
-  startedAt: number;
-  status: "running" | "done" | "skipped" | "error";
-  type:
-    | "router"
-    | "attachments"
-    | "web_search"
-    | "file_analysis"
-    | "context_compression"
-    | "generation"
-    | "usage"
-    | "image";
-};
 type ToolEventUpdate = Omit<ToolEventView, "finishedAt" | "startedAt"> &
   Partial<Pick<ToolEventView, "finishedAt" | "startedAt">>;
 
@@ -338,6 +323,37 @@ function groupConversations(conversations: ConversationSummary[]) {
     .filter((group) => group.conversations.length > 0);
 }
 
+function messageProcessStatus(message: MessageView) {
+  if (message.streamStatus) {
+    return message.streamStatus;
+  }
+
+  if (message.generationStatus === "running") {
+    return "处理中...";
+  }
+
+  if (message.generationStatus === "error") {
+    return "上游调用失败。";
+  }
+
+  if (message.generationStatus === "stopped") {
+    return "连接已中断，已保存部分内容。";
+  }
+
+  return "已完成。";
+}
+
+function latestMessageProcess(messages: MessageView[]) {
+  return [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "ASSISTANT" &&
+        Boolean(message.processStartedAt) &&
+        Boolean(message.toolEvents?.length)
+    );
+}
+
 function useEventCallback<Args extends unknown[], Result>(callback: (...args: Args) => Result) {
   const callbackRef = useRef(callback);
 
@@ -369,6 +385,9 @@ export function ChatShell({
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [openConversationMenuId, setOpenConversationMenuId] = useState<string | null>(null);
+  const [deleteConversationTarget, setDeleteConversationTarget] =
+    useState<ConversationSummary | null>(null);
+  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [imageToolEnabled, setImageToolEnabled] = useState(false);
   const [sourceImageMessage, setSourceImageMessage] = useState<MessageView | null>(null);
@@ -444,7 +463,7 @@ export function ChatShell({
   const webSearchProviderLabel = "DuckDuckGo";
   const groupedConversations = useMemo(() => groupConversations(conversations), [conversations]);
   const sidebarHeaderButtonClass =
-    "min-h-9 min-w-9 shrink-0 place-items-center rounded-lg border border-[color:var(--ios-separator)] bg-[rgba(255,253,247,0.76)] text-[#4f4338] transition hover:bg-[rgba(255,253,247,0.98)] hover:text-[color:var(--claude-ink)] active:scale-95";
+    "app-action-button min-h-9 min-w-9 shrink-0 place-items-center rounded-lg border border-[color:var(--ios-separator)] bg-[rgba(255,253,247,0.76)] text-[#4f4338] transition hover:bg-[rgba(255,253,247,0.98)] hover:text-[color:var(--claude-ink)] active:scale-95";
   const setComposerText = useCallback((text: string, focus = false) => {
     setComposerDraft((current) => ({
       focusToken: focus ? current.focusToken + 1 : current.focusToken,
@@ -591,12 +610,22 @@ export function ChatShell({
     const restoringInFlightChat = inFlightChat && !inFlightChat.processFinishedAt ? inFlightChat : null;
     let messagesWithInFlight = payload.conversation.messages;
 
-    if (
-      restoringInFlightChat &&
-      !messagesWithInFlight.some((message) => message.id === restoringInFlightChat.assistantMessage.id)
-    ) {
-      messagesWithInFlight = [...messagesWithInFlight, restoringInFlightChat.assistantMessage];
+    if (restoringInFlightChat) {
+      const hasPersistedAssistant = messagesWithInFlight.some(
+        (message) => message.id === restoringInFlightChat.assistantMessage.id
+      );
+
+      messagesWithInFlight = hasPersistedAssistant
+        ? messagesWithInFlight.map((message) =>
+            message.id === restoringInFlightChat.assistantMessage.id
+              ? restoringInFlightChat.assistantMessage
+              : message
+          )
+        : [...messagesWithInFlight, restoringInFlightChat.assistantMessage];
     }
+    const restoredProcessMessage = restoringInFlightChat
+      ? null
+      : latestMessageProcess(messagesWithInFlight);
 
     activeConversationIdRef.current = payload.conversation.id;
     activeConversationKeyRef.current = payload.conversation.id;
@@ -610,6 +639,12 @@ export function ChatShell({
 
     if (restoringInFlightChat) {
       syncVisibleProcessState(restoringInFlightChat);
+    } else if (restoredProcessMessage) {
+      setStreamStatus(messageProcessStatus(restoredProcessMessage));
+      setToolEvents(restoredProcessMessage.toolEvents ?? []);
+      setProcessStartedAt(restoredProcessMessage.processStartedAt ?? null);
+      setProcessFinishedAt(restoredProcessMessage.processFinishedAt ?? null);
+      setProcessNow(restoredProcessMessage.processFinishedAt ?? Date.now());
     } else {
       setStreamStatus("");
       setToolEvents([]);
@@ -842,26 +877,37 @@ export function ChatShell({
     setStreamStatus(updated.pinned ? "会话已固定。" : "已取消固定。");
   }
 
-  async function deleteConversation(conversationId: string, skipConfirm = false) {
-    if (!skipConfirm && !window.confirm("确定删除这个会话吗？此操作不可恢复。")) {
-      return;
-    }
-
-    const response = await fetch(`/api/conversations/${conversationId}`, { method: "DELETE" });
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(payload?.error || "删除会话失败。");
-      return;
-    }
-
-    if (activeConversationId === conversationId) {
-      startNewConversation();
-    }
-
+  function requestDeleteConversation(conversation: ConversationSummary) {
+    setDeleteConversationTarget(conversation);
     setOpenConversationMenuId(null);
-    await refreshConversations();
-    setStreamStatus("会话已删除。");
+  }
+
+  async function deleteConversation(conversationId: string) {
+    setDeletingConversationId(conversationId);
+    setError("");
+    setOpenConversationMenuId(null);
+
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}`, { method: "DELETE" });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(payload?.error || "删除会话失败。");
+        return;
+      }
+
+      if (activeConversationId === conversationId) {
+        startNewConversation();
+      }
+
+      await refreshConversations();
+      setStreamStatus("会话已删除。");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? `删除会话失败：${deleteError.message}` : "删除会话失败。");
+    } finally {
+      setDeletingConversationId(null);
+      setDeleteConversationTarget(null);
+    }
   }
 
   async function openConversation(conversationId: string) {
@@ -1270,10 +1316,45 @@ export function ChatShell({
         }
 
         conversationKey = resolveInFlightConversationKey(conversationKey, nextConversationId);
-        updateChatAssistantMessage((message) => ({
-          ...message,
-          conversationId: nextConversationId
-        }));
+        const assistantDraft = event.data.assistantMessage as MessageView | undefined;
+
+        if (assistantDraft?.id) {
+          const currentInFlight = getInFlightChat(conversationKey);
+          const previousAssistantId = localAssistant.id;
+          const currentAssistant = currentInFlight?.assistantMessage ?? localAssistant;
+          const nextAssistant = {
+            ...assistantDraft,
+            content: currentAssistant.content || assistantDraft.content,
+            reasoningContent: currentAssistant.reasoningContent || assistantDraft.reasoningContent,
+            pending: true
+          };
+
+          localAssistant.id = assistantDraft.id;
+          localAssistant.conversationId = nextConversationId;
+
+          if (currentInFlight) {
+            storeInFlightChat(conversationKey, {
+              ...currentInFlight,
+              assistantMessage: nextAssistant,
+              conversationId: nextConversationId
+            });
+          }
+
+          if (isViewingInFlightChat()) {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === previousAssistantId || message.id === assistantDraft.id
+                  ? nextAssistant
+                  : message
+              )
+            );
+          }
+        } else {
+          updateChatAssistantMessage((message) => ({
+            ...message,
+            conversationId: nextConversationId
+          }));
+        }
         void refreshConversations();
 
         if (event.data.context) {
@@ -1421,7 +1502,24 @@ export function ChatShell({
         pendingContentDelta = "";
         pendingReasoningDelta = "";
         const message = String(event.data.error ?? "上游调用失败。");
-        updateChatAssistantMessage((item) => ({ ...item, content: message, pending: false }));
+        const assistantMessage = event.data.assistantMessage as MessageView | null | undefined;
+
+        if (assistantMessage?.id) {
+          const nextAssistantMessage = { ...assistantMessage, pending: false };
+          updateInFlightChat({ assistantMessage: nextAssistantMessage });
+
+          if (isViewingInFlightChat()) {
+            setMessages((current) =>
+              current.map((item) =>
+                item.id === localAssistant.id || item.id === assistantMessage.id
+                  ? nextAssistantMessage
+                  : item
+              )
+            );
+          }
+        } else {
+          updateChatAssistantMessage((item) => ({ ...item, content: message, pending: false }));
+        }
         if (isViewingInFlightChat()) {
           setError(message);
         }
@@ -2091,7 +2189,7 @@ export function ChatShell({
 
                 return (
                   <div
-                    className={`group relative flex items-center gap-2 rounded-lg px-2 py-2 transition ${
+                    className={`app-list-row group relative flex items-center gap-2 rounded-lg px-2 py-2 transition ${
                       active
                         ? "bg-stone-200/60 text-stone-950"
                         : "text-stone-700 hover:bg-white/60"
@@ -2148,7 +2246,7 @@ export function ChatShell({
 
                     {!renaming ? (
                       <button
-                        className="grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 hover:bg-white hover:text-stone-800 lg:size-7 lg:opacity-0 lg:group-hover:opacity-100"
+                        className="app-action-button grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 hover:bg-white hover:text-stone-800 lg:size-7 lg:opacity-0 lg:group-hover:opacity-100"
                         onClick={() =>
                           setOpenConversationMenuId((current) =>
                             current === conversation.id ? null : conversation.id
@@ -2162,9 +2260,9 @@ export function ChatShell({
                     ) : null}
 
                     {openConversationMenuId === conversation.id ? (
-                      <div className="absolute right-2 top-10 z-30 w-36 overflow-hidden rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 text-xs shadow-[0_16px_38px_rgba(83,69,54,0.16)]">
+                      <div className="app-menu-enter absolute right-2 top-10 z-30 w-36 overflow-hidden rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 text-xs shadow-[0_16px_38px_rgba(83,69,54,0.16)]">
                         <button
-                          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
                           onClick={() => void togglePinConversation(conversation)}
                           type="button"
                         >
@@ -2176,7 +2274,7 @@ export function ChatShell({
                           {conversation.pinned ? "取消固定" : "固定"}
                         </button>
                         <button
-                          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
                           onClick={() => beginRenameConversation(conversation)}
                           type="button"
                         >
@@ -2184,8 +2282,8 @@ export function ChatShell({
                           重命名
                         </button>
                         <button
-                          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-red-600 hover:bg-red-50"
-                          onClick={() => void deleteConversation(conversation.id)}
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-red-600 hover:bg-red-50"
+                          onClick={() => requestDeleteConversation(conversation)}
                           type="button"
                         >
                           <Trash2 className="size-3.5" />
@@ -2214,9 +2312,9 @@ export function ChatShell({
   );
 
   return (
-    <main className="ios-page app-shell flex text-stone-950">
+    <main className="ios-page app-shell app-route-enter flex text-stone-950">
       <aside
-        className={`ios-glass hidden h-full w-80 shrink-0 border-r border-[color:var(--ios-separator)] ${
+        className={`ios-glass app-sidebar-sheet hidden h-full w-80 shrink-0 border-r border-[color:var(--ios-separator)] ${
           desktopSidebarOpen ? "lg:flex lg:flex-col" : "lg:hidden"
         }`}
       >
@@ -2227,11 +2325,11 @@ export function ChatShell({
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             aria-label="关闭侧栏"
-            className="absolute inset-0 bg-black/20"
+            className="app-backdrop-enter absolute inset-0 bg-black/20"
             onClick={() => setMobileSidebarOpen(false)}
             type="button"
           />
-          <aside className="ios-glass absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] flex-col border-r border-[color:var(--ios-separator)] shadow-[18px_0_45px_rgba(83,69,54,0.18)]">
+          <aside className="ios-glass app-sidebar-sheet absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] flex-col border-r border-[color:var(--ios-separator)] shadow-[18px_0_45px_rgba(83,69,54,0.18)]">
             <div className="flex items-center justify-between border-b border-[color:var(--ios-separator)] px-4 py-3">
               <span className="text-sm font-semibold text-stone-800">会话</span>
               <button
@@ -2249,11 +2347,11 @@ export function ChatShell({
       ) : null}
 
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="relative shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur sm:px-4 sm:py-3">
+        <header className="app-header-enter relative shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur sm:px-4 sm:py-3">
           {!desktopSidebarOpen ? (
             <button
               aria-expanded={desktopSidebarOpen}
-              className="absolute left-3 top-1/2 hidden size-7 -translate-y-1/2 place-items-center rounded-md text-stone-500 transition hover:bg-white/70 hover:text-stone-900 lg:grid"
+              className="app-action-button absolute left-3 top-1/2 hidden size-7 -translate-y-1/2 place-items-center rounded-md text-stone-500 transition hover:bg-white/70 hover:text-stone-900 lg:grid"
               onClick={toggleSidebar}
               title="展开会话列表"
               type="button"
@@ -2271,7 +2369,7 @@ export function ChatShell({
                 <div className="flex min-w-0 items-center gap-1.5">
                   <button
                     aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
-                    className="grid size-7 shrink-0 place-items-center rounded-md text-stone-500 transition hover:bg-white/70 hover:text-stone-900 lg:hidden"
+                    className="app-action-button grid size-7 shrink-0 place-items-center rounded-md text-stone-500 transition hover:bg-white/70 hover:text-stone-900 lg:hidden"
                     onClick={toggleSidebar}
                     title="切换会话列表"
                     type="button"
@@ -2304,7 +2402,7 @@ export function ChatShell({
             </div>
 
             <div
-              className="w-[min(12.75rem,52vw)] min-w-[8.5rem] shrink-0 sm:w-auto sm:min-w-0 sm:shrink-0"
+              className="w-[min(15.5rem,62vw)] min-w-[8.5rem] shrink-0 sm:w-auto sm:min-w-0 sm:shrink-0"
               ref={headerControlsRef}
             >
               <ModelReasoningPicker
@@ -2329,7 +2427,7 @@ export function ChatShell({
         >
           <div className="mx-auto flex max-w-4xl flex-col gap-7">
             {messages.length === 0 ? (
-              <div className="grid min-h-[54vh] place-items-center text-center">
+              <div className="app-empty-state grid min-h-[54vh] place-items-center text-center">
                 <div>
                   <Sparkles className="mx-auto size-9 text-[color:var(--claude-accent)]" />
                   <h1 className="mt-4 text-2xl font-semibold text-stone-900 sm:text-3xl">
@@ -2367,13 +2465,13 @@ export function ChatShell({
               />
             ) : null}
             {imageToolEnabled ? (
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/55 px-3 py-1 text-xs font-medium text-stone-700">
+              <div className="app-status-pill mb-2 inline-flex items-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/55 px-3 py-1 text-xs font-medium text-stone-700">
                 <ImageIcon className="size-3.5 text-[color:var(--claude-accent)]" />
                 {sourceImageMessage ? "下一条将使用 image2 编辑所选图片" : "下一条将使用 image2 生成图片"}
               </div>
             ) : null}
             {webSearchAvailable && webSearchEnabledForMessage ? (
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/55 px-3 py-1 text-xs font-medium text-stone-700">
+              <div className="app-status-pill mb-2 inline-flex items-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/55 px-3 py-1 text-xs font-medium text-stone-700">
                 <Search className="size-3.5 text-[color:var(--claude-accent)]" />
                 下一条将联网搜索（{webSearchProviderLabel}）
               </div>
@@ -2387,23 +2485,23 @@ export function ChatShell({
                 status={streamStatus}
               />
             ) : streamStatus ? (
-              <div className="mb-3 flex items-center gap-2 text-xs text-stone-600">
+              <div className="app-status-pill mb-3 flex items-center gap-2 text-xs text-stone-600">
                 {loading ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 <span>{streamStatus}</span>
               </div>
             ) : null}
             {error ? (
-              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <div className="app-inline-alert mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {error}
               </div>
             ) : null}
             {quotaBlocked ? (
-              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <div className="app-inline-alert mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 本月额度已用完，请联系管理员。
               </div>
             ) : null}
             {editingMessage ? (
-              <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2 text-xs text-stone-700">
+              <div className="app-status-pill mb-2 flex items-center justify-between gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2 text-xs text-stone-700">
                 <span className="min-w-0 truncate">正在编辑上一条消息</span>
                 <button
                   className="shrink-0 font-semibold text-[color:var(--claude-accent)]"
@@ -2415,7 +2513,7 @@ export function ChatShell({
               </div>
             ) : null}
             {sourceImageMessage?.imageUrl ? (
-              <div className="mb-2 flex max-w-full items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-2 py-2 text-xs text-stone-700">
+              <div className="app-status-pill mb-2 flex max-w-full items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-2 py-2 text-xs text-stone-700">
                 <img
                   alt="待编辑图片"
                   className="size-12 shrink-0 rounded-md object-cover"
@@ -2450,7 +2548,7 @@ export function ChatShell({
                 ))}
               </div>
             ) : null}
-            <div className="ios-panel claude-composer flex min-h-14 flex-col gap-2 px-2 py-2 shadow-[0_16px_38px_rgba(83,69,54,0.12)] sm:flex-row sm:items-center sm:bg-white/90 sm:px-3 sm:shadow-[0_18px_70px_rgba(83,69,54,0.18)]">
+            <div className="ios-panel claude-composer app-composer flex min-h-14 flex-col gap-2 px-2 py-2 shadow-[0_16px_38px_rgba(83,69,54,0.12)] sm:flex-row sm:items-center sm:bg-white/90 sm:px-3 sm:shadow-[0_18px_70px_rgba(83,69,54,0.18)]">
               <input
                 accept=".zip,application/zip,application/x-zip-compressed,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,image/png,image/jpeg,image/webp,image/gif"
                 className="hidden"
@@ -2461,7 +2559,7 @@ export function ChatShell({
               />
               <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0">
                 <button
-                  className="grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50 sm:border-transparent sm:bg-transparent sm:hover:bg-stone-100/80"
+                  className="app-action-button grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50 sm:border-transparent sm:bg-transparent sm:hover:bg-stone-100/80"
                   disabled={loading || quotaBlocked || uploadingAttachments}
                   onClick={() => fileInputRef.current?.click()}
                   title="上传文件或图片"
@@ -2474,7 +2572,7 @@ export function ChatShell({
                   )}
                 </button>
                 <button
-                  className={`grid size-9 shrink-0 place-items-center rounded-full border transition ${
+                  className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
                     imageToolEnabled
                       ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                       : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
@@ -2501,7 +2599,7 @@ export function ChatShell({
                   <div className="relative flex min-w-0 shrink-0 items-center">
                     <button
                       aria-pressed={webSearchEnabledForMessage}
-                      className={`grid size-9 place-items-center rounded-full border transition ${
+                      className={`app-action-button grid size-9 place-items-center rounded-full border transition ${
                         webSearchEnabledForMessage
                           ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                           : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
@@ -2544,6 +2642,20 @@ export function ChatShell({
           </div>
         </footer>
       </section>
+      <SiteConfirmDialog
+        confirmLabel="删除会话"
+        description={`确定删除「${deleteConversationTarget?.title || "这个会话"}」吗？删除后会话和其中的消息都会移除，此操作不可恢复。`}
+        loading={Boolean(
+          deleteConversationTarget && deletingConversationId === deleteConversationTarget.id
+        )}
+        onCancel={() => setDeleteConversationTarget(null)}
+        onConfirm={() =>
+          deleteConversationTarget ? deleteConversation(deleteConversationTarget.id) : undefined
+        }
+        open={Boolean(deleteConversationTarget)}
+        title="删除会话"
+        tone="danger"
+      />
     </main>
   );
 }
@@ -2630,7 +2742,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
         value={draft}
       />
       <button
-        className="grid size-9 shrink-0 place-items-center rounded-full bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
+        className="app-action-button grid size-9 shrink-0 place-items-center rounded-full bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
         disabled={sendDisabled}
         onClick={() => void submitDraft()}
         title={loading ? "停止生成" : "发送"}
@@ -2665,7 +2777,6 @@ function ModelReasoningPicker({
 }) {
   const reasoningSupported = activeModel?.supportsReasoning ?? true;
   const modelLabel = activeModel?.label || modelValue || "选择模型";
-  const mobileModelLabel = getCompactModelLabel(modelLabel);
   const activeReasoningLabel = getReasoningUiCopy(activeReasoningEffort.id).label;
   const [portalReady, setPortalReady] = useState(false);
   const [useMobilePortal, setUseMobilePortal] = useState(false);
@@ -2685,12 +2796,12 @@ function ModelReasoningPicker({
     <>
       <button
         aria-label="关闭模型选择"
-        className="fixed inset-0 z-40 bg-black/10 sm:hidden"
+        className="app-backdrop-enter fixed inset-0 z-40 bg-black/10 sm:hidden"
         onClick={() => onOpenChange(false)}
         type="button"
       />
       <div
-        className="fixed bottom-3 left-2 right-2 z-50 flex max-h-[calc(100dvh_-_1.5rem)] min-h-0 flex-col overflow-hidden rounded-[1.25rem] border border-[#eadfce] bg-[color:var(--claude-surface)] p-2 shadow-[0_24px_80px_rgba(83,69,54,0.18)] ring-1 ring-white/70 sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[34rem] sm:w-[26rem]"
+        className="app-popover-enter fixed bottom-3 left-2 right-2 z-50 flex max-h-[calc(100dvh_-_1.5rem)] min-h-0 flex-col overflow-hidden rounded-[1.25rem] border border-[#eadfce] bg-[color:var(--claude-surface)] p-2 shadow-[0_24px_80px_rgba(83,69,54,0.18)] ring-1 ring-white/70 sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[34rem] sm:w-[26rem]"
         data-model-picker-panel
       >
         <div className="flex items-center justify-between gap-3 px-2 py-1.5">
@@ -2699,7 +2810,7 @@ function ModelReasoningPicker({
             <p className="mt-0.5 text-[11px] text-stone-500">下一次回复生效</p>
           </div>
           <button
-            className="grid size-8 shrink-0 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
+            className="app-action-button grid size-8 shrink-0 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
             onClick={() => onOpenChange(false)}
             title="关闭"
             type="button"
@@ -2721,7 +2832,7 @@ function ModelReasoningPicker({
 
                 return (
                   <button
-                    className={`group flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-[0.9rem] px-3 text-left text-sm transition ${
+                    className={`app-list-row group flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-[0.9rem] px-3 text-left text-sm transition ${
                       selected
                         ? "bg-[#fffaf4] text-stone-950 shadow-sm ring-1 ring-[rgba(201,100,66,0.22)]"
                         : "text-stone-700 hover:bg-[#fffaf4]/80 hover:text-stone-950"
@@ -2761,7 +2872,7 @@ function ModelReasoningPicker({
 
                 return (
                   <button
-                    className={`min-h-12 rounded-[0.9rem] px-2.5 text-left transition ${
+                    className={`app-list-row min-h-12 rounded-[0.9rem] px-2.5 text-left transition ${
                       selected
                         ? "bg-[#fffaf4] text-stone-950 shadow-sm ring-1 ring-[rgba(201,100,66,0.22)]"
                         : "text-stone-600 hover:bg-[#fffaf4]/80 hover:text-stone-950"
@@ -2780,7 +2891,7 @@ function ModelReasoningPicker({
         </div>
 
         <button
-          className="mt-2 flex h-10 w-full shrink-0 items-center justify-center rounded-full bg-[color:var(--claude-accent)] px-3 text-sm font-semibold text-white transition hover:bg-[color:var(--claude-accent-dark)]"
+          className="app-action-button mt-2 flex h-10 w-full shrink-0 items-center justify-center rounded-full bg-[color:var(--claude-accent)] px-3 text-sm font-semibold text-white transition hover:bg-[color:var(--claude-accent-dark)]"
           onClick={() => onOpenChange(false)}
           type="button"
         >
@@ -2795,7 +2906,7 @@ function ModelReasoningPicker({
       <button
         aria-expanded={open}
         aria-label="选择模型和思考强度"
-        className={`flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-xs font-medium backdrop-blur transition sm:min-w-60 sm:px-3.5 ${
+        className={`app-action-button flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-xs font-medium backdrop-blur transition sm:min-w-60 sm:px-3.5 ${
           open
             ? "border-stone-300 bg-white text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10)]"
             : "border-black/10 bg-white/70 text-stone-800 shadow-[0_8px_28px_rgba(83,69,54,0.08)] hover:border-stone-300 hover:bg-white/95"
@@ -2814,7 +2925,7 @@ function ModelReasoningPicker({
             <Sparkles className="size-3" />
           </span>
           <span className="min-w-0 truncate text-stone-950">
-            <span className="sm:hidden">{mobileModelLabel}</span>
+            <span className="sm:hidden">{modelLabel}</span>
             <span className="hidden sm:inline">{modelLabel}</span>
           </span>
           <span className="hidden text-stone-300 sm:inline">/</span>
@@ -2832,13 +2943,6 @@ function ModelReasoningPicker({
         : pickerPanel}
     </div>
   );
-}
-
-function getCompactModelLabel(label: string) {
-  return label
-    .replace(/^GPT[-\s]?/i, "")
-    .replace("-Codex-Spark", "-Spark")
-    .replace(/\s+/g, "");
 }
 
 function getModelPickerDetail(model: ChatModelView) {
@@ -2950,7 +3054,7 @@ function ProcessTimelinePanel({
   const latestRunningEvent = [...events].reverse().find((event) => event.status === "running");
 
   return (
-    <div className="mb-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-xs text-stone-700">
+    <div className="app-reveal mb-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-xs text-stone-700">
       <button
         className="flex w-full items-center justify-between gap-3 text-left"
         onClick={() => setExpanded((current) => !current)}
@@ -2975,14 +3079,14 @@ function ProcessTimelinePanel({
         />
       </button>
       {expanded ? (
-        <div className="mt-2 border-t border-[color:var(--ios-separator)] pt-2">
+        <div className="app-reveal mt-2 border-t border-[color:var(--ios-separator)] pt-2">
           <div className="space-y-2">
             {events.map((event) => {
               const eventFinishedAt = event.finishedAt ?? (event.status === "running" ? now : event.startedAt);
               const eventElapsed = formatElapsedDuration(eventFinishedAt - event.startedAt);
 
               return (
-                <div className="flex min-w-0 items-start gap-2" key={event.id}>
+                <div className="app-reveal flex min-w-0 items-start gap-2" key={event.id}>
                   <span
                     className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full ${
                       event.status === "error"
@@ -3036,7 +3140,7 @@ function ContextBadge({
 
   return (
     <span
-      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${
+      className={`app-status-pill inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${
         warned
           ? "border-amber-200 bg-amber-50 text-amber-800"
           : "border-[color:var(--ios-separator)] bg-white/45 text-stone-500"
@@ -3089,7 +3193,7 @@ function ContextNotice({ lastContextStats }: { lastContextStats: ContextStats | 
       : "当前会话已经很长，后续可能需要裁剪早期历史；复杂问题建议新开会话。";
 
   return (
-    <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-900">
+    <div className="app-inline-alert mb-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-900">
       {message}
     </div>
   );
@@ -3112,7 +3216,7 @@ function UsageBars({ usage }: { usage: UsageSummary }) {
         </p>
         <div className="h-1.5 overflow-hidden rounded-full bg-white/80 lg:h-2">
           <div
-            className="h-full rounded-full bg-[color:var(--claude-accent)]"
+            className="app-progress-fill h-full rounded-full bg-[color:var(--claude-accent)]"
             style={{
               width: `${usagePercent(usage.costUsedCents, usage.monthlyCostLimitCents)}%`
             }}
@@ -3151,7 +3255,7 @@ function AttachmentChip({
   onRemove?: () => void;
 }) {
   return (
-    <div className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-2 py-1.5 text-xs text-stone-700">
+    <div className="app-chip inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-2 py-1.5 text-xs text-stone-700">
       <span className="shrink-0 text-[color:var(--claude-accent)]">
         <AttachmentIcon attachment={attachment} />
       </span>
@@ -3159,7 +3263,7 @@ function AttachmentChip({
       <span className="shrink-0 ios-muted">{formatBytes(attachment.sizeBytes)}</span>
       {onRemove ? (
         <button
-          className="grid size-5 shrink-0 place-items-center rounded-md text-stone-500 hover:bg-stone-200/60 hover:text-stone-900"
+          className="app-action-button grid size-5 shrink-0 place-items-center rounded-md text-stone-500 hover:bg-stone-200/60 hover:text-stone-900"
           onClick={onRemove}
           title="移除附件"
           type="button"
@@ -3187,7 +3291,7 @@ function MessageAttachments({
       {attachments.map((attachment) =>
         attachment.kind === "IMAGE" && attachment.previewUrl ? (
           <a
-            className={`block overflow-hidden rounded-lg border ${
+            className={`app-chip block overflow-hidden rounded-lg border ${
               isUser ? "border-white/30" : "border-[color:var(--ios-separator)]"
             }`}
             href={attachment.previewUrl}
@@ -3222,7 +3326,7 @@ function MessageActionButton({
   return (
     <button
       aria-label={title}
-      className={`transition ${
+      className={`app-action-button transition ${
         tone === "user"
           ? "grid size-7 place-items-center rounded-md border border-[color:var(--ios-separator)] bg-white/55 text-stone-500 shadow-sm hover:bg-white/90 hover:text-stone-900"
           : "inline-flex h-7 items-center gap-1 rounded-md border border-transparent px-2 text-xs text-stone-500 hover:border-[color:var(--ios-separator)] hover:bg-white/55 hover:text-stone-900"
@@ -3247,7 +3351,7 @@ function WebSourceCards({ sources }: { sources: NonNullable<MessageView["webSour
       <div className="grid gap-2 sm:grid-cols-2">
         {sources.map((source, index) => (
           <a
-            className="group block min-w-0 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-xs text-stone-700 transition hover:bg-white/85"
+            className="app-list-row group block min-w-0 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-xs text-stone-700 transition hover:bg-white/85"
             href={source.url}
             key={`${source.url}-${index}`}
             rel="noreferrer"
@@ -3443,7 +3547,7 @@ const MessageBubble = memo(function MessageBubble({
   const modelTitle = isUser ? "" : getMessageModelTitle(message, modelLabelById);
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`app-message flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
         className={`${
           isUser
@@ -3523,7 +3627,7 @@ const MessageBubble = memo(function MessageBubble({
         </div>
         {!message.pending ? (
           <div
-            className={`mt-1.5 flex flex-wrap gap-1 ${
+            className={`app-message-actions mt-1.5 flex flex-wrap gap-1 ${
               isUser ? "justify-end pr-1" : "justify-start px-1"
             }`}
           >

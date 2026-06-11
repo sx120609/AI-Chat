@@ -75,6 +75,11 @@ model Message {
   reasoningContent   String?
   imageUrl           String?
   webSourcesJson     String         @default("[]")
+  generationStatus   String         @default("done")
+  streamStatus       String?
+  toolEventsJson     String         @default("[]")
+  processStartedAt   DateTime?
+  processFinishedAt  DateTime?
   model              String?
   mode               GenerationMode @default(CHAT)
   promptTokens       Int            @default(0)

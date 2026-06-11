@@ -1,0 +1,10 @@
+
+> team-ai-gateway@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3105
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://127.0.0.1:3105
+- Network:       http://127.0.0.1:3105
+- Environments: .env
+✓ Ready in 430ms
+[?25h

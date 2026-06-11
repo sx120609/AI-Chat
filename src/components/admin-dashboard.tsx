@@ -387,8 +387,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   );
 
   return (
-    <main className="ios-page app-shell flex flex-col text-stone-950">
-      <header className="ios-glass z-20 shrink-0 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5 sm:py-4">
+    <main className="ios-page app-shell app-route-enter flex flex-col text-stone-950">
+      <header className="ios-glass app-header-enter z-20 shrink-0 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5 sm:py-4">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--claude-accent)]">
@@ -398,7 +398,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             <h1 className="mt-1 text-xl font-semibold sm:text-2xl">系统设置</h1>
             <p className="mt-1 text-sm ios-muted">{currentUser.email}</p>
           </div>
-          <a className="ios-button-secondary flex items-center gap-2 px-3" href="/chat">
+          <a className="ios-button-secondary app-action-button flex items-center gap-2 px-3" href="/chat">
             <ArrowLeft className="size-4" />
             返回聊天
           </a>
@@ -406,12 +406,12 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:py-6">
-        <div className="mx-auto max-w-7xl">
+        <div className="app-stagger mx-auto max-w-7xl">
         {error ? <Banner tone="error">{error}</Banner> : null}
         {notice ? <Banner tone="success">{notice}</Banner> : null}
         {diagnostics ? <DiagnosticsPanel result={diagnostics} /> : null}
 
-        <section className="ios-panel mb-5 p-4">
+        <section className="ios-panel motion-lift mb-5 p-4">
           <div className="mb-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
@@ -426,7 +426,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             </div>
             <div className="flex w-full gap-2 sm:w-auto">
               <button
-                className="ios-button-secondary flex h-9 flex-1 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50 sm:flex-none"
+                className="ios-button-secondary app-action-button flex h-9 flex-1 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50 sm:flex-none"
                 disabled={testingSettings}
                 onClick={testConnection}
                 type="button"
@@ -438,7 +438,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                 )}
                 测试连接
               </button>
-              <button className="ios-icon-button shrink-0" onClick={loadAll} title="刷新" type="button">
+              <button className="ios-icon-button app-action-button shrink-0" onClick={loadAll} title="刷新" type="button">
                 <RefreshCw className="size-4" />
               </button>
             </div>
@@ -817,7 +817,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               </label>
             </div>
             <button
-              className="ios-button-primary flex items-center justify-center gap-2 px-3 disabled:opacity-50"
+              className="ios-button-primary app-action-button flex items-center justify-center gap-2 px-3 disabled:opacity-50"
               disabled={savingSettings}
               type="submit"
             >
@@ -828,7 +828,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               <div className="ios-cell flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                 <span className="text-xs font-semibold ios-muted">模型映射</span>
                 <button
-                  className="ios-button-secondary flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-50"
+                  className="ios-button-secondary app-action-button flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-50"
                   disabled={refreshingModels}
                   onClick={refreshUpstreamModels}
                   type="button"
@@ -906,7 +906,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
           </form>
         </section>
 
-        <section className="ios-panel mb-5 p-4">
+        <section className="ios-panel motion-lift mb-5 p-4">
           <div className="mb-4 flex items-center gap-2">
             <div className="grid size-9 place-items-center rounded-lg bg-green-50 text-green-600">
               <Plus className="size-4" />
@@ -958,23 +958,23 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               placeholder="费用额度（美元）"
               value={form.monthlyCostLimitCents}
             />
-            <button className="ios-button-primary flex items-center justify-center gap-2 px-3" type="submit">
+            <button className="ios-button-primary app-action-button flex items-center justify-center gap-2 px-3" type="submit">
               <Plus className="size-4" />
               创建
             </button>
           </form>
         </section>
 
-        <section className="ios-panel overflow-hidden">
+        <section className="ios-panel motion-lift overflow-hidden">
           <div className="flex items-center justify-between border-b border-[color:var(--ios-separator)] px-4 py-3">
             <h2 className="text-base font-semibold">用户与额度</h2>
-            <button className="ios-icon-button" onClick={loadAll} title="刷新" type="button">
+            <button className="ios-icon-button app-action-button" onClick={loadAll} title="刷新" type="button">
               <RefreshCw className="size-4" />
             </button>
           </div>
 
           {loading ? (
-            <div className="grid min-h-64 place-items-center text-slate-500">
+            <div className="app-loading-pulse grid min-h-64 place-items-center text-slate-500">
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : (
@@ -993,7 +993,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                 </thead>
                 <tbody className="divide-y divide-[color:var(--ios-separator)]">
                   {users.map((user) => (
-                    <tr key={user.id} className="align-top">
+                    <tr key={user.id} className="app-table-row align-top">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="grid size-9 place-items-center rounded-lg bg-white/80 text-[color:var(--claude-accent)]">
@@ -1023,7 +1023,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       </td>
                       <td className="px-4 py-3">
                         <button
-                          className={`flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${
+                          className={`app-action-button flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${
                             user.active
                               ? "bg-green-50 text-green-700"
                               : "bg-slate-100 text-slate-500"
@@ -1056,7 +1056,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       <td className="px-4 py-3">
                         <div className="flex gap-2">
                           <button
-                            className="ios-icon-button disabled:opacity-50"
+                            className="ios-icon-button app-action-button disabled:opacity-50"
                             disabled={savingId === user.id}
                             onClick={() => saveUser(user)}
                             title="保存"
@@ -1069,7 +1069,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                             )}
                           </button>
                           <button
-                            className="ios-icon-button disabled:opacity-50"
+                            className="ios-icon-button app-action-button disabled:opacity-50"
                             disabled={savingId === user.id}
                             onClick={() => resetQuota(user.id)}
                             title="重置额度"
@@ -1087,7 +1087,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             <div className="grid gap-3 p-3 md:hidden">
               {users.map((user) => (
                 <div
-                  className="rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3"
+                  className="app-list-row rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3"
                   key={user.id}
                 >
                   <div className="mb-3 flex items-start gap-3">
@@ -1121,7 +1121,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <label className="block">
                       <span className="mb-1 block text-xs font-medium ios-muted">状态</span>
                       <button
-                        className={`flex h-9 w-full items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold ${
+                        className={`app-action-button flex h-9 w-full items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold ${
                           user.active
                             ? "bg-green-50 text-green-700"
                             : "bg-slate-100 text-slate-500"
@@ -1156,7 +1156,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <button
-                      className="ios-button-secondary flex h-10 items-center justify-center gap-2 text-sm disabled:opacity-50"
+                      className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 text-sm disabled:opacity-50"
                       disabled={savingId === user.id}
                       onClick={() => saveUser(user)}
                       type="button"
@@ -1169,7 +1169,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       保存
                     </button>
                     <button
-                      className="ios-button-secondary flex h-10 items-center justify-center gap-2 text-sm disabled:opacity-50"
+                      className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 text-sm disabled:opacity-50"
                       disabled={savingId === user.id}
                       onClick={() => resetQuota(user.id)}
                       type="button"
@@ -1200,7 +1200,7 @@ function ModelToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex min-h-14 w-full min-w-0 items-start gap-3 rounded-lg bg-white/70 px-3 py-2 text-sm">
+    <label className="app-list-row flex min-h-14 w-full min-w-0 items-start gap-3 rounded-lg bg-white/70 px-3 py-2 text-sm">
       <input
         checked={checked}
         className="mt-1 size-4 accent-[color:var(--claude-accent)]"
@@ -1230,7 +1230,7 @@ function DiagnosticsPanel({ result }: { result: DiagnosticsResult }) {
   } satisfies Record<DiagnosticCheck["status"], string>;
 
   return (
-    <section className="ios-panel mb-4 p-4">
+    <section className="ios-panel motion-lift mb-4 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold">Sub2API 连接诊断</h2>
@@ -1248,7 +1248,7 @@ function DiagnosticsPanel({ result }: { result: DiagnosticsResult }) {
       </div>
       <div className="grid gap-2 md:grid-cols-2">
         {result.checks.map((check) => (
-          <div className={`rounded-lg border px-3 py-2 text-sm ${tone[check.status]}`} key={check.name}>
+          <div className={`app-list-row rounded-lg border px-3 py-2 text-sm ${tone[check.status]}`} key={check.name}>
             <p className="font-semibold">{check.name}</p>
             <p className="mt-1 text-xs leading-5">{check.message}</p>
           </div>
@@ -1299,5 +1299,5 @@ function Banner({ children, tone }: { children: ReactNode; tone: "error" | "succ
       ? "border-red-200 bg-red-50 text-red-700"
       : "border-green-200 bg-green-50 text-green-800";
 
-  return <div className={`mb-4 rounded-lg border px-3 py-2 text-sm ${classes}`}>{children}</div>;
+  return <div className={`app-inline-alert mb-4 rounded-lg border px-3 py-2 text-sm ${classes}`}>{children}</div>;
 }

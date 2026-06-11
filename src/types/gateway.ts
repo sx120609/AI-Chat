@@ -5,6 +5,25 @@ export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 export type SystemPromptMode = "default" | "append" | "custom" | "off";
 export type AttachmentKind = "TEXT" | "DOCUMENT" | "SPREADSHEET" | "IMAGE" | "ARCHIVE";
+export type MessageGenerationStatus = "running" | "done" | "error" | "stopped";
+
+export type ToolEventView = {
+  detail?: string;
+  finishedAt?: number;
+  id: string;
+  label: string;
+  startedAt: number;
+  status: "running" | "done" | "skipped" | "error";
+  type:
+    | "router"
+    | "attachments"
+    | "web_search"
+    | "file_analysis"
+    | "context_compression"
+    | "generation"
+    | "usage"
+    | "image";
+};
 
 export type WebSearchSource = {
   displayUrl: string;
@@ -72,6 +91,11 @@ export type MessageView = {
   content: string;
   reasoningContent?: string | null;
   imageUrl?: string | null;
+  generationStatus?: MessageGenerationStatus;
+  streamStatus?: string | null;
+  toolEvents?: ToolEventView[];
+  processStartedAt?: number | null;
+  processFinishedAt?: number | null;
   model?: string | null;
   mode: GenerationMode;
   promptTokens: number;

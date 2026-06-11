@@ -45,6 +45,7 @@ import {
   useRef,
   useState
 } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -52,6 +53,7 @@ import remarkMath from "remark-math";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORTS } from "@/lib/models";
 import { formatCents, formatNumber } from "@/lib/format";
+import { formatPromptClock } from "@/lib/system-prompt";
 import { SiteLogo } from "@/components/site-logo";
 import type {
   AttachmentView,
@@ -112,10 +114,24 @@ type ToolEventView = {
 type ToolEventUpdate = Omit<ToolEventView, "finishedAt" | "startedAt"> &
   Partial<Pick<ToolEventView, "finishedAt" | "startedAt">>;
 
+type InFlightChatGeneration = {
+  assistantMessage: MessageView;
+  contextStats: ContextStats | null;
+  conversationId: string | null;
+  processFinishedAt: number | null;
+  processStartedAt: number;
+  streamStatus: string;
+  toolEvents: ToolEventView[];
+};
+
 type ComposerDraftState = {
   focusToken: number;
   text: string;
 };
+
+function createLocalConversationKey() {
+  return `local-conversation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 function parseSseBlock(block: string): SseEvent | null {
   const lines = block.split(/\r?\n/);
@@ -157,6 +173,10 @@ function usagePercent(used: number, limit: number) {
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
 
 function formatElapsedDuration(milliseconds: number) {
+  if (milliseconds > 0 && milliseconds < 1000) {
+    return "<1s";
+  }
+
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -348,6 +368,9 @@ export function ChatShell({
   const [chatModels, setChatModels] = useState(initialModels);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeLocalConversationKey, setActiveLocalConversationKey] = useState(
+    createLocalConversationKey
+  );
   const [conversationSearch, setConversationSearch] = useState("");
   const [showArchivedConversations, setShowArchivedConversations] = useState(false);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
@@ -371,7 +394,7 @@ export function ChatShell({
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentView[]>([]);
   const [editingMessage, setEditingMessage] = useState<MessageView | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [runningGenerationKeys, setRunningGenerationKeys] = useState<string[]>([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -380,10 +403,14 @@ export function ChatShell({
   const [toolEvents, setToolEvents] = useState<ToolEventView[]>([]);
   const [processStartedAt, setProcessStartedAt] = useState<number | null>(null);
   const [processFinishedAt, setProcessFinishedAt] = useState<number | null>(null);
-  const [processNow, setProcessNow] = useState(Date.now());
+  const [processNow, setProcessNow] = useState(() => Date.now());
   const [lastContextStats, setLastContextStats] = useState<ContextStats | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeConversationKey = activeConversationId ?? activeLocalConversationKey;
+  const activeConversationKeyRef = useRef(activeConversationKey);
+  const activeConversationIdRef = useRef<string | null>(null);
+  const abortControllersRef = useRef(new Map<string, AbortController>());
   const autoScrollRef = useRef(true);
+  const inFlightChatsRef = useRef(new Map<string, InFlightChatGeneration>());
   const initialConversationsLoadedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const headerControlsRef = useRef<HTMLDivElement | null>(null);
@@ -391,6 +418,11 @@ export function ChatShell({
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const quotaBlocked = usage.remainingCostCents <= 0;
+  const runningGenerationKeySet = useMemo(
+    () => new Set(runningGenerationKeys),
+    [runningGenerationKeys]
+  );
+  const loading = runningGenerationKeySet.has(activeConversationKey);
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId),
@@ -419,6 +451,80 @@ export function ChatShell({
       text
     }));
   }, []);
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+    activeConversationKeyRef.current = activeConversationKey;
+  }, [activeConversationId, activeConversationKey]);
+
+  function markGenerationRunning(conversationKey: string) {
+    setRunningGenerationKeys((current) =>
+      current.includes(conversationKey) ? current : [...current, conversationKey]
+    );
+  }
+
+  function markGenerationFinished(conversationKey: string) {
+    setRunningGenerationKeys((current) => current.filter((key) => key !== conversationKey));
+  }
+
+  function isViewingConversationKey(conversationKey: string) {
+    return activeConversationKeyRef.current === conversationKey;
+  }
+
+  function syncVisibleProcessState(inFlightChat: InFlightChatGeneration) {
+    setLastContextStats(inFlightChat.contextStats);
+    setStreamStatus(inFlightChat.streamStatus);
+    setToolEvents(inFlightChat.toolEvents);
+    setProcessStartedAt(inFlightChat.processStartedAt);
+    setProcessFinishedAt(inFlightChat.processFinishedAt);
+    setProcessNow(Date.now());
+  }
+
+  function storeInFlightChat(conversationKey: string, inFlightChat: InFlightChatGeneration) {
+    inFlightChatsRef.current.set(conversationKey, inFlightChat);
+  }
+
+  function getInFlightChat(conversationKey: string) {
+    return inFlightChatsRef.current.get(conversationKey) ?? null;
+  }
+
+  function deleteInFlightChat(conversationKey: string) {
+    inFlightChatsRef.current.delete(conversationKey);
+  }
+
+  function resolveInFlightConversationKey(currentKey: string, conversationId: string) {
+    if (currentKey === conversationId) {
+      return conversationId;
+    }
+
+    const inFlightChat = inFlightChatsRef.current.get(currentKey);
+    const controller = abortControllersRef.current.get(currentKey);
+
+    if (inFlightChat) {
+      inFlightChatsRef.current.delete(currentKey);
+      inFlightChatsRef.current.set(conversationId, {
+        ...inFlightChat,
+        conversationId
+      });
+    }
+
+    if (controller) {
+      abortControllersRef.current.delete(currentKey);
+      abortControllersRef.current.set(conversationId, controller);
+    }
+
+    setRunningGenerationKeys((current) =>
+      current.map((key) => (key === currentKey ? conversationId : key))
+    );
+
+    if (activeConversationKeyRef.current === currentKey) {
+      activeConversationKeyRef.current = conversationId;
+      activeConversationIdRef.current = conversationId;
+      setActiveConversationId(conversationId);
+    }
+
+    return conversationId;
+  }
 
   const refreshMe = useCallback(async () => {
     const response = await fetch("/api/me");
@@ -475,12 +581,36 @@ export function ChatShell({
       context?: ContextStats;
     };
 
+    const inFlightChat = getInFlightChat(payload.conversation.id);
+    const restoringInFlightChat = inFlightChat && !inFlightChat.processFinishedAt ? inFlightChat : null;
+    let messagesWithInFlight = payload.conversation.messages;
+
+    if (
+      restoringInFlightChat &&
+      !messagesWithInFlight.some((message) => message.id === restoringInFlightChat.assistantMessage.id)
+    ) {
+      messagesWithInFlight = [...messagesWithInFlight, restoringInFlightChat.assistantMessage];
+    }
+
+    activeConversationIdRef.current = payload.conversation.id;
+    activeConversationKeyRef.current = payload.conversation.id;
     setActiveConversationId(payload.conversation.id);
-    setMessages(payload.conversation.messages);
-    setLastContextStats(payload.context ?? null);
-    setToolEvents([]);
-    setProcessStartedAt(null);
-    setProcessFinishedAt(null);
+    setMessages(messagesWithInFlight);
+    setLastContextStats(
+      restoringInFlightChat
+        ? restoringInFlightChat.contextStats ?? payload.context ?? null
+        : payload.context ?? null
+    );
+
+    if (restoringInFlightChat) {
+      syncVisibleProcessState(restoringInFlightChat);
+    } else {
+      setStreamStatus("");
+      setToolEvents([]);
+      setProcessStartedAt(null);
+      setProcessFinishedAt(null);
+    }
+
     if (payload.conversation.model && payload.conversation.model !== "image2") {
       setModel(payload.conversation.model);
     }
@@ -600,6 +730,10 @@ export function ChatShell({
         return;
       }
 
+      if (target instanceof Element && target.closest("[data-model-picker-panel]")) {
+        return;
+      }
+
       setModelPickerOpen(false);
     }
 
@@ -614,7 +748,11 @@ export function ChatShell({
   }
 
   function startNewConversation() {
+    const nextConversationKey = createLocalConversationKey();
     autoScrollRef.current = true;
+    activeConversationKeyRef.current = nextConversationKey;
+    activeConversationIdRef.current = null;
+    setActiveLocalConversationKey(nextConversationKey);
     setActiveConversationId(null);
     setMessages([]);
     setPendingAttachments([]);
@@ -857,18 +995,32 @@ export function ChatShell({
 
   function stopGeneration() {
     const now = Date.now();
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setLoading(false);
+    const conversationKey = activeConversationKeyRef.current;
+    const controller = abortControllersRef.current.get(conversationKey);
+    const inFlightChat = getInFlightChat(conversationKey);
+    const nextToolEvents = (inFlightChat?.toolEvents ?? toolEvents).map((event) =>
+      event.status === "running"
+        ? { ...event, detail: "已停止", finishedAt: now, status: "skipped" as const }
+        : event
+    );
+
+    controller?.abort();
+    abortControllersRef.current.delete(conversationKey);
+    markGenerationFinished(conversationKey);
+
+    if (inFlightChat) {
+      storeInFlightChat(conversationKey, {
+        ...inFlightChat,
+        assistantMessage: { ...inFlightChat.assistantMessage, pending: false },
+        processFinishedAt: now,
+        streamStatus: "已停止。",
+        toolEvents: nextToolEvents
+      });
+    }
+
     setProcessFinishedAt(now);
     setStreamStatus("已停止。");
-    setToolEvents((current) =>
-      current.map((event) =>
-        event.status === "running"
-          ? { ...event, detail: "已停止", finishedAt: now, status: "skipped" }
-          : event
-      )
-    );
+    setToolEvents(nextToolEvents);
     setMessages((current) =>
       current.map((message) => (message.pending ? { ...message, pending: false } : message))
     );
@@ -889,25 +1041,11 @@ export function ChatShell({
     };
     const controller = new AbortController();
     const processStart = Date.now();
-
-    abortControllerRef.current = controller;
-    autoScrollRef.current = true;
-    setProcessStartedAt(processStart);
-    setProcessFinishedAt(null);
-    setProcessNow(processStart);
-
-    setMessages((current) => {
-      if (!reuseUserMessageId) {
-        return [...current, localUser, localAssistant];
-      }
-
-      const userIndex = current.findIndex((message) => message.id === reuseUserMessageId);
-      const base = userIndex >= 0 ? current.slice(0, userIndex + 1) : current;
-
-      return [...base, localAssistant];
-    });
-    scheduleMessagesToBottom();
-    setToolEvents([
+    const startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
+    // Rebound when the server returns the persisted conversation id for a new local chat.
+    let conversationKey = startingConversationId ?? activeConversationKeyRef.current;
+    const initialStreamStatus = useWebSearch ? "正在联网搜索..." : "正在自动选择工具...";
+    const initialToolEvents = [
       createToolEvent(
         {
           detail: useWebSearch
@@ -922,33 +1060,86 @@ export function ChatShell({
         },
         processStart
       )
-    ]);
-    setStreamStatus(useWebSearch ? "正在联网搜索..." : "正在自动选择工具...");
+    ];
+
+    abortControllersRef.current.set(conversationKey, controller);
+    markGenerationRunning(conversationKey);
+    storeInFlightChat(conversationKey, {
+      assistantMessage: localAssistant,
+      contextStats: null,
+      conversationId: startingConversationId,
+      processFinishedAt: null,
+      processStartedAt: processStart,
+      streamStatus: initialStreamStatus,
+      toolEvents: initialToolEvents
+    });
+    if (isViewingConversationKey(conversationKey)) {
+      autoScrollRef.current = true;
+      setProcessStartedAt(processStart);
+      setProcessFinishedAt(null);
+      setProcessNow(processStart);
+
+      setMessages((current) => {
+        if (!reuseUserMessageId) {
+          return [...current, localUser, localAssistant];
+        }
+
+        const userIndex = current.findIndex((message) => message.id === reuseUserMessageId);
+        const base = userIndex >= 0 ? current.slice(0, userIndex + 1) : current;
+
+        return [...base, localAssistant];
+      });
+      scheduleMessagesToBottom();
+      setToolEvents(initialToolEvents);
+      setStreamStatus(initialStreamStatus);
+    }
 
     const finishProcess = () => {
       const now = Date.now();
-      setProcessFinishedAt(now);
-      setToolEvents((current) =>
-        current.map((event) =>
-          event.status === "running" ? { ...event, finishedAt: now, status: "skipped" } : event
-        )
+      const inFlightChat = getInFlightChat(conversationKey);
+      const nextToolEvents = (inFlightChat?.toolEvents ?? []).map((event) =>
+        event.status === "running" ? { ...event, finishedAt: now, status: "skipped" as const } : event
       );
+
+      if (inFlightChat?.assistantMessage.id === localAssistant.id) {
+        storeInFlightChat(conversationKey, {
+          ...inFlightChat,
+          processFinishedAt: now,
+          toolEvents: nextToolEvents
+        });
+      }
+
+      markGenerationFinished(conversationKey);
+
+      if (isViewingConversationKey(conversationKey)) {
+        setProcessFinishedAt(now);
+        setToolEvents((current) =>
+          current.map((event) =>
+            event.status === "running" ? { ...event, finishedAt: now, status: "skipped" } : event
+          )
+        );
+      }
     };
 
     let response: Response;
 
     try {
+      const promptClock = formatPromptClock();
+
       response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: activeConversationId,
+          conversationId: startingConversationId,
           model,
           reasoningEffort,
           content: prompt,
           reuseUserMessageId,
           useWebSearch,
           webSearchProvider,
+          clientDate: promptClock.date,
+          clientTime: promptClock.time,
+          clientTimeZone: promptClock.timeZone,
           attachmentIds: attachments.map((attachment) => attachment.id)
         }),
         signal: controller.signal
@@ -957,19 +1148,27 @@ export function ChatShell({
       finishProcess();
 
       if (controller.signal.aborted) {
-        setStreamStatus("已停止。");
+        abortControllersRef.current.delete(conversationKey);
+        deleteInFlightChat(conversationKey);
+        if (isViewingConversationKey(conversationKey)) {
+          setStreamStatus("已停止。");
+        }
         return;
       }
 
       const message =
         fetchError instanceof Error ? `连接上游失败：${fetchError.message}` : "连接上游失败。";
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === localAssistant.id ? { ...item, content: message, pending: false } : item
-        )
-      );
-      setError(message);
-      setStreamStatus("连接失败。");
+      abortControllersRef.current.delete(conversationKey);
+      deleteInFlightChat(conversationKey);
+      if (isViewingConversationKey(conversationKey)) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === localAssistant.id ? { ...item, content: message, pending: false } : item
+          )
+        );
+        setError(message);
+        setStreamStatus("连接失败。");
+      }
       return;
     }
 
@@ -983,29 +1182,114 @@ export function ChatShell({
         setUsage(payload.usage);
       }
 
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === localAssistant.id
-            ? { ...message, content: payload?.error || "发送失败。", pending: false }
-            : message
-        )
-      );
-      setError(payload?.error || "发送失败。");
-      setStreamStatus("发送失败。");
+      abortControllersRef.current.delete(conversationKey);
+      deleteInFlightChat(conversationKey);
+      if (isViewingConversationKey(conversationKey)) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === localAssistant.id
+              ? { ...message, content: payload?.error || "发送失败。", pending: false }
+              : message
+          )
+        );
+        setError(payload?.error || "发送失败。");
+        setStreamStatus("发送失败。");
+      }
       return;
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let resolvedConversationId = activeConversationId;
     let receivedDelta = false;
     let pendingContentDelta = "";
     let pendingReasoningDelta = "";
     let streamStatusStarted = false;
     let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-    setStreamStatus("工具路由完成，等待模型输出...");
+    const getCurrentInFlightChat = () =>
+      getInFlightChat(conversationKey)?.assistantMessage.id === localAssistant.id
+        ? getInFlightChat(conversationKey)
+        : null;
+    const isViewingInFlightChat = () => isViewingConversationKey(conversationKey);
+    const updateInFlightChat = (patch: Partial<InFlightChatGeneration>) => {
+      const current = getCurrentInFlightChat();
+
+      if (!current) {
+        return null;
+      }
+
+      const next = { ...current, ...patch };
+      storeInFlightChat(conversationKey, next);
+      return next;
+    };
+    const setChatStreamStatus = (status: string) => {
+      updateInFlightChat({ streamStatus: status });
+
+      if (isViewingInFlightChat()) {
+        setStreamStatus(status);
+      }
+    };
+    const setChatProcessFinishedAt = (finishedAt: number | null) => {
+      updateInFlightChat({ processFinishedAt: finishedAt });
+
+      if (isViewingInFlightChat()) {
+        setProcessFinishedAt(finishedAt);
+      }
+    };
+    const setChatContextStats = (contextStats: ContextStats | null) => {
+      updateInFlightChat({ contextStats });
+
+      if (isViewingInFlightChat()) {
+        setLastContextStats(contextStats);
+      }
+    };
+    const setChatToolEvents = (updater: (current: ToolEventView[]) => ToolEventView[]) => {
+      const nextEvents = updater(getCurrentInFlightChat()?.toolEvents ?? []);
+      updateInFlightChat({ toolEvents: nextEvents });
+
+      if (isViewingInFlightChat()) {
+        setToolEvents(nextEvents);
+        setProcessNow(Date.now());
+      }
+
+      return nextEvents;
+    };
+    const updateChatAssistantMessage = (updater: (message: MessageView) => MessageView) => {
+      const current = getCurrentInFlightChat();
+
+      if (!current) {
+        return;
+      }
+
+      const nextAssistantMessage = updater(current.assistantMessage);
+      updateInFlightChat({ assistantMessage: nextAssistantMessage });
+
+      if (!isViewingInFlightChat()) {
+        return;
+      }
+
+      setMessages((currentMessages) => {
+        const existingIndex = currentMessages.findIndex(
+          (message) => message.id === localAssistant.id
+        );
+
+        if (existingIndex < 0) {
+          return [...currentMessages, nextAssistantMessage];
+        }
+
+        return currentMessages.map((message) =>
+          message.id === localAssistant.id ? nextAssistantMessage : message
+        );
+      });
+    };
+    const clearCurrentInFlightChat = () => {
+      if (getCurrentInFlightChat()) {
+        deleteInFlightChat(conversationKey);
+      }
+    };
+
+    setChatStreamStatus("工具路由完成，等待模型输出...");
 
     const clearStreamFlushTimer = () => {
       if (streamFlushTimer) {
@@ -1025,19 +1309,13 @@ export function ChatShell({
       pendingReasoningDelta = "";
       clearStreamFlushTimer();
 
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === localAssistant.id
-            ? {
-                ...message,
-                content: contentDelta ? `${message.content}${contentDelta}` : message.content,
-                reasoningContent: reasoningDelta
-                  ? `${message.reasoningContent || ""}${reasoningDelta}`
-                  : message.reasoningContent
-              }
-            : message
-        )
-      );
+      updateChatAssistantMessage((message) => ({
+        ...message,
+        content: contentDelta ? `${message.content}${contentDelta}` : message.content,
+        reasoningContent: reasoningDelta
+          ? `${message.reasoningContent || ""}${reasoningDelta}`
+          : message.reasoningContent
+      }));
     };
     const scheduleStreamFlush = () => {
       if (!streamFlushTimer) {
@@ -1046,19 +1324,31 @@ export function ChatShell({
     };
     const upsertToolEvent = (toolEvent: ToolEventUpdate) => {
       const now = Date.now();
-      setToolEvents((current) => mergeToolEvent(current, toolEvent, now));
+      setChatToolEvents((current) => mergeToolEvent(current, toolEvent, now));
     };
 
     const handleEvent = (event: SseEvent) => {
       if (event.event === "meta") {
-        resolvedConversationId = event.data.conversationId as string;
-        setActiveConversationId(resolvedConversationId);
+        const nextConversationId =
+          typeof event.data.conversationId === "string" ? event.data.conversationId : "";
 
-        if (event.data.context) {
-          setLastContextStats(event.data.context as ContextStats);
+        if (!nextConversationId) {
+          return;
         }
 
-        if (event.data.userMessage) {
+        conversationKey = resolveInFlightConversationKey(conversationKey, nextConversationId);
+        updateChatAssistantMessage((message) => ({
+          ...message,
+          conversationId: nextConversationId
+        }));
+        void refreshConversations();
+
+        if (event.data.context) {
+          const contextStats = event.data.context as ContextStats;
+          setChatContextStats(contextStats);
+        }
+
+        if (event.data.userMessage && isViewingInFlightChat()) {
           const userMessage = event.data.userMessage as MessageView;
           setMessages((current) =>
             current.map((message) => (message.id === localUser.id ? userMessage : message))
@@ -1089,9 +1379,9 @@ export function ChatShell({
           });
 
           if (toolEvent.status === "running") {
-            setStreamStatus(toolEvent.detail || `${toolEvent.label}中...`);
+            setChatStreamStatus(toolEvent.detail || `${toolEvent.label}中...`);
           } else if (toolEvent.status === "done") {
-            setStreamStatus(toolEvent.detail || `${toolEvent.label}完成。`);
+            setChatStreamStatus(toolEvent.detail || `${toolEvent.label}完成。`);
           }
         }
       }
@@ -1113,7 +1403,7 @@ export function ChatShell({
               status: "running",
               type: "generation"
             });
-            setStreamStatus("正在流式输出...");
+            setChatStreamStatus("正在流式输出...");
           }
         }
       }
@@ -1132,18 +1422,39 @@ export function ChatShell({
         clearStreamFlushTimer();
         pendingContentDelta = "";
         pendingReasoningDelta = "";
-        const assistantMessage = event.data.assistantMessage as MessageView;
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === localAssistant.id ? { ...assistantMessage, pending: false } : message
-          )
-        );
+        const assistantMessage = {
+          ...(event.data.assistantMessage as MessageView),
+          pending: false
+        };
+        updateInFlightChat({ assistantMessage });
+
+        if (isViewingInFlightChat()) {
+          setMessages((current) => {
+            const localAssistantIndex = current.findIndex(
+              (message) => message.id === localAssistant.id
+            );
+
+            if (localAssistantIndex >= 0) {
+              return current.map((message) =>
+                message.id === localAssistant.id ? assistantMessage : message
+              );
+            }
+
+            if (current.some((message) => message.id === assistantMessage.id)) {
+              return current.map((message) =>
+                message.id === assistantMessage.id ? assistantMessage : message
+              );
+            }
+
+            return [...current, assistantMessage];
+          });
+        }
 
         if (event.data.usage) {
           setUsage(event.data.usage as UsageSummary);
         }
 
-        setToolEvents((current) =>
+        setChatToolEvents((current) =>
           mergeToolEvent(
             mergeToolEvent(current, {
               detail: receivedDelta ? "回答已生成" : "上游已完成，但没有返回可见文本",
@@ -1162,8 +1473,11 @@ export function ChatShell({
             now
           )
         );
-        setProcessFinishedAt(now);
-        setStreamStatus(receivedDelta ? "已完成。" : "上游已完成，但没有返回可见文本。");
+        setChatProcessFinishedAt(now);
+        setChatStreamStatus(receivedDelta ? "已完成。" : "上游已完成，但没有返回可见文本。");
+        markGenerationFinished(conversationKey);
+        abortControllersRef.current.delete(conversationKey);
+        clearCurrentInFlightChat();
       }
 
       if (event.event === "error") {
@@ -1172,13 +1486,11 @@ export function ChatShell({
         pendingContentDelta = "";
         pendingReasoningDelta = "";
         const message = String(event.data.error ?? "上游调用失败。");
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === localAssistant.id ? { ...item, content: message, pending: false } : item
-          )
-        );
-        setError(message);
-        setToolEvents((current) =>
+        updateChatAssistantMessage((item) => ({ ...item, content: message, pending: false }));
+        if (isViewingInFlightChat()) {
+          setError(message);
+        }
+        setChatToolEvents((current) =>
           mergeToolEvent(current, {
             detail: message,
             id: "generation",
@@ -1187,8 +1499,11 @@ export function ChatShell({
             type: "generation"
           }, now)
         );
-        setProcessFinishedAt(now);
-        setStreamStatus("上游调用失败。");
+        setChatProcessFinishedAt(now);
+        setChatStreamStatus("上游调用失败。");
+        markGenerationFinished(conversationKey);
+        abortControllersRef.current.delete(conversationKey);
+        clearCurrentInFlightChat();
       }
     };
 
@@ -1225,20 +1540,19 @@ export function ChatShell({
 
       if (controller.signal.aborted) {
         flushPendingOutput();
-        setProcessFinishedAt(now);
-        setStreamStatus("已停止。");
-        setToolEvents((current) =>
+        setChatProcessFinishedAt(now);
+        setChatStreamStatus("已停止。");
+        setChatToolEvents((current) =>
           current.map((event) =>
             event.status === "running"
               ? { ...event, detail: "已停止", finishedAt: now, status: "skipped" }
               : event
           )
         );
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === localAssistant.id ? { ...item, pending: false } : item
-          )
-        );
+        updateChatAssistantMessage((item) => ({ ...item, pending: false }));
+        markGenerationFinished(conversationKey);
+        abortControllersRef.current.delete(conversationKey);
+        clearCurrentInFlightChat();
         return;
       }
 
@@ -1247,13 +1561,11 @@ export function ChatShell({
       pendingReasoningDelta = "";
       const message =
         streamError instanceof Error ? `流式连接中断：${streamError.message}` : "流式连接中断。";
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === localAssistant.id ? { ...item, content: message, pending: false } : item
-        )
-      );
-      setError(message);
-      setToolEvents((current) =>
+      updateChatAssistantMessage((item) => ({ ...item, content: message, pending: false }));
+      if (isViewingInFlightChat()) {
+        setError(message);
+      }
+      setChatToolEvents((current) =>
         mergeToolEvent(current, {
           detail: message,
           id: "generation",
@@ -1262,15 +1574,19 @@ export function ChatShell({
           type: "generation"
         }, now)
       );
-      setProcessFinishedAt(now);
-      setStreamStatus("流式连接中断。");
+      setChatProcessFinishedAt(now);
+      setChatStreamStatus("流式连接中断。");
+      markGenerationFinished(conversationKey);
+      abortControllersRef.current.delete(conversationKey);
+      clearCurrentInFlightChat();
     }
 
     flushPendingOutput();
 
-    if (abortControllerRef.current === controller) {
-      abortControllerRef.current = null;
+    if (abortControllersRef.current.get(conversationKey) === controller) {
+      abortControllersRef.current.delete(conversationKey);
     }
+    markGenerationFinished(conversationKey);
 
     await refreshConversations();
   }
@@ -1288,27 +1604,10 @@ export function ChatShell({
     const localAssistant = emptyMessage("ASSISTANT", "生成中...", "IMAGE");
     const controller = new AbortController();
     const processStart = Date.now();
-
-    abortControllerRef.current = controller;
-    autoScrollRef.current = true;
-    setProcessStartedAt(processStart);
-    setProcessFinishedAt(null);
-    setProcessNow(processStart);
-    setMessages((current) => {
-      if (!reuseUserMessageId) {
-        return [...current, localUser, localAssistant];
-      }
-
-      const userIndex = current.findIndex((message) => message.id === reuseUserMessageId);
-
-      if (userIndex < 0) {
-        return [...current, localUser, localAssistant];
-      }
-
-      return [...current.slice(0, userIndex), localUser, localAssistant];
-    });
-    scheduleMessagesToBottom();
-    setToolEvents([
+    const startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
+    // Rebound when the server returns the persisted conversation id for a new local image chat.
+    let conversationKey = startingConversationId ?? activeConversationKeyRef.current;
+    const initialToolEvents = [
       createToolEvent(
         {
           detail:
@@ -1322,8 +1621,33 @@ export function ChatShell({
         },
         processStart
       )
-    ]);
-    setStreamStatus("正在提交生图请求...");
+    ];
+
+    abortControllersRef.current.set(conversationKey, controller);
+    markGenerationRunning(conversationKey);
+
+    if (isViewingConversationKey(conversationKey)) {
+      autoScrollRef.current = true;
+      setProcessStartedAt(processStart);
+      setProcessFinishedAt(null);
+      setProcessNow(processStart);
+      setMessages((current) => {
+        if (!reuseUserMessageId) {
+          return [...current, localUser, localAssistant];
+        }
+
+        const userIndex = current.findIndex((message) => message.id === reuseUserMessageId);
+
+        if (userIndex < 0) {
+          return [...current, localUser, localAssistant];
+        }
+
+        return [...current.slice(0, userIndex), localUser, localAssistant];
+      });
+      scheduleMessagesToBottom();
+      setToolEvents(initialToolEvents);
+      setStreamStatus("正在提交生图请求...");
+    }
 
     let response: Response;
 
@@ -1332,7 +1656,7 @@ export function ChatShell({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: activeConversationId,
+          conversationId: startingConversationId,
           model,
           prompt,
           reuseUserMessageId,
@@ -1343,36 +1667,45 @@ export function ChatShell({
       });
     } catch (fetchError) {
       const now = Date.now();
-      setProcessFinishedAt(now);
-      setToolEvents((current) =>
-        mergeToolEvent(current, {
-          detail: fetchError instanceof Error ? fetchError.message : "生图请求失败",
-          id: "image",
-          label: "image2",
-          status: controller.signal.aborted ? "skipped" : "error",
-          type: "image"
-        }, now)
-      );
+      const nextToolEvents = mergeToolEvent(initialToolEvents, {
+        detail: fetchError instanceof Error ? fetchError.message : "生图请求失败",
+        id: "image",
+        label: "image2",
+        status: controller.signal.aborted ? "skipped" : "error",
+        type: "image"
+      }, now);
+
+      markGenerationFinished(conversationKey);
+      abortControllersRef.current.delete(conversationKey);
+
+      if (isViewingConversationKey(conversationKey)) {
+        setProcessFinishedAt(now);
+        setToolEvents(nextToolEvents);
+      }
 
       if (controller.signal.aborted) {
-        setStreamStatus("已停止。");
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === localAssistant.id ? { ...message, pending: false } : message
-          )
-        );
+        if (isViewingConversationKey(conversationKey)) {
+          setStreamStatus("已停止。");
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === localAssistant.id ? { ...message, pending: false } : message
+            )
+          );
+        }
         return;
       }
 
       const message =
         fetchError instanceof Error ? `生图请求失败：${fetchError.message}` : "生图请求失败。";
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === localAssistant.id ? { ...item, content: message, pending: false } : item
-        )
-      );
-      setError(message);
-      setStreamStatus("生图失败。");
+      if (isViewingConversationKey(conversationKey)) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === localAssistant.id ? { ...item, content: message, pending: false } : item
+          )
+        );
+        setError(message);
+        setStreamStatus("生图失败。");
+      }
       return;
     }
 
@@ -1388,77 +1721,86 @@ export function ChatShell({
 
     if (!response.ok || !payload) {
       const now = Date.now();
-      setProcessFinishedAt(now);
-      setToolEvents((current) =>
-        mergeToolEvent(current, {
-          detail: payload?.error || "生图失败",
-          id: "image",
-          label: "image2",
-          status: "error",
-          type: "image"
-        }, now)
-      );
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === localAssistant.id
-            ? { ...message, content: payload?.error || "生图失败。", pending: false }
-            : message
-        )
-      );
-      setError(payload?.error || "生图失败。");
-      setStreamStatus("生图失败。");
+      markGenerationFinished(conversationKey);
+      abortControllersRef.current.delete(conversationKey);
+
+      if (isViewingConversationKey(conversationKey)) {
+        setProcessFinishedAt(now);
+        setToolEvents((current) =>
+          mergeToolEvent(current, {
+            detail: payload?.error || "生图失败",
+            id: "image",
+            label: "image2",
+            status: "error",
+            type: "image"
+          }, now)
+        );
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === localAssistant.id
+              ? { ...message, content: payload?.error || "生图失败。", pending: false }
+              : message
+          )
+        );
+        setError(payload?.error || "生图失败。");
+        setStreamStatus("生图失败。");
+      }
       return;
     }
 
     if (payload.conversationId) {
-      setActiveConversationId(payload.conversationId);
+      conversationKey = resolveInFlightConversationKey(conversationKey, payload.conversationId);
     }
 
-    setMessages((current) =>
-      current.map((message) => {
-        if (message.id === localUser.id && payload.userMessage) {
-          return payload.userMessage;
-        }
+    if (isViewingConversationKey(conversationKey)) {
+      setMessages((current) =>
+        current.map((message) => {
+          if (message.id === localUser.id && payload.userMessage) {
+            return payload.userMessage;
+          }
 
-        if (message.id === localAssistant.id && payload.assistantMessage) {
-          return { ...payload.assistantMessage, pending: false };
-        }
+          if (message.id === localAssistant.id && payload.assistantMessage) {
+            return { ...payload.assistantMessage, pending: false };
+          }
 
-        return message;
-      })
-    );
+          return message;
+        })
+      );
+    }
 
     if (payload.usage) {
       setUsage(payload.usage);
     }
 
     const finishTime = Date.now();
-    setToolEvents((current) =>
-      mergeToolEvent(
-        mergeToolEvent(current, {
-          detail:
-            sourceImage || attachments.some((attachment) => attachment.kind === "IMAGE")
-              ? "图片编辑已完成"
-              : "图片生成已完成",
-          id: "image",
-          label: "image2",
-          status: "done",
-          type: "image"
-        }, finishTime),
-        {
-          detail: "已更新本月用量和费用",
-          id: "usage",
-          label: "用量统计",
-          status: "done",
-          type: "usage"
-        },
-        finishTime
-      )
-    );
-    setProcessFinishedAt(finishTime);
-    setStreamStatus("生图完成。");
-    if (abortControllerRef.current === controller) {
-      abortControllerRef.current = null;
+    markGenerationFinished(conversationKey);
+    abortControllersRef.current.delete(conversationKey);
+
+    if (isViewingConversationKey(conversationKey)) {
+      setToolEvents((current) =>
+        mergeToolEvent(
+          mergeToolEvent(current, {
+            detail:
+              sourceImage || attachments.some((attachment) => attachment.kind === "IMAGE")
+                ? "图片编辑已完成"
+                : "图片生成已完成",
+            id: "image",
+            label: "image2",
+            status: "done",
+            type: "image"
+          }, finishTime),
+          {
+            detail: "已更新本月用量和费用",
+            id: "usage",
+            label: "用量统计",
+            status: "done",
+            type: "usage"
+          },
+          finishTime
+        )
+      );
+      setProcessFinishedAt(finishTime);
+      setStreamStatus("生图完成。");
     }
     await refreshConversations();
   }
@@ -1582,7 +1924,6 @@ export function ChatShell({
 
     setError("");
     setStreamStatus("正在重新生成...");
-    setLoading(true);
 
     try {
       if (previousUserMessage.mode === "IMAGE") {
@@ -1596,7 +1937,6 @@ export function ChatShell({
         reuseUserMessage: previousUserMessage
       });
     } finally {
-      setLoading(false);
       void refreshMe();
     }
   }
@@ -1607,12 +1947,10 @@ export function ChatShell({
     }
 
     setError("");
-    setLoading(true);
 
     try {
       await sendChat("请继续。", []);
     } finally {
-      setLoading(false);
       void refreshMe();
     }
   }
@@ -1644,7 +1982,6 @@ export function ChatShell({
     setToolEvents([]);
     setProcessStartedAt(null);
     setProcessFinishedAt(null);
-    setLoading(true);
 
     try {
       const useWebSearch = webSearchAvailable && webSearchEnabledForMessage;
@@ -1666,7 +2003,6 @@ export function ChatShell({
         await sendChat(prompt, attachments, { useWebSearch });
       }
     } finally {
-      setLoading(false);
       void refreshMe();
     }
   }
@@ -1840,6 +2176,7 @@ export function ChatShell({
             <div className="space-y-1">
               {group.conversations.map((conversation) => {
                 const active = conversation.id === activeConversationId;
+                const running = runningGenerationKeySet.has(conversation.id);
                 const selected = selectedConversationIdSet.has(conversation.id);
                 const renaming = renamingConversationId === conversation.id;
 
@@ -1905,6 +2242,9 @@ export function ChatShell({
                           {conversation.archivedAt ? (
                             <Archive className="size-3.5 shrink-0 text-stone-400" />
                           ) : null}
+                          {running ? (
+                            <Loader2 className="size-3.5 shrink-0 animate-spin text-[color:var(--claude-accent)]" />
+                          ) : null}
                           <p className="min-w-0 truncate text-sm font-medium">
                             {conversation.title}
                           </p>
@@ -1912,6 +2252,7 @@ export function ChatShell({
                         <p className="mt-0.5 truncate text-xs ios-muted">
                           {conversation.mode === "IMAGE" ? "image2" : conversation.model}
                           {conversation._count ? ` · ${conversation._count.messages} 条消息` : ""}
+                          {running ? " · 生成中" : ""}
                         </p>
                       </button>
                     )}
@@ -2044,7 +2385,7 @@ export function ChatShell({
             </button>
           ) : null}
           <div
-            className={`mx-auto flex max-w-5xl items-center justify-between gap-2 sm:gap-3 ${
+            className={`mx-auto flex max-w-5xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 ${
               desktopSidebarOpen ? "" : "lg:pl-10"
             }`}
           >
@@ -2085,10 +2426,7 @@ export function ChatShell({
               </div>
             </div>
 
-            <div
-              className="w-[min(12.5rem,56vw)] min-w-0 shrink-0 sm:w-auto"
-              ref={headerControlsRef}
-            >
+            <div className="w-full min-w-0 sm:w-auto sm:shrink-0" ref={headerControlsRef}>
               <ModelReasoningPicker
                 activeModel={activeModel}
                 activeReasoningEffort={activeReasoningEffort}
@@ -2362,7 +2700,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
       ? "描述要生成的图片"
       : webSearchEnabledForMessage
         ? "输入需要联网查询的问题"
-        : "输入消息，或直接说“画一张...”";
+        : "输入消息，或说“画一张”";
   const sendDisabled =
     (!loading && !draft.trim() && pendingAttachmentCount === 0 && !sourceImageSelected) ||
     quotaBlocked ||
@@ -2448,62 +2786,48 @@ function ModelReasoningPicker({
   const modelLabel = activeModel?.label || modelValue || "选择模型";
   const mobileModelLabel = getCompactModelLabel(modelLabel);
   const activeReasoningLabel = getReasoningUiCopy(activeReasoningEffort.id).label;
+  const [portalReady, setPortalReady] = useState(false);
+  const [useMobilePortal, setUseMobilePortal] = useState(false);
 
-  return (
-    <div className="relative w-full sm:w-auto">
+  useEffect(() => {
+    setPortalReady(true);
+
+    const mediaQuery = window.matchMedia("(max-width: 639px)");
+    const syncPortalMode = () => setUseMobilePortal(mediaQuery.matches);
+    syncPortalMode();
+    mediaQuery.addEventListener("change", syncPortalMode);
+
+    return () => mediaQuery.removeEventListener("change", syncPortalMode);
+  }, []);
+
+  const pickerPanel = open ? (
+    <>
       <button
-        aria-expanded={open}
-        aria-label="选择模型和思考强度"
-        className={`flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-xs font-medium backdrop-blur transition sm:h-9 sm:min-w-60 sm:px-3.5 ${
-          open
-            ? "border-stone-300 bg-white text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10)]"
-            : "border-black/10 bg-white/70 text-stone-800 shadow-[0_8px_28px_rgba(83,69,54,0.08)] hover:border-stone-300 hover:bg-white/95"
-        }`}
-        onClick={() => onOpenChange(!open)}
-        data-testid="model-reasoning-picker"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            onOpenChange(false);
-          }
-        }}
+        aria-label="关闭模型选择"
+        className="fixed inset-0 z-40 bg-black/10 sm:hidden"
+        onClick={() => onOpenChange(false)}
         type="button"
+      />
+      <div
+        className="fixed bottom-3 left-2 right-2 z-50 flex max-h-[calc(100dvh_-_1.5rem)] min-h-0 flex-col overflow-hidden rounded-[1.25rem] border border-[#eadfce] bg-[color:var(--claude-surface)] p-2 shadow-[0_24px_80px_rgba(83,69,54,0.18)] ring-1 ring-white/70 sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[34rem] sm:w-[26rem]"
+        data-model-picker-panel
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]">
-            <Sparkles className="size-3" />
-          </span>
-          <span className="min-w-0 truncate text-stone-950">
-            <span className="sm:hidden">{mobileModelLabel}</span>
-            <span className="hidden sm:inline">{modelLabel}</span>
-          </span>
-          <span className="text-stone-300">/</span>
-          <span className="shrink-0 text-stone-500 sm:hidden">{activeReasoningLabel}</span>
-          <span className="hidden shrink-0 text-stone-500 sm:inline">
-            思考 {activeReasoningLabel}
-          </span>
-        </span>
-        <ChevronDown
-          className={`size-3.5 shrink-0 text-stone-500 transition ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {open ? (
-        <div className="fixed left-3 right-3 top-[calc(3.65rem+env(safe-area-inset-top))] z-50 max-h-[min(34rem,calc(100dvh-5.25rem))] overflow-y-auto rounded-[1.35rem] border border-[#eadfce] bg-[color:var(--claude-surface)] p-2 shadow-[0_24px_80px_rgba(83,69,54,0.18)] ring-1 ring-white/70 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[26rem]">
-          <div className="flex items-center justify-between gap-3 px-2 py-1.5">
-            <div>
-              <p className="text-sm font-semibold text-stone-950">模型与思考</p>
-              <p className="mt-0.5 text-[11px] text-stone-500">下一次回复生效</p>
-            </div>
-            <button
-              className="grid size-8 shrink-0 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
-              onClick={() => onOpenChange(false)}
-              title="关闭"
-              type="button"
-            >
-              <X className="size-4" />
-            </button>
+        <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">模型与思考</p>
+            <p className="mt-0.5 text-[11px] text-stone-500">下一次回复生效</p>
           </div>
+          <button
+            className="grid size-8 shrink-0 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
+            onClick={() => onOpenChange(false)}
+            title="关闭"
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto pb-1 pr-1">
           <div className="mt-2 rounded-[1.05rem] bg-[#f6efe4] p-1">
             <div className="flex items-center justify-between px-2 py-1.5">
               <span className="text-[11px] font-semibold text-stone-500">模型</span>
@@ -2572,16 +2896,60 @@ function ModelReasoningPicker({
               })}
             </div>
           </div>
-
-          <button
-            className="mt-2 flex h-10 w-full items-center justify-center rounded-full bg-[color:var(--claude-accent)] px-3 text-sm font-semibold text-white transition hover:bg-[color:var(--claude-accent-dark)]"
-            onClick={() => onOpenChange(false)}
-            type="button"
-          >
-            完成
-          </button>
         </div>
-      ) : null}
+
+        <button
+          className="mt-2 flex h-10 w-full shrink-0 items-center justify-center rounded-full bg-[color:var(--claude-accent)] px-3 text-sm font-semibold text-white transition hover:bg-[color:var(--claude-accent-dark)]"
+          onClick={() => onOpenChange(false)}
+          type="button"
+        >
+          完成
+        </button>
+      </div>
+    </>
+  ) : null;
+
+  return (
+    <div className="relative w-full sm:w-auto">
+      <button
+        aria-expanded={open}
+        aria-label="选择模型和思考强度"
+        className={`flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-xs font-medium backdrop-blur transition sm:min-w-60 sm:px-3.5 ${
+          open
+            ? "border-stone-300 bg-white text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10)]"
+            : "border-black/10 bg-white/70 text-stone-800 shadow-[0_8px_28px_rgba(83,69,54,0.08)] hover:border-stone-300 hover:bg-white/95"
+        }`}
+        onClick={() => onOpenChange(!open)}
+        data-testid="model-reasoning-picker"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            onOpenChange(false);
+          }
+        }}
+        type="button"
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]">
+            <Sparkles className="size-3" />
+          </span>
+          <span className="min-w-0 truncate text-stone-950">
+            <span className="sm:hidden">{mobileModelLabel}</span>
+            <span className="hidden sm:inline">{modelLabel}</span>
+          </span>
+          <span className="text-stone-300">/</span>
+          <span className="shrink-0 text-stone-500 sm:hidden">{activeReasoningLabel}</span>
+          <span className="hidden shrink-0 text-stone-500 sm:inline">
+            思考 {activeReasoningLabel}
+          </span>
+        </span>
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-stone-500 transition ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {pickerPanel && useMobilePortal && portalReady
+        ? createPortal(pickerPanel, document.body)
+        : pickerPanel}
     </div>
   );
 }

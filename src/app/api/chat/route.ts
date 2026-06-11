@@ -26,7 +26,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
 import { planWebSearchQuery } from "@/lib/search-planner";
-import { resolveSystemPrompt } from "@/lib/system-prompt";
+import { normalizePromptClock, resolveSystemPrompt } from "@/lib/system-prompt";
 import { compactTitle, estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
@@ -48,6 +48,9 @@ type ChatBody = {
   reuseUserMessageId?: string;
   useWebSearch?: boolean;
   webSearchProvider?: string;
+  clientDate?: string;
+  clientTime?: string;
+  clientTimeZone?: string;
 };
 
 const encoder = new TextEncoder();
@@ -561,6 +564,12 @@ export async function POST(request: NextRequest) {
     return jsonError("消息不能为空。", 400);
   }
 
+  const promptClock = normalizePromptClock({
+    date: body.clientDate,
+    time: body.clientTime,
+    timeZone: body.clientTimeZone
+  });
+
   const existingConversation = reusedUserMessage
     ? reusedUserMessage.conversation
     : body.conversationId
@@ -688,7 +697,8 @@ export async function POST(request: NextRequest) {
     customSystemPrompt: aiSettings.customSystemPrompt,
     modelSystemPrompt:
       aiSettings.modelSystemPrompts[model.id] || aiSettings.modelSystemPrompts[model.upstreamId],
-    modelLabel: model.label
+    modelLabel: model.label,
+    promptClock
   });
   const webSearchStartedAt = Date.now();
   const webSearchPlan = await planWebSearchQuery({
@@ -696,6 +706,7 @@ export async function POST(request: NextRequest) {
     force: body.useWebSearch === true,
     modelId: model.id,
     prompt: content,
+    promptClock,
     signal: request.signal,
     settings: aiSettings
   });

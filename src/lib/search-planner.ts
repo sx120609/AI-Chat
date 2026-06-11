@@ -3,6 +3,7 @@ import {
   type AiRuntimeSettings,
   type UpstreamChatMessage
 } from "@/lib/upstream";
+import { normalizePromptClock, type PromptClock } from "@/lib/system-prompt";
 import { shouldUseWebSearch } from "@/lib/web-search";
 
 export type SearchQueryPlan = {
@@ -119,8 +120,9 @@ function buildPlannerMessages(options: {
   attachmentCount: number;
   force: boolean;
   prompt: string;
+  promptClock?: Partial<PromptClock>;
 }): UpstreamChatMessage[] {
-  const today = new Date().toISOString().slice(0, 10);
+  const promptClock = normalizePromptClock(options.promptClock);
 
   return [
     {
@@ -130,7 +132,7 @@ function buildPlannerMessages(options: {
     },
     {
       role: "user",
-      content: `今天日期：${today}\n强制搜索：${options.force ? "是" : "否"}\n本条消息附件数：${options.attachmentCount}\n用户问题：${options.prompt}`
+      content: `当前日期：${promptClock.date}\n当前时间：${promptClock.time}（${promptClock.timeZone}）\n强制搜索：${options.force ? "是" : "否"}\n本条消息附件数：${options.attachmentCount}\n用户问题：${options.prompt}`
     }
   ];
 }
@@ -140,6 +142,7 @@ export async function planWebSearchQuery(options: {
   attachmentCount?: number;
   modelId: string;
   prompt: string;
+  promptClock?: Partial<PromptClock>;
   signal?: AbortSignal;
   settings: AiRuntimeSettings;
 }): Promise<SearchQueryPlan> {
@@ -166,7 +169,8 @@ export async function planWebSearchQuery(options: {
       buildPlannerMessages({
         attachmentCount: options.attachmentCount ?? 0,
         force: options.force,
-        prompt: options.prompt
+        prompt: options.prompt,
+        promptClock: options.promptClock
       }),
       options.settings,
       { signal: options.signal }

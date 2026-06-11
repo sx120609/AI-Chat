@@ -633,7 +633,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         customSystemPrompt: event.target.value
                       }))
                     }
-                    placeholder="支持 {model} 和 {date}。默认 + 追加模式下会保留内置模板。"
+                    placeholder="支持 {model}、{date}、{time} 和 {timezone}。默认 + 追加模式下会保留内置模板。"
                     value={settingsForm.customSystemPrompt}
                   />
                 </label>
@@ -664,7 +664,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                               }
                             }))
                           }
-                          placeholder="留空则使用全局设置。支持 {model} 和 {date}。"
+                          placeholder="留空则使用全局设置。支持 {model}、{date}、{time} 和 {timezone}。"
                           value={settingsForm.modelSystemPrompts[item.id] || ""}
                         />
                       </label>

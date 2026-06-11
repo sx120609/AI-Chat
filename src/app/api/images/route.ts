@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   attachmentToView,
   contentWithAttachmentContext,
+  deleteAttachmentFiles,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   readAttachmentBuffer
@@ -24,6 +25,7 @@ type ImageBody = {
   prompt?: string;
   size?: string;
   attachmentIds?: string[];
+  reuseUserMessageId?: string;
   sourceImageMessageId?: string;
 };
 
@@ -153,9 +155,37 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "生图失败。", 400);
   }
 
-  const attachmentIds = uniqueAttachmentIds(body.attachmentIds);
+  const reusedUserMessage = body.reuseUserMessageId
+    ? await prisma.message.findFirst({
+        where: {
+          id: body.reuseUserMessageId,
+          role: "USER",
+          mode: "IMAGE",
+          conversation: {
+            userId: user.id
+          }
+        },
+        include: {
+          attachments: true,
+          conversation: {
+            include: {
+              _count: {
+                select: { messages: true }
+              }
+            }
+          }
+        }
+      })
+    : null;
+
+  if (body.reuseUserMessageId && !reusedUserMessage) {
+    return jsonError("要重新生成的图片消息不存在。", 404);
+  }
+
+  const attachmentIds = reusedUserMessage ? [] : uniqueAttachmentIds(body.attachmentIds);
   const prompt =
     body.prompt?.trim() ||
+    reusedUserMessage?.content ||
     (attachmentIds.length || body.sourceImageMessageId
       ? "请基于这张图片生成新图片。"
       : "");
@@ -172,21 +202,23 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  const existingConversation = body.conversationId
-    ? await prisma.conversation.findFirst({
-        where: {
-          id: body.conversationId,
-          userId: user.id
-        },
-        include: {
-          _count: {
-            select: { messages: true }
+  const existingConversation = reusedUserMessage
+    ? reusedUserMessage.conversation
+    : body.conversationId
+      ? await prisma.conversation.findFirst({
+          where: {
+            id: body.conversationId,
+            userId: user.id
+          },
+          include: {
+            _count: {
+              select: { messages: true }
+            }
           }
-        }
-      })
+        })
     : null;
 
-  if (body.conversationId && !existingConversation) {
+  if ((body.conversationId || body.reuseUserMessageId) && !existingConversation) {
     return jsonError("会话不存在。", 404);
   }
 
@@ -209,6 +241,10 @@ export async function POST(request: NextRequest) {
     return jsonError("部分附件已被发送，请重新上传后再试。", 400);
   }
 
+  const effectiveAttachments = reusedUserMessage
+    ? await ensureAttachmentsText(reusedUserMessage.attachments)
+    : attachments;
+
   const sourceImageMessage = body.sourceImageMessageId
     ? await prisma.message.findFirst({
         where: {
@@ -230,7 +266,7 @@ export async function POST(request: NextRequest) {
     return jsonError("源图片不存在或无权访问。", 404);
   }
 
-  const promptWithAttachmentContext = contentWithAttachmentContext(prompt, attachments);
+  const promptWithAttachmentContext = contentWithAttachmentContext(prompt, effectiveAttachments);
   const promptTokens = estimateTokens(promptWithAttachmentContext);
   const estimatedCostCents = estimateImageCostCents(promptTokens);
 
@@ -260,17 +296,61 @@ export async function POST(request: NextRequest) {
       }
     }));
 
-  const userMessage = await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      role: "USER",
-      content: prompt,
-      model: "image2",
-      mode: "IMAGE"
-    }
-  });
+  if (reusedUserMessage) {
+    const laterAttachments = await prisma.attachment.findMany({
+      where: {
+        message: {
+          conversationId: reusedUserMessage.conversationId,
+          id: {
+            gt: reusedUserMessage.id
+          }
+        }
+      }
+    });
 
-  if (attachments.length > 0) {
+    if (laterAttachments.length > 0) {
+      await prisma.attachment.deleteMany({
+        where: {
+          id: {
+            in: laterAttachments.map((attachment) => attachment.id)
+          }
+        }
+      });
+      await deleteAttachmentFiles(laterAttachments);
+    }
+
+    await prisma.message.deleteMany({
+      where: {
+        conversationId: reusedUserMessage.conversationId,
+        id: {
+          gt: reusedUserMessage.id
+        }
+      }
+    });
+  }
+
+  const userMessage = reusedUserMessage
+    ? await prisma.message.update({
+        where: { id: reusedUserMessage.id },
+        data: {
+          content: prompt,
+          model: "image2",
+          mode: "IMAGE"
+        },
+        include: { attachments: true }
+      })
+    : await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: "USER",
+          content: prompt,
+          model: "image2",
+          mode: "IMAGE"
+        },
+        include: { attachments: true }
+      });
+
+  if (!reusedUserMessage && attachments.length > 0) {
     await prisma.attachment.updateMany({
       where: {
         id: { in: attachments.map((attachment) => attachment.id) },
@@ -286,7 +366,7 @@ export async function POST(request: NextRequest) {
   try {
     const sourceImages = await Promise.all(
       [
-        ...attachments
+        ...effectiveAttachments
           .filter((attachment) => attachment.kind === "IMAGE")
           .map(async (attachment) => ({
             buffer: await readAttachmentBuffer(attachment),
@@ -341,7 +421,7 @@ export async function POST(request: NextRequest) {
       conversationId: conversation.id,
       userMessage: {
         ...userMessage,
-        attachments: attachments.map(attachmentToView),
+        attachments: effectiveAttachments.map(attachmentToView),
         createdAt: userMessage.createdAt.toISOString()
       },
       assistantMessage: {

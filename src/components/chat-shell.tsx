@@ -460,6 +460,10 @@ export function ChatShell({
     void refreshMe();
   }, [refreshMe]);
 
+  useEffect(() => {
+    document.title = siteSettings.siteName;
+  }, [siteSettings.siteName]);
+
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     scrollRef.current?.scrollIntoView({ behavior, block: "end" });
   }, []);
@@ -1049,15 +1053,32 @@ export function ChatShell({
   async function sendImage(
     prompt: string,
     attachments: AttachmentView[],
-    sourceImage: MessageView | null = null
+    sourceImage: MessageView | null = null,
+    options: { reuseUserMessage?: MessageView } = {}
   ) {
-    const localUser = emptyMessage("USER", prompt, "IMAGE", attachments);
+    const reuseUserMessage = options.reuseUserMessage;
+    const reuseUserMessageId = reuseUserMessage?.id;
+    const localUser = reuseUserMessage
+      ? { ...reuseUserMessage, attachments, content: prompt, mode: "IMAGE" as const, model: "image2" }
+      : emptyMessage("USER", prompt, "IMAGE", attachments);
     const localAssistant = emptyMessage("ASSISTANT", "生成中...", "IMAGE");
     const controller = new AbortController();
 
     abortControllerRef.current = controller;
     autoScrollRef.current = true;
-    setMessages((current) => [...current, localUser, localAssistant]);
+    setMessages((current) => {
+      if (!reuseUserMessageId) {
+        return [...current, localUser, localAssistant];
+      }
+
+      const userIndex = current.findIndex((message) => message.id === reuseUserMessageId);
+
+      if (userIndex < 0) {
+        return [...current, localUser, localAssistant];
+      }
+
+      return [...current.slice(0, userIndex), localUser, localAssistant];
+    });
     scheduleMessagesToBottom();
     setToolEvents([
       {
@@ -1083,6 +1104,7 @@ export function ChatShell({
           conversationId: activeConversationId,
           model,
           prompt,
+          reuseUserMessageId,
           sourceImageMessageId: sourceImage?.id,
           attachmentIds: attachments.map((attachment) => attachment.id)
         }),
@@ -1271,6 +1293,14 @@ export function ChatShell({
       return [...current.slice(0, index), payload.message as MessageView];
     });
     setEditingMessage(null);
+
+    if (payload.message.mode === "IMAGE") {
+      await sendImage(prompt, payload.message.attachments ?? [], null, {
+        reuseUserMessage: payload.message
+      });
+      return;
+    }
+
     await sendChat(prompt, payload.message.attachments ?? [], {
       reuseUserMessage: payload.message,
       useWebSearch
@@ -1290,6 +1320,13 @@ export function ChatShell({
     setLoading(true);
 
     try {
+      if (previousUserMessage.mode === "IMAGE") {
+        await sendImage(previousUserMessage.content, previousUserMessage.attachments ?? [], null, {
+          reuseUserMessage: previousUserMessage
+        });
+        return;
+      }
+
       await sendChat(previousUserMessage.content, previousUserMessage.attachments ?? [], {
         reuseUserMessage: previousUserMessage
       });
@@ -1385,9 +1422,6 @@ export function ChatShell({
               <p className="truncate text-sm font-semibold text-stone-800">
                 {siteSettings.siteName}
               </p>
-              {siteSettings.siteUrl ? (
-                <p className="mt-0.5 truncate text-[11px] ios-muted">{siteSettings.siteUrl}</p>
-              ) : null}
               <p className="mt-1 truncate text-xs ios-muted">{user.email}</p>
             </div>
           </div>
@@ -2631,6 +2665,7 @@ function MessageBubble({
   const displayReasoning = !isUser
     ? sanitizeReasoningContent(message.reasoningContent || "", message.model || "")
     : "";
+  const canContinue = !isUser && !message.imageUrl && message.mode !== "IMAGE";
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -2705,10 +2740,12 @@ function MessageBubble({
                   <RotateCcw className="size-3.5" />
                   重新生成
                 </MessageActionButton>
-                <MessageActionButton onClick={() => onContinue()} title="继续生成">
-                  <Send className="size-3.5" />
-                  继续
-                </MessageActionButton>
+                {canContinue ? (
+                  <MessageActionButton onClick={() => onContinue()} title="继续生成">
+                    <Send className="size-3.5" />
+                    继续
+                  </MessageActionButton>
+                ) : null}
               </>
             )}
             <MessageActionButton

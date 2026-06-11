@@ -217,6 +217,12 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     void loadAll();
   }, [loadAll]);
 
+  useEffect(() => {
+    if (settings?.siteName) {
+      document.title = settings.siteName;
+    }
+  }, [settings?.siteName]);
+
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSavingSettings(true);

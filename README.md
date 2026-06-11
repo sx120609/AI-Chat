@@ -101,7 +101,7 @@ http://your-sub2api-host:8080/v1
 
 “默认推理强度”只提供 Codex 风格的 `低`、`中`、`高`、`超高` 四档，后端会按“推理参数格式”透传为 `low`、`medium`、`high`、`xhigh`。OpenAI 文档推荐在 Responses API 上使用 `reasoning.effort`，但本项目为了兼容 Sub2API 的 `/chat/completions`，默认使用 `reasoning_effort`；如果你的上游不支持，可在后台改为关闭。
 
-聊天和生图请求会先尝试带上 `stream_options`、`reasoning_effort` 或 `response_format` 等增强参数；如果上游返回“不支持/无效参数”类兼容错误，会自动降级为最小 OpenAI-compatible 请求体重试一次。生图消息会保留在普通聊天会话中，不需要切换到单独的生图模式。
+聊天请求会先尝试带上 `stream_options: { "include_usage": true }` 和推理参数；如果上游返回“不支持/无效参数”类兼容错误，会先保留 `stream_options` 去掉推理参数重试，最后才降级为最小 OpenAI-compatible 请求体。生图消息会保留在普通聊天会话中，不需要切换到单独的生图模式。
 
 “身份与系统提示词”用于修正订阅转发类上游可能携带的默认身份设定。默认模板会让模型在网页聊天场景下按当前选择的模型名回答身份问题；也可以设置全局自定义提示词，或为某个模型单独覆盖。提示词支持 `{model}` 和 `{date}` 占位符。
 
@@ -205,9 +205,9 @@ npm run db:migrate:sqlite-to-pg
 
 额度窗口按自然月自动切换；管理员点击“重置额度”会把该用户的 `quotaResetAt` 设置为当前时间，当前窗口用量重新从该时间开始统计。额度只按费用扣减，消息数和 token 数仅作为用量明细展示。
 
-聊天模型的输入/输出 token 单价与 image2 固定费用位于 `src/lib/models.ts`，管理后台模型列表也会展示单价。由于 MVP 支持的模型名可能来自自定义上游，默认价格是网关侧估算值，可按实际供应商价格调整。
+聊天模型的输入/缓存输入/输出 token 单价与 image2 固定费用位于 `src/lib/models.ts`，管理后台模型列表也会展示单价。由于 MVP 支持的模型名可能来自自定义上游，默认价格是网关侧估算值，可按实际供应商价格调整。
 
-token 统计优先使用上游返回的 `usage`；如果上游流式响应没有返回 usage，网关会用 `src/lib/tokens.ts` 的近似算法估算。
+token 统计优先使用上游返回的 `usage`，包括 `prompt_tokens`、`completion_tokens`、`prompt_tokens_details.cached_tokens` 和 `completion_tokens_details.reasoning_tokens` 等细项；如果 usage 中包含 `cost` / `total_cost` / `cost_usd`，会优先采用上游返回费用。聊天费用以小数美分存储，能展示 `$0.010155` 这类 Sub2API 明细级别的小额费用。如果上游流式响应没有返回 usage，网关会用 `src/lib/tokens.ts` 的近似算法估算，并在消息底部标记“估算”。
 
 ## 安全边界
 

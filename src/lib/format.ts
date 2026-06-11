@@ -1,5 +1,11 @@
 export function formatCents(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
+  const dollars = cents / 100;
+
+  if (dollars > 0 && dollars < 1) {
+    return `$${dollars.toFixed(6)}`;
+  }
+
+  return `$${dollars.toFixed(2)}`;
 }
 
 export function formatNumber(value: number) {

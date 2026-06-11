@@ -19,7 +19,6 @@ function serializeConversation(conversation: {
   archivedAt?: Date | null;
   createdAt: Date;
   id: string;
-  messages?: Array<{ id: string }>;
   mode: "CHAT" | "IMAGE";
   model: string;
   pinned?: boolean;
@@ -37,10 +36,6 @@ function serializeConversation(conversation: {
     updatedAt: conversation.updatedAt.toISOString(),
     _count: conversation._count
   };
-}
-
-function lastMessageSortKey(conversation: { id: string; messages?: Array<{ id: string }> }) {
-  return conversation.messages?.[0]?.id || conversation.id;
 }
 
 export async function GET(request: NextRequest) {
@@ -87,26 +82,15 @@ export async function GET(request: NextRequest) {
       archivedAt: true,
       createdAt: true,
       updatedAt: true,
-      messages: {
-        orderBy: { id: "desc" },
-        select: { id: true },
-        take: 1
-      },
       _count: {
         select: { messages: true }
       }
-    }
-  });
-  const orderedConversations = conversations.sort((left, right) => {
-    if (left.pinned !== right.pinned) {
-      return left.pinned ? -1 : 1;
-    }
-
-    return lastMessageSortKey(right).localeCompare(lastMessageSortKey(left));
+    },
+    orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }]
   });
 
   return NextResponse.json({
-    conversations: orderedConversations.map(serializeConversation)
+    conversations: conversations.map(serializeConversation)
   });
 }
 

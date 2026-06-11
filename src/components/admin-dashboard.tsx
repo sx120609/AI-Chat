@@ -1243,7 +1243,8 @@ function ModelToggle({
           {model.upstreamId} · {model.source === "upstream" ? "上游" : model.contextNote}
         </span>
         <span className="mt-1 block truncate text-[11px] ios-muted">
-          输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 输出{" "}
+          输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 缓存{" "}
+          {formatCents(model.cachedInputCentsPerMillionTokens)}/百万 · 输出{" "}
           {formatCents(model.outputCentsPerMillionTokens)}/百万
         </span>
       </span>

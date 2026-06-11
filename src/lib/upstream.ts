@@ -29,9 +29,35 @@ export type UpstreamChatMessage = {
 };
 
 export type UpstreamUsage = {
+  cached_tokens?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  prompt_tokens_details?: {
+    audio_tokens?: number;
+    cached_tokens?: number;
+  };
+  completion_tokens_details?: {
+    accepted_prediction_tokens?: number;
+    audio_tokens?: number;
+    reasoning_tokens?: number;
+    rejected_prediction_tokens?: number;
+  };
+  input_token_details?: {
+    cached_tokens?: number;
+  };
+  output_token_details?: {
+    reasoning_tokens?: number;
+  };
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cost?: number | string;
+  total_cost?: number | string;
+  cost_usd?: number | string;
 };
 
 export type AiRuntimeSettings = {
@@ -377,7 +403,7 @@ async function upstreamErrorMessage(response: Response) {
 }
 
 // Sub2API / One API 等网关的旧版本可能不认识 stream_options 或 reasoning 参数，
-// 遇到这类 400 报错时降级为最小请求体重试一次。
+// 遇到这类 400 报错时逐步降级，尽量保留 include_usage。
 function looksLikeUnsupportedParamError(message: string) {
   return /stream_options|reasoning|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request)|额外|不支持|无效参数/i.test(
     message
@@ -425,23 +451,40 @@ export async function createChatCompletionStream(
     signal: options?.signal
   });
 
-  let response = await fetchWithHeadersTimeout(url, requestInit(fullBody), CHAT_HEADERS_TIMEOUT_MS);
+  const bodyCandidates = [fullBody];
 
-  if (!response.ok) {
+  if (fullBody.reasoning || fullBody.reasoning_effort) {
+    bodyCandidates.push({
+      ...baseBody,
+      stream_options: { include_usage: true }
+    });
+  }
+
+  bodyCandidates.push(baseBody);
+
+  let lastUnsupportedParamError = "";
+
+  for (const candidate of bodyCandidates) {
+    const response = await fetchWithHeadersTimeout(
+      url,
+      requestInit(candidate),
+      CHAT_HEADERS_TIMEOUT_MS
+    );
+
+    if (response.ok && response.body) {
+      return openAiCompatibleBody(response);
+    }
+
     const message = await upstreamErrorMessage(response);
 
     if (!looksLikeUnsupportedParamError(message)) {
       throw new Error(message);
     }
 
-    response = await fetchWithHeadersTimeout(url, requestInit(baseBody), CHAT_HEADERS_TIMEOUT_MS);
+    lastUnsupportedParamError = message;
   }
 
-  if (!response.ok || !response.body) {
-    throw new Error(await upstreamErrorMessage(response));
-  }
-
-  return openAiCompatibleBody(response);
+  throw new Error(lastUnsupportedParamError || "上游 API 不支持当前请求参数。");
 }
 
 export async function createChatCompletionText(

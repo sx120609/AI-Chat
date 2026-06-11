@@ -40,6 +40,17 @@ function serializeConversation(conversation: {
   };
 }
 
+function messageForClient<T extends { upstreamUsageJson?: string | null; webSourcesJson?: string | null }>(
+  message: T
+) {
+  const view = { ...message };
+
+  delete view.upstreamUsageJson;
+  delete view.webSourcesJson;
+
+  return view;
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   const user = await getUserFromRequest(request);
   const error = requireActiveUser(user);
@@ -108,7 +119,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     conversation: {
       ...serializeConversation(conversation),
       messages: messages.map((message) => ({
-        ...message,
+        ...messageForClient(message),
         attachments: message.attachments.map(attachmentToView),
         reasoningContent: message.reasoningContent
           ? sanitizeReasoningContent(message.reasoningContent, message.model || model.label)

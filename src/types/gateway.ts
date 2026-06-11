@@ -18,6 +18,7 @@ export type ChatModelView = {
   label: string;
   upstreamId: string;
   inputCentsPerMillionTokens: number;
+  cachedInputCentsPerMillionTokens: number;
   outputCentsPerMillionTokens: number;
   contextWindowTokens: number;
   contextNote: string;
@@ -76,6 +77,9 @@ export type MessageView = {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedPromptTokens: number;
+  reasoningTokens: number;
+  usageSource: string;
   estimatedCostCents: number;
   createdAt: string;
   attachments?: AttachmentView[];

@@ -38,6 +38,7 @@ import {
   type ReactNode,
   isValidElement,
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -181,6 +182,9 @@ function emptyMessage(
     promptTokens: 0,
     completionTokens: 0,
     totalTokens: 0,
+    cachedPromptTokens: 0,
+    reasoningTokens: 0,
+    usageSource: "estimated",
     estimatedCostCents: 0,
     createdAt: now,
     attachments,
@@ -461,10 +465,16 @@ export function ChatShell({
       }
 
       const payload = (await response.json()) as { conversations: ConversationSummary[] };
-      setConversations(payload.conversations);
-      setSelectedConversationIds((current) =>
-        current.filter((id) => payload.conversations.some((conversation) => conversation.id === id))
-      );
+      startTransition(() => {
+        const conversationIds = new Set(
+          payload.conversations.map((conversation) => conversation.id)
+        );
+
+        setConversations(payload.conversations);
+        setSelectedConversationIds((current) =>
+          current.filter((id) => conversationIds.has(id))
+        );
+      });
 
       const target = preferredId ?? (loadFirst ? payload.conversations[0]?.id : undefined);
 
@@ -1127,7 +1137,7 @@ export function ChatShell({
       abortControllerRef.current = null;
     }
 
-    await refreshConversations(resolvedConversationId ?? undefined);
+    await refreshConversations();
   }
 
   async function sendImage(
@@ -1274,7 +1284,7 @@ export function ChatShell({
     if (abortControllerRef.current === controller) {
       abortControllerRef.current = null;
     }
-    await refreshConversations(payload.conversationId);
+    await refreshConversations();
   }
 
   function findPreviousUserMessage(messageId: string) {
@@ -2857,7 +2867,18 @@ const MessageBubble = memo(function MessageBubble({
         ) : null}
         {!isUser && (message.totalTokens > 0 || message.estimatedCostCents > 0) ? (
           <p className="mt-3 text-xs text-stone-500">
-            {formatNumber(message.totalTokens)} tokens · {formatCents(message.estimatedCostCents)}
+            {message.promptTokens > 0 ? `↓ ${formatNumber(message.promptTokens)}` : null}
+            {message.promptTokens > 0 && message.completionTokens > 0 ? " · " : null}
+            {message.completionTokens > 0 ? `↑ ${formatNumber(message.completionTokens)}` : null}
+            {message.cachedPromptTokens > 0
+              ? ` · 缓存 ${formatNumber(message.cachedPromptTokens)}`
+              : null}
+            {message.reasoningTokens > 0
+              ? ` · 思考 ${formatNumber(message.reasoningTokens)}`
+              : null}
+            {message.usageSource === "estimated" ? " · 估算" : null}
+            {" · "}
+            {formatCents(message.estimatedCostCents)}
           </p>
         ) : null}
         {message.pending ? <p className="mt-2 text-xs opacity-70">处理中</p> : null}

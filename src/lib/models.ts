@@ -9,6 +9,7 @@ export type ChatModelConfig = {
   label: string;
   upstreamId: string;
   inputCentsPerMillionTokens: number;
+  cachedInputCentsPerMillionTokens: number;
   outputCentsPerMillionTokens: number;
   contextWindowTokens: number;
   contextNote: string;
@@ -42,6 +43,7 @@ export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "chat";
 export const DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS = 270_000;
 
 const DEFAULT_DYNAMIC_INPUT_CENTS_PER_MILLION = 100;
+const DEFAULT_DYNAMIC_CACHED_INPUT_CENTS_PER_MILLION = 10;
 const DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION = 500;
 const DEFAULT_DYNAMIC_CONTEXT_WINDOW_TOKENS = 128_000;
 
@@ -51,6 +53,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     label: "GPT-5.5",
     upstreamId: "gpt-5.5",
     inputCentsPerMillionTokens: 500,
+    cachedInputCentsPerMillionTokens: 50,
     outputCentsPerMillionTokens: 3000,
     contextWindowTokens: 1_000_000,
     contextNote: "旗舰",
@@ -63,6 +66,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     label: "GPT-5.4",
     upstreamId: "gpt-5.4",
     inputCentsPerMillionTokens: 250,
+    cachedInputCentsPerMillionTokens: 25,
     outputCentsPerMillionTokens: 1500,
     contextWindowTokens: 1_000_000,
     contextNote: "均衡",
@@ -75,6 +79,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     label: "GPT-5.4-Mini",
     upstreamId: "gpt-5.4-mini",
     inputCentsPerMillionTokens: 75,
+    cachedInputCentsPerMillionTokens: 7.5,
     outputCentsPerMillionTokens: 450,
     contextWindowTokens: 1_000_000,
     contextNote: "低成本",
@@ -87,6 +92,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     label: "GPT-5.3-Codex-Spark",
     upstreamId: "gpt-5.3-codex-spark",
     inputCentsPerMillionTokens: 300,
+    cachedInputCentsPerMillionTokens: 30,
     outputCentsPerMillionTokens: 1500,
     contextWindowTokens: 400_000,
     contextNote: "代码",
@@ -258,6 +264,7 @@ export function buildChatModelCatalog(settings?: {
       label: id,
       upstreamId: id,
       inputCentsPerMillionTokens: DEFAULT_DYNAMIC_INPUT_CENTS_PER_MILLION,
+      cachedInputCentsPerMillionTokens: DEFAULT_DYNAMIC_CACHED_INPUT_CENTS_PER_MILLION,
       outputCentsPerMillionTokens: DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION,
       contextWindowTokens: inferContextWindowTokens(id),
       contextNote: "上游",
@@ -332,20 +339,34 @@ export function estimateChatCostCents(
   modelId: string,
   promptTokens: number,
   completionTokens: number,
+  cachedPromptTokens = 0,
   catalog = CHAT_MODELS
 ) {
-  return estimateChatCostForModel(getChatModel(modelId, catalog), promptTokens, completionTokens);
+  return estimateChatCostForModel(
+    getChatModel(modelId, catalog),
+    promptTokens,
+    completionTokens,
+    cachedPromptTokens
+  );
 }
 
 export function estimateChatCostForModel(
   model: ChatModelConfig,
   promptTokens: number,
-  completionTokens: number
+  completionTokens: number,
+  cachedPromptTokens = 0
 ) {
-  const promptCost = (promptTokens / 1_000_000) * model.inputCentsPerMillionTokens;
+  const normalizedCachedPromptTokens = Math.min(
+    Math.max(0, Math.round(cachedPromptTokens)),
+    Math.max(0, Math.round(promptTokens))
+  );
+  const uncachedPromptTokens = Math.max(0, promptTokens - normalizedCachedPromptTokens);
+  const promptCost = (uncachedPromptTokens / 1_000_000) * model.inputCentsPerMillionTokens;
+  const cachedPromptCost =
+    (normalizedCachedPromptTokens / 1_000_000) * model.cachedInputCentsPerMillionTokens;
   const completionCost = (completionTokens / 1_000_000) * model.outputCentsPerMillionTokens;
 
-  return Math.max(1, Math.ceil(promptCost + completionCost));
+  return Math.max(0, promptCost + cachedPromptCost + completionCost);
 }
 
 export function estimateImageCostCents(promptTokens: number) {

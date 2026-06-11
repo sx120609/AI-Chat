@@ -74,7 +74,11 @@ model Message {
   promptTokens       Int            @default(0)
   completionTokens   Int            @default(0)
   totalTokens        Int            @default(0)
-  estimatedCostCents Int            @default(0)
+  cachedPromptTokens Int            @default(0)
+  reasoningTokens    Int            @default(0)
+  usageSource        String         @default("estimated")
+  upstreamUsageJson  String?
+  estimatedCostCents Float          @default(0)
   createdAt          DateTime       @default(now())
   conversation       Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   attachments        Attachment[]
@@ -113,7 +117,11 @@ model UsageRecord {
   promptTokens       Int            @default(0)
   completionTokens   Int            @default(0)
   totalTokens        Int            @default(0)
-  estimatedCostCents Int            @default(0)
+  cachedPromptTokens Int            @default(0)
+  reasoningTokens    Int            @default(0)
+  usageSource        String         @default("estimated")
+  upstreamUsageJson  String?
+  estimatedCostCents Float          @default(0)
   createdAt          DateTime       @default(now())
   user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation       Conversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)

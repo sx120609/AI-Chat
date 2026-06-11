@@ -138,6 +138,79 @@ function parseUsage(payload: unknown): UpstreamUsage | undefined {
   return json.usage ?? undefined;
 }
 
+function numberFromUsage(value: unknown) {
+  const parsed = typeof value === "string" ? Number(value) : value;
+
+  return typeof parsed === "number" && Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+}
+
+function costCentsFromUsage(value: unknown) {
+  const parsed = typeof value === "string" ? Number(value) : value;
+
+  return typeof parsed === "number" && Number.isFinite(parsed)
+    ? Math.max(0, parsed * 100)
+    : 0;
+}
+
+function usageToJson(upstreamUsage: UpstreamUsage | undefined) {
+  if (!upstreamUsage) {
+    return null;
+  }
+
+  try {
+    return JSON.stringify(upstreamUsage).slice(0, 8000);
+  } catch {
+    return null;
+  }
+}
+
+function resolveTokenUsage(options: {
+  completionTokensEstimate: number;
+  model: ReturnType<typeof getChatModel>;
+  promptTokensEstimate: number;
+  upstreamUsage?: UpstreamUsage;
+}) {
+  const { completionTokensEstimate, model, promptTokensEstimate, upstreamUsage } = options;
+  const promptTokens =
+    numberFromUsage(upstreamUsage?.prompt_tokens) ||
+    numberFromUsage(upstreamUsage?.input_tokens) ||
+    promptTokensEstimate;
+  const completionTokens =
+    numberFromUsage(upstreamUsage?.completion_tokens) ||
+    numberFromUsage(upstreamUsage?.output_tokens) ||
+    completionTokensEstimate;
+  const totalTokens =
+    numberFromUsage(upstreamUsage?.total_tokens) || promptTokens + completionTokens;
+  const cachedPromptTokens = Math.min(
+    promptTokens,
+    numberFromUsage(upstreamUsage?.prompt_tokens_details?.cached_tokens) ||
+      numberFromUsage(upstreamUsage?.input_token_details?.cached_tokens) ||
+      numberFromUsage(upstreamUsage?.cached_tokens) ||
+      numberFromUsage(upstreamUsage?.prompt_cache_hit_tokens) ||
+      numberFromUsage(upstreamUsage?.cache_read_input_tokens)
+  );
+  const reasoningTokens =
+    numberFromUsage(upstreamUsage?.completion_tokens_details?.reasoning_tokens) ||
+    numberFromUsage(upstreamUsage?.output_token_details?.reasoning_tokens);
+  const upstreamCostCents =
+    costCentsFromUsage(upstreamUsage?.cost) ||
+    costCentsFromUsage(upstreamUsage?.total_cost) ||
+    costCentsFromUsage(upstreamUsage?.cost_usd);
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    cachedPromptTokens,
+    reasoningTokens,
+    usageSource: upstreamUsage ? "upstream" : "estimated",
+    upstreamUsageJson: usageToJson(upstreamUsage),
+    estimatedCostCents:
+      upstreamCostCents ||
+      estimateChatCostForModel(model, promptTokens, completionTokens, cachedPromptTokens)
+  };
+}
+
 function uniqueAttachmentIds(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
@@ -180,6 +253,17 @@ function parseStreamError(payload: unknown) {
   return typeof errorField === "string"
     ? errorField
     : errorField.message || "上游在流式响应中返回了错误。";
+}
+
+function messageForClient<T extends { upstreamUsageJson?: string | null; webSourcesJson?: string | null }>(
+  message: T
+) {
+  const view = { ...message };
+
+  delete view.upstreamUsageJson;
+  delete view.webSourcesJson;
+
+  return view;
 }
 
 async function readWithIdleTimeout(
@@ -712,12 +796,15 @@ export async function POST(request: NextRequest) {
       const persistAssistantMessage = async (upstreamUsage: UpstreamUsage | undefined) => {
         const visibleAssistantContent = sanitizeIdentityLeak(assistantContent, model.label);
         const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
-        const promptTokens = upstreamUsage?.prompt_tokens ?? promptTokensEstimate;
-        const completionTokens =
-          upstreamUsage?.completion_tokens ??
-          Math.max(1, estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent));
-        const totalTokens = upstreamUsage?.total_tokens ?? promptTokens + completionTokens;
-        const estimatedCostCents = estimateChatCostForModel(model, promptTokens, completionTokens);
+        const tokenUsage = resolveTokenUsage({
+          completionTokensEstimate: Math.max(
+            1,
+            estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
+          ),
+          model,
+          promptTokensEstimate,
+          upstreamUsage
+        });
 
         const assistantMessage = await prisma.message.create({
           data: {
@@ -728,10 +815,14 @@ export async function POST(request: NextRequest) {
             model: model.id,
             mode: "CHAT",
             webSourcesJson: JSON.stringify(webSearchSources),
-            promptTokens,
-            completionTokens,
-            totalTokens,
-            estimatedCostCents
+            promptTokens: tokenUsage.promptTokens,
+            completionTokens: tokenUsage.completionTokens,
+            totalTokens: tokenUsage.totalTokens,
+            cachedPromptTokens: tokenUsage.cachedPromptTokens,
+            reasoningTokens: tokenUsage.reasoningTokens,
+            usageSource: tokenUsage.usageSource,
+            upstreamUsageJson: tokenUsage.upstreamUsageJson,
+            estimatedCostCents: tokenUsage.estimatedCostCents
           }
         });
 
@@ -742,10 +833,14 @@ export async function POST(request: NextRequest) {
             messageId: assistantMessage.id,
             model: model.id,
             mode: "CHAT",
-            promptTokens,
-            completionTokens,
-            totalTokens,
-            estimatedCostCents
+            promptTokens: tokenUsage.promptTokens,
+            completionTokens: tokenUsage.completionTokens,
+            totalTokens: tokenUsage.totalTokens,
+            cachedPromptTokens: tokenUsage.cachedPromptTokens,
+            reasoningTokens: tokenUsage.reasoningTokens,
+            usageSource: tokenUsage.usageSource,
+            upstreamUsageJson: tokenUsage.upstreamUsageJson,
+            estimatedCostCents: tokenUsage.estimatedCostCents
           }
         });
 
@@ -797,7 +892,7 @@ export async function POST(request: NextRequest) {
 
         sse(controller, "done", {
           assistantMessage: {
-            ...assistantMessage,
+            ...messageForClient(assistantMessage),
             webSources: webSearchSources,
             createdAt: assistantMessage.createdAt.toISOString()
           },

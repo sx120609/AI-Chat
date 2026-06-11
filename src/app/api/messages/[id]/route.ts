@@ -3,6 +3,7 @@ import { attachmentToView, deleteAttachmentFiles } from "@/lib/attachments";
 import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
+import { messagesAfter } from "@/lib/message-order";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -82,9 +83,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     where: {
       message: {
         conversationId: message.conversationId,
-        id: {
-          gt: message.id
-        }
+        ...messagesAfter(message)
       }
     }
   });
@@ -103,9 +102,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     await tx.message.deleteMany({
       where: {
         conversationId: message.conversationId,
-        id: {
-          gt: message.id
-        }
+        ...messagesAfter(message)
       }
     });
 

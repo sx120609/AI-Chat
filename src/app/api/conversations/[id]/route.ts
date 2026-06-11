@@ -5,6 +5,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { sanitizeReasoningContent } from "@/lib/identity";
+import { isMessageAfter, MESSAGE_ORDER_ASC } from "@/lib/message-order";
 import { getChatModel } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { resolveSystemPrompt } from "@/lib/system-prompt";
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         include: {
           attachments: true
         },
-        orderBy: { id: "asc" }
+        orderBy: MESSAGE_ORDER_ASC
       }
     }
   });
@@ -91,6 +92,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }))
   );
   const model = getChatModel(conversation.model, aiSettings.chatModels);
+  const summaryCutoff =
+    conversation.contextSummaryUntilCreatedAt && conversation.contextSummaryUntilMessageId
+      ? {
+          createdAt: conversation.contextSummaryUntilCreatedAt,
+          id: conversation.contextSummaryUntilMessageId
+        }
+      : null;
   const systemPrompt = resolveSystemPrompt({
     mode: aiSettings.systemPromptMode,
     customSystemPrompt: aiSettings.customSystemPrompt,
@@ -103,8 +111,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       (message) =>
         !message.imageUrl &&
         (message.role === "USER" || message.role === "ASSISTANT") &&
-        (!conversation.contextSummaryUntilCreatedAt ||
-          message.createdAt > conversation.contextSummaryUntilCreatedAt)
+        (!summaryCutoff || isMessageAfter(message, summaryCutoff))
     )
     .reverse()
     .map((message) => ({

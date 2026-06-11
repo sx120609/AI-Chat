@@ -128,7 +128,7 @@ function buildPlannerMessages(options: {
     {
       role: "system",
       content:
-        "你是搜索查询规划器，不回答用户问题，只判断是否需要联网搜索并生成搜索关键词。只返回 JSON，不要 Markdown，不要解释。JSON 必须是 {\"shouldSearch\":true|false,\"query\":\"搜索词\"}。搜索词要保留关键实体、地点、时间、政策/价格/版本等限定词；不要只保留单个汉字或“这/这个/它”。国际人物、公司、产品可同时保留中文名和英文常用名，例如“特朗普 Trump 最新政策”。不要编造用户没提到的实体。若用户问题不需要实时信息且没有强制搜索，shouldSearch=false。若用户上传了附件并问“这是什么/总结这个文件/分析这份 PDF”这类指向附件的问题，除非用户明确要求联网搜索，否则 shouldSearch=false。"
+        "你是搜索查询规划器，不回答用户问题，只判断是否需要联网搜索并生成搜索关键词。只返回 JSON，不要 Markdown，不要解释。JSON 必须是 {\"shouldSearch\":true|false,\"query\":\"搜索词\"}。搜索词要保留关键实体、地点、时间、政策/价格/版本等限定词；不要只保留单个汉字或“这/这个/它”。国际人物、公司、产品可同时保留中文名和英文常用名，例如“特朗普 Trump 最新政策”。不要编造用户没提到的实体。强制搜索=是时，只要用户问题里有可搜索主题，shouldSearch=true。强制搜索=否时，只有当前/最新/价格/天气/政策/版本/新闻/赛程等可能变化的信息，或用户明确要求联网时，shouldSearch=true；常识、写作、翻译、代码解释、附件总结等不需要实时信息的问题 shouldSearch=false。若用户上传了附件并问“这是什么/总结这个文件/分析这份 PDF”这类指向附件的问题，除非强制搜索=是或用户明确要求联网搜索，否则 shouldSearch=false。"
     },
     {
       role: "user",
@@ -146,16 +146,18 @@ export async function planWebSearchQuery(options: {
   signal?: AbortSignal;
   settings: AiRuntimeSettings;
 }): Promise<SearchQueryPlan> {
-  const attachmentBound = isAttachmentBoundPrompt(options.prompt, options.attachmentCount ?? 0);
+  const attachmentBound =
+    !options.force && isAttachmentBoundPrompt(options.prompt, options.attachmentCount ?? 0);
+  const fallbackQueryText = fallbackQuery(options.prompt);
   const fallback: SearchQueryPlan = {
-    query: fallbackQuery(options.prompt),
+    query: fallbackQueryText,
     shouldSearch:
       !attachmentBound &&
-      hasSearchableQuery(fallbackQuery(options.prompt)) &&
+      hasSearchableQuery(fallbackQueryText) &&
       (options.force || shouldUseWebSearch(options.prompt))
   };
 
-  if (attachmentBound || (!options.force && !shouldUseWebSearch(options.prompt))) {
+  if (attachmentBound) {
     return fallback;
   }
 

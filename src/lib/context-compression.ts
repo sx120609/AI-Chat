@@ -6,6 +6,7 @@ import {
   capContextWindowTokens,
   type ChatModelConfig
 } from "@/lib/models";
+import { isMessageAfter } from "@/lib/message-order";
 import { prisma } from "@/lib/prisma";
 import {
   createChatCompletionText,
@@ -205,9 +206,16 @@ export async function maybeCompressConversationContext(options: {
   userContent?: ChatMessageContent;
 }) {
   const existingSummary = options.conversation?.contextSummary?.trim() || "";
-  const cutoff = options.conversation?.contextSummaryUntilCreatedAt ?? null;
+  const cutoff =
+    options.conversation?.contextSummaryUntilCreatedAt &&
+    options.conversation.contextSummaryUntilMessageId
+      ? {
+          createdAt: options.conversation.contextSummaryUntilCreatedAt,
+          id: options.conversation.contextSummaryUntilMessageId
+        }
+      : null;
   const liveMessages = cutoff
-    ? options.previousMessages.filter((message) => message.createdAt > cutoff)
+    ? options.previousMessages.filter((message) => isMessageAfter(message, cutoff))
     : options.previousMessages;
   const compressedHistoryMessageCount = options.conversation?.contextSummaryMessageCount ?? 0;
   const initialContext = buildContextMessages({

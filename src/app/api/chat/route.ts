@@ -17,6 +17,7 @@ import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
 import { maybeRunFileAnalysisAgent } from "@/lib/file-analysis-agent";
+import { MESSAGE_ORDER_DESC, messagesAfter, messagesBefore } from "@/lib/message-order";
 import {
   estimateChatCostForModel,
   getChatModel,
@@ -622,9 +623,7 @@ export async function POST(request: NextRequest) {
       where: {
         message: {
           conversationId: reusedUserMessage.conversationId,
-          id: {
-            gt: reusedUserMessage.id
-          }
+          ...messagesAfter(reusedUserMessage)
         }
       }
     });
@@ -643,9 +642,7 @@ export async function POST(request: NextRequest) {
     await prisma.message.deleteMany({
       where: {
         conversationId: reusedUserMessage.conversationId,
-        id: {
-          gt: reusedUserMessage.id
-        }
+        ...messagesAfter(reusedUserMessage)
       }
     });
 
@@ -659,13 +656,7 @@ export async function POST(request: NextRequest) {
     ? await prisma.message.findMany({
         where: {
           conversationId: existingConversation.id,
-          ...(reusedUserMessage
-            ? {
-                id: {
-                  lt: reusedUserMessage.id
-                }
-              }
-            : {}),
+          ...(reusedUserMessage ? messagesBefore(reusedUserMessage) : {}),
           imageUrl: null,
           role: {
             in: ["USER", "ASSISTANT"]
@@ -674,7 +665,7 @@ export async function POST(request: NextRequest) {
         include: {
           attachments: true
         },
-        orderBy: { id: "desc" },
+        orderBy: MESSAGE_ORDER_DESC,
         take: MAX_CONTEXT_HISTORY_MESSAGES
       })
     : [];

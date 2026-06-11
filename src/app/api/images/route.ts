@@ -11,6 +11,7 @@ import { ensureAttachmentsText } from "@/lib/attachment-repair";
 import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
+import { messagesAfter } from "@/lib/message-order";
 import { estimateImageCostCents } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
@@ -287,8 +288,8 @@ export async function POST(request: NextRequest) {
       data: {
         userId: user.id,
         title: compactTitle(prompt),
-        model: body.model?.trim() || "image2",
-        mode: "CHAT"
+        model: "image2",
+        mode: "IMAGE"
       },
       include: {
         _count: {
@@ -302,9 +303,7 @@ export async function POST(request: NextRequest) {
       where: {
         message: {
           conversationId: reusedUserMessage.conversationId,
-          id: {
-            gt: reusedUserMessage.id
-          }
+          ...messagesAfter(reusedUserMessage)
         }
       }
     });
@@ -323,9 +322,7 @@ export async function POST(request: NextRequest) {
     await prisma.message.deleteMany({
       where: {
         conversationId: reusedUserMessage.conversationId,
-        id: {
-          gt: reusedUserMessage.id
-        }
+        ...messagesAfter(reusedUserMessage)
       }
     });
 
@@ -417,6 +414,8 @@ export async function POST(request: NextRequest) {
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
+        mode: conversation._count.messages === 0 ? "IMAGE" : conversation.mode,
+        model: conversation._count.messages === 0 ? "image2" : conversation.model,
         title: conversation._count.messages === 0 ? compactTitle(prompt) : conversation.title
       }
     });

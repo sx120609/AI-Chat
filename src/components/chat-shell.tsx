@@ -4,7 +4,6 @@ import {
   Archive,
   ArchiveRestore,
   Check,
-  CheckSquare,
   ChevronDown,
   Copy,
   ExternalLink,
@@ -375,8 +374,6 @@ export function ChatShell({
   const [showArchivedConversations, setShowArchivedConversations] = useState(false);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
-  const [selectedConversationIds, setSelectedConversationIds] = useState<string[]>([]);
-  const [selectingConversations, setSelectingConversations] = useState(false);
   const [openConversationMenuId, setOpenConversationMenuId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [imageToolEnabled, setImageToolEnabled] = useState(false);
@@ -410,6 +407,8 @@ export function ChatShell({
   const activeConversationIdRef = useRef<string | null>(null);
   const abortControllersRef = useRef(new Map<string, AbortController>());
   const autoScrollRef = useRef(true);
+  const conversationListRequestSeqRef = useRef(0);
+  const conversationLoadRequestSeqRef = useRef(0);
   const inFlightChatsRef = useRef(new Map<string, InFlightChatGeneration>());
   const initialConversationsLoadedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -432,16 +431,23 @@ export function ChatShell({
     () => chatModels.find((item) => item.id === model) ?? chatModels[0],
     [chatModels, model]
   );
+  const messageModelLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+
+    for (const item of chatModels) {
+      labels.set(item.id, item.label);
+      labels.set(item.upstreamId, item.label);
+    }
+
+    labels.set("image2", "image2");
+    return labels;
+  }, [chatModels]);
   const activeReasoningEffort = useMemo(
     () => REASONING_EFFORTS.find((item) => item.id === reasoningEffort) ?? REASONING_EFFORTS[0],
     [reasoningEffort]
   );
   const webSearchProvider = "duckduckgo";
   const webSearchProviderLabel = "DuckDuckGo";
-  const selectedConversationIdSet = useMemo(
-    () => new Set(selectedConversationIds),
-    [selectedConversationIds]
-  );
   const groupedConversations = useMemo(() => groupConversations(conversations), [conversations]);
   const sidebarHeaderButtonClass =
     "min-h-9 min-w-9 shrink-0 place-items-center rounded-lg border border-[color:var(--ios-separator)] bg-[rgba(255,253,247,0.76)] text-[#4f4338] transition hover:bg-[rgba(255,253,247,0.98)] hover:text-[color:var(--claude-ink)] active:scale-95";
@@ -570,9 +576,11 @@ export function ChatShell({
   }, []);
 
   const loadConversation = useCallback(async (conversationId: string) => {
+    const requestSeq = conversationLoadRequestSeqRef.current + 1;
+    conversationLoadRequestSeqRef.current = requestSeq;
     const response = await fetch(`/api/conversations/${conversationId}`);
 
-    if (!response.ok) {
+    if (!response.ok || requestSeq !== conversationLoadRequestSeqRef.current) {
       return;
     }
 
@@ -580,6 +588,10 @@ export function ChatShell({
       conversation: ConversationSummary & { messages: MessageView[] };
       context?: ContextStats;
     };
+
+    if (requestSeq !== conversationLoadRequestSeqRef.current) {
+      return;
+    }
 
     const inFlightChat = getInFlightChat(payload.conversation.id);
     const restoringInFlightChat = inFlightChat && !inFlightChat.processFinishedAt ? inFlightChat : null;
@@ -621,6 +633,8 @@ export function ChatShell({
 
   const refreshConversations = useCallback(
     async (preferredId?: string, loadFirst = false) => {
+      const requestSeq = conversationListRequestSeqRef.current + 1;
+      conversationListRequestSeqRef.current = requestSeq;
       const params = new URLSearchParams();
 
       if (conversationSearch.trim()) {
@@ -635,20 +649,18 @@ export function ChatShell({
         `/api/conversations${params.toString() ? `?${params.toString()}` : ""}`
       );
 
-      if (!response.ok) {
+      if (!response.ok || requestSeq !== conversationListRequestSeqRef.current) {
         return;
       }
 
       const payload = (await response.json()) as { conversations: ConversationSummary[] };
-      startTransition(() => {
-        const conversationIds = new Set(
-          payload.conversations.map((conversation) => conversation.id)
-        );
 
+      if (requestSeq !== conversationListRequestSeqRef.current) {
+        return;
+      }
+
+      startTransition(() => {
         setConversations(payload.conversations);
-        setSelectedConversationIds((current) =>
-          current.filter((id) => conversationIds.has(id))
-        );
       });
 
       const target = preferredId ?? (loadFirst ? payload.conversations[0]?.id : undefined);
@@ -750,6 +762,7 @@ export function ChatShell({
   function startNewConversation() {
     const nextConversationKey = createLocalConversationKey();
     autoScrollRef.current = true;
+    conversationLoadRequestSeqRef.current += 1;
     activeConversationKeyRef.current = nextConversationKey;
     activeConversationIdRef.current = null;
     setActiveLocalConversationKey(nextConversationKey);
@@ -768,8 +781,6 @@ export function ChatShell({
     setWebSearchEnabledForMessage(false);
     setMobileSidebarOpen(false);
     setOpenConversationMenuId(null);
-    setSelectedConversationIds([]);
-    setSelectingConversations(false);
     setRenamingConversationId(null);
     setRenamingTitle("");
     setComposerText("");
@@ -850,7 +861,6 @@ export function ChatShell({
     }
 
     setOpenConversationMenuId(null);
-    setSelectedConversationIds((current) => current.filter((id) => id !== conversation.id));
 
     if (archived && !showArchivedConversations && activeConversationId === conversation.id) {
       startNewConversation();
@@ -877,59 +887,9 @@ export function ChatShell({
       startNewConversation();
     }
 
-    setSelectedConversationIds((current) => current.filter((id) => id !== conversationId));
     setOpenConversationMenuId(null);
     await refreshConversations();
     setStreamStatus("会话已删除。");
-  }
-
-  function toggleConversationSelection(conversationId: string) {
-    setSelectedConversationIds((current) =>
-      current.includes(conversationId)
-        ? current.filter((id) => id !== conversationId)
-        : [...current, conversationId]
-    );
-  }
-
-  function stopSelectingConversations() {
-    setSelectingConversations(false);
-    setSelectedConversationIds([]);
-  }
-
-  async function deleteSelectedConversations() {
-    if (selectedConversationIds.length === 0) {
-      return;
-    }
-
-    if (
-      !window.confirm(`确定删除选中的 ${selectedConversationIds.length} 个会话吗？此操作不可恢复。`)
-    ) {
-      return;
-    }
-
-    const ids = selectedConversationIds;
-    const response = await fetch("/api/conversations/bulk", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ids })
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { deleted?: number; error?: string }
-      | null;
-
-    if (!response.ok) {
-      setError(payload?.error || "批量删除失败。");
-      return;
-    }
-
-    if (activeConversationId && ids.includes(activeConversationId)) {
-      startNewConversation();
-    }
-
-    setSelectedConversationIds([]);
-    setSelectingConversations(false);
-    await refreshConversations();
-    setStreamStatus(`已删除 ${formatNumber(payload?.deleted ?? ids.length)} 个会话。`);
   }
 
   async function openConversation(conversationId: string) {
@@ -1205,6 +1165,7 @@ export function ChatShell({
     let pendingContentDelta = "";
     let pendingReasoningDelta = "";
     let streamStatusStarted = false;
+    let streamTerminated = false;
     let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
     const getCurrentInFlightChat = () =>
@@ -1419,6 +1380,7 @@ export function ChatShell({
 
       if (event.event === "done") {
         const now = Date.now();
+        streamTerminated = true;
         clearStreamFlushTimer();
         pendingContentDelta = "";
         pendingReasoningDelta = "";
@@ -1482,6 +1444,7 @@ export function ChatShell({
 
       if (event.event === "error") {
         const now = Date.now();
+        streamTerminated = true;
         clearStreamFlushTimer();
         pendingContentDelta = "";
         pendingReasoningDelta = "";
@@ -1534,6 +1497,32 @@ export function ChatShell({
 
       if (tailEvent) {
         handleEvent(tailEvent);
+      }
+
+      if (!streamTerminated && !controller.signal.aborted) {
+        const now = Date.now();
+        flushPendingOutput();
+        updateChatAssistantMessage((item) => ({ ...item, pending: false }));
+        setChatToolEvents((current) =>
+          mergeToolEvent(current, {
+            detail: receivedDelta
+              ? "连接提前结束，已保留收到的内容"
+              : "连接提前结束，未收到完成标记",
+            id: "generation",
+            label: "模型生成",
+            status: "error",
+            type: "generation"
+          }, now)
+        );
+        setChatProcessFinishedAt(now);
+        setChatStreamStatus(
+          receivedDelta ? "连接提前结束，已保留部分内容。" : "连接提前结束。"
+        );
+        markGenerationFinished(conversationKey);
+        abortControllersRef.current.delete(conversationKey);
+        clearCurrentInFlightChat();
+        await refreshConversations();
+        return;
       }
     } catch (streamError) {
       const now = Date.now();
@@ -1601,7 +1590,7 @@ export function ChatShell({
     const localUser = reuseUserMessage
       ? { ...reuseUserMessage, attachments, content: prompt, mode: "IMAGE" as const, model: "image2" }
       : emptyMessage("USER", prompt, "IMAGE", attachments);
-    const localAssistant = emptyMessage("ASSISTANT", "生成中...", "IMAGE");
+    const localAssistant = { ...emptyMessage("ASSISTANT", "生成中...", "IMAGE"), model: "image2" };
     const controller = new AbortController();
     const processStart = Date.now();
     const startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
@@ -1625,6 +1614,15 @@ export function ChatShell({
 
     abortControllersRef.current.set(conversationKey, controller);
     markGenerationRunning(conversationKey);
+    storeInFlightChat(conversationKey, {
+      assistantMessage: localAssistant,
+      contextStats: null,
+      conversationId: startingConversationId,
+      processFinishedAt: null,
+      processStartedAt: processStart,
+      streamStatus: "正在提交生图请求...",
+      toolEvents: initialToolEvents
+    });
 
     if (isViewingConversationKey(conversationKey)) {
       autoScrollRef.current = true;
@@ -1657,7 +1655,7 @@ export function ChatShell({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           conversationId: startingConversationId,
-          model,
+          model: "image2",
           prompt,
           reuseUserMessageId,
           sourceImageMessageId: sourceImage?.id,
@@ -1677,6 +1675,7 @@ export function ChatShell({
 
       markGenerationFinished(conversationKey);
       abortControllersRef.current.delete(conversationKey);
+      deleteInFlightChat(conversationKey);
 
       if (isViewingConversationKey(conversationKey)) {
         setProcessFinishedAt(now);
@@ -1723,6 +1722,7 @@ export function ChatShell({
       const now = Date.now();
       markGenerationFinished(conversationKey);
       abortControllersRef.current.delete(conversationKey);
+      deleteInFlightChat(conversationKey);
 
       if (isViewingConversationKey(conversationKey)) {
         setProcessFinishedAt(now);
@@ -1752,6 +1752,18 @@ export function ChatShell({
       conversationKey = resolveInFlightConversationKey(conversationKey, payload.conversationId);
     }
 
+    if (payload.assistantMessage) {
+      storeInFlightChat(conversationKey, {
+        assistantMessage: { ...payload.assistantMessage, pending: false },
+        contextStats: null,
+        conversationId: payload.conversationId ?? startingConversationId,
+        processFinishedAt: Date.now(),
+        processStartedAt: processStart,
+        streamStatus: "生图完成。",
+        toolEvents: initialToolEvents
+      });
+    }
+
     if (isViewingConversationKey(conversationKey)) {
       setMessages((current) =>
         current.map((message) => {
@@ -1775,6 +1787,7 @@ export function ChatShell({
     const finishTime = Date.now();
     markGenerationFinished(conversationKey);
     abortControllersRef.current.delete(conversationKey);
+    deleteInFlightChat(conversationKey);
 
     if (isViewingConversationKey(conversationKey)) {
       setToolEvents((current) =>
@@ -2080,9 +2093,9 @@ export function ChatShell({
             ) : null}
           </label>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="mt-2">
           <button
-            className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border px-2 text-xs font-medium transition ${
+            className={`flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border px-2 text-xs font-medium transition ${
               showArchivedConversations
                 ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                 : "border-[color:var(--ios-separator)] bg-white/45 text-stone-600 hover:bg-white/75"
@@ -2097,69 +2110,12 @@ export function ChatShell({
             )}
             {showArchivedConversations ? "全部会话" : "含归档"}
           </button>
-          <button
-            className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border px-2 text-xs font-medium transition ${
-              selectingConversations
-                ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                : "border-[color:var(--ios-separator)] bg-white/45 text-stone-600 hover:bg-white/75"
-            }`}
-            onClick={() => {
-              if (selectingConversations) {
-                stopSelectingConversations();
-                return;
-              }
-
-              setSelectingConversations(true);
-              setOpenConversationMenuId(null);
-            }}
-            type="button"
-          >
-            <CheckSquare className="size-3.5" />
-            {selectingConversations ? "取消选择" : "批量选择"}
-          </button>
         </div>
       </div>
 
       <div className="border-b border-[color:var(--ios-separator)] p-4">
         <UsageBars usage={usage} />
       </div>
-
-      {selectingConversations ? (
-        <div className="border-b border-[color:var(--ios-separator)] bg-white/35 px-3 py-2">
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-medium text-stone-700">
-              已选 {formatNumber(selectedConversationIds.length)} 个
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                className="rounded-md px-2 py-1 text-stone-600 hover:bg-white/70"
-                onClick={() =>
-                  setSelectedConversationIds(
-                    selectedConversationIds.length > 0 &&
-                      selectedConversationIds.length === conversations.length
-                      ? []
-                      : conversations.map((conversation) => conversation.id)
-                  )
-                }
-                type="button"
-              >
-                {selectedConversationIds.length > 0 &&
-                selectedConversationIds.length === conversations.length
-                  ? "清空"
-                  : "全选"}
-              </button>
-              <button
-                className="rounded-md px-2 py-1 font-semibold text-red-600 hover:bg-red-50 disabled:text-stone-300"
-                disabled={selectedConversationIds.length === 0}
-                onClick={() => void deleteSelectedConversations()}
-                type="button"
-              >
-                删除
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {groupedConversations.length === 0 ? (
@@ -2170,14 +2126,13 @@ export function ChatShell({
 
         {groupedConversations.map((group) => (
           <section className="mb-3" key={group.label}>
-            <div className="sticky top-0 z-10 bg-[rgba(251,247,239,0.9)] px-2 py-1 text-[11px] font-semibold text-stone-500 backdrop-blur">
+            <div className="bg-[rgba(251,247,239,0.9)] px-2 py-1 text-[11px] font-semibold text-stone-500 backdrop-blur lg:sticky lg:top-0 lg:z-10">
               {group.label}
             </div>
             <div className="space-y-1">
               {group.conversations.map((conversation) => {
                 const active = conversation.id === activeConversationId;
                 const running = runningGenerationKeySet.has(conversation.id);
-                const selected = selectedConversationIdSet.has(conversation.id);
                 const renaming = renamingConversationId === conversation.id;
 
                 return (
@@ -2185,27 +2140,10 @@ export function ChatShell({
                     className={`group relative flex items-center gap-2 rounded-lg px-2 py-2 transition ${
                       active
                         ? "bg-stone-200/60 text-stone-950"
-                        : selected
-                          ? "bg-[#f3d8ca]/70 text-stone-900"
-                          : "text-stone-700 hover:bg-white/60"
+                        : "text-stone-700 hover:bg-white/60"
                     }`}
                     key={conversation.id}
                   >
-                    {selectingConversations ? (
-                      <button
-                        className={`grid size-6 shrink-0 place-items-center rounded-md border ${
-                          selected
-                            ? "border-[color:var(--claude-accent)] bg-[color:var(--claude-accent)] text-white"
-                            : "border-[color:var(--ios-separator)] bg-white/60 text-transparent"
-                        }`}
-                        onClick={() => toggleConversationSelection(conversation.id)}
-                        title={selected ? "取消选择" : "选择会话"}
-                        type="button"
-                      >
-                        <Check className="size-3.5" />
-                      </button>
-                    ) : null}
-
                     {renaming ? (
                       <form
                         className="min-w-0 flex-1"
@@ -2257,7 +2195,7 @@ export function ChatShell({
                       </button>
                     )}
 
-                    {!selectingConversations && !renaming ? (
+                    {!renaming ? (
                       <button
                         className="grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 hover:bg-white hover:text-stone-800 lg:size-7 lg:opacity-0 lg:group-hover:opacity-100"
                         onClick={() =>
@@ -2385,7 +2323,7 @@ export function ChatShell({
             </button>
           ) : null}
           <div
-            className={`mx-auto flex max-w-5xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 ${
+            className={`mx-auto flex max-w-5xl items-start justify-between gap-2 sm:items-center sm:gap-3 ${
               desktopSidebarOpen ? "" : "lg:pl-10"
             }`}
           >
@@ -2426,7 +2364,10 @@ export function ChatShell({
               </div>
             </div>
 
-            <div className="w-full min-w-0 sm:w-auto sm:shrink-0" ref={headerControlsRef}>
+            <div
+              className="w-[min(11.5rem,46vw)] min-w-[8rem] shrink-0 sm:w-auto sm:min-w-0 sm:shrink-0"
+              ref={headerControlsRef}
+            >
               <ModelReasoningPicker
                 activeModel={activeModel}
                 activeReasoningEffort={activeReasoningEffort}
@@ -2466,6 +2407,7 @@ export function ChatShell({
               <MessageBubble
                 key={message.id}
                 message={message}
+                modelLabelById={messageModelLabels}
                 onContinue={continueGeneratingHandler}
                 onCopy={copyMessageHandler}
                 onDelete={deleteMessageHandler}
@@ -3515,8 +3457,23 @@ const markdownComponents: Components = {
   }
 };
 
+function getMessageModelTitle(message: MessageView, modelLabelById: ReadonlyMap<string, string>) {
+  const rawModel = message.model?.trim();
+
+  if (message.mode === "IMAGE" || rawModel === "image2") {
+    return "image2";
+  }
+
+  if (!rawModel) {
+    return "AI";
+  }
+
+  return modelLabelById.get(rawModel) ?? rawModel;
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
+  modelLabelById,
   onContinue,
   onCopy,
   onDelete,
@@ -3525,6 +3482,7 @@ const MessageBubble = memo(function MessageBubble({
   onRegenerate
 }: {
   message: MessageView;
+  modelLabelById: ReadonlyMap<string, string>;
   onContinue: () => void;
   onCopy: (message: MessageView) => void | Promise<void>;
   onDelete: (message: MessageView) => void | Promise<void>;
@@ -3541,6 +3499,7 @@ const MessageBubble = memo(function MessageBubble({
     ? sanitizeReasoningContent(message.reasoningContent || "", message.model || "")
     : "";
   const canContinue = !isUser && !message.imageUrl && message.mode !== "IMAGE";
+  const modelTitle = isUser ? "" : getMessageModelTitle(message, modelLabelById);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -3555,9 +3514,15 @@ const MessageBubble = memo(function MessageBubble({
           className={`${
             isUser
               ? "max-w-full break-words rounded-2xl bg-[color:var(--claude-accent)] px-4 py-3 text-white shadow-sm"
-              : "min-w-0 w-full px-1 py-1 text-stone-900"
+            : "min-w-0 w-full px-1 py-1 text-stone-900"
         }`}
       >
+        {!isUser ? (
+          <div className="mb-2 flex min-w-0 items-center gap-1.5 px-0.5 text-xs font-semibold text-stone-500">
+            <Sparkles className="size-3.5 shrink-0 text-[color:var(--claude-accent)]" />
+            <span className="min-w-0 truncate">AI · {modelTitle}</span>
+          </div>
+        ) : null}
         {message.attachments?.length ? (
           <MessageAttachments attachments={message.attachments} isUser={isUser} />
         ) : null}

@@ -1,8 +1,0 @@
-⨯ Another next dev server is already running.
-
-- Local:        http://localhost:3000
-- PID:          35944
-- Dir:          C:\Users\ASUS\Documents\GitHub\AI Chat
-- Log:          .next\dev\logs\next-development.log
-
-Run taskkill /PID 35944 /F to stop it.

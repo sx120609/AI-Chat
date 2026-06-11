@@ -1,4 +1,4 @@
-import { createClient, type RedisClientType } from "redis";
+import { createClient } from "redis";
 
 type MemoryEntry = {
   expiresAt: number;
@@ -10,7 +10,15 @@ const CACHE_ENABLED = process.env.CACHE_ENABLED !== "false";
 const REDIS_URL = process.env.REDIS_URL?.trim() || "redis://127.0.0.1:6379";
 const REDIS_FAILURE_BACKOFF_MS = 60_000;
 const memoryCache = new Map<string, MemoryEntry>();
-let redisClientPromise: Promise<RedisClientType | null> | null = null;
+type CacheRedisClient = {
+  connect: () => Promise<unknown>;
+  del: (keys: string[]) => Promise<unknown>;
+  get: (key: string) => Promise<string | null>;
+  on: (event: "error", listener: (error: unknown) => void) => void;
+  set: (key: string, value: string, options: { EX: number }) => Promise<unknown>;
+};
+
+let redisClientPromise: Promise<CacheRedisClient | null> | null = null;
 let redisDisabledUntil = 0;
 
 function namespacedKey(key: string) {
@@ -68,7 +76,7 @@ async function getRedisClient() {
 
       try {
         await client.connect();
-        return client as RedisClientType;
+        return client as unknown as CacheRedisClient;
       } catch (error) {
         console.warn(
           "[cache] Redis disabled after connection failure:",

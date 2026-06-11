@@ -182,6 +182,18 @@ install_system_packages() {
   fi
 }
 
+ensure_redis() {
+  require_apt
+
+  if ! command -v redis-server >/dev/null 2>&1; then
+    log "Installing Redis cache..."
+    as_root apt-get update
+    as_root apt-get install -y redis-server
+  fi
+
+  as_root systemctl enable --now redis-server
+}
+
 ensure_env_file() {
   mkdir -p "$(dirname "$ENV_FILE")"
 
@@ -430,6 +442,7 @@ start_service() {
 }
 
 deploy_app() {
+  ensure_redis
   ensure_env_file
   prepare_app_dir
   install_node_dependencies

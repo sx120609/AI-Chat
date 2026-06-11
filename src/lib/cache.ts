@@ -8,8 +8,10 @@ type MemoryEntry = {
 const CACHE_PREFIX = process.env.CACHE_PREFIX || "team-ai-gateway";
 const CACHE_ENABLED = process.env.CACHE_ENABLED !== "false";
 const REDIS_URL = process.env.REDIS_URL?.trim() || "redis://127.0.0.1:6379";
+const REDIS_FAILURE_BACKOFF_MS = 60_000;
 const memoryCache = new Map<string, MemoryEntry>();
 let redisClientPromise: Promise<RedisClientType | null> | null = null;
+let redisDisabledUntil = 0;
 
 function namespacedKey(key: string) {
   return `${CACHE_PREFIX}:${key}`;
@@ -42,9 +44,19 @@ async function getRedisClient() {
     return null;
   }
 
+  if (redisDisabledUntil > Date.now()) {
+    return null;
+  }
+
   if (!redisClientPromise) {
     redisClientPromise = (async () => {
-      const client = createClient({ url: REDIS_URL });
+      const client = createClient({
+        socket: {
+          connectTimeout: 1_000,
+          reconnectStrategy: false
+        },
+        url: REDIS_URL
+      });
 
       client.on("error", (error) => {
         console.warn(
@@ -61,6 +73,7 @@ async function getRedisClient() {
           "[cache] Redis disabled after connection failure:",
           error instanceof Error ? error.message : String(error)
         );
+        redisDisabledUntil = Date.now() + REDIS_FAILURE_BACKOFF_MS;
         redisClientPromise = null;
         return null;
       }

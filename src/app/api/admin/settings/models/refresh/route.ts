@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import { cacheDelete } from "@/lib/cache";
 import { jsonError, requireAdmin } from "@/lib/http";
 import {
   buildChatModelCatalog,
@@ -12,11 +13,16 @@ import {
   parseModelMap
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
+import { SITE_SETTINGS_CACHE_KEY } from "@/lib/site-settings";
 import {
   normalizeSystemPromptMode,
   parseModelSystemPrompts
 } from "@/lib/system-prompt";
-import { fetchUpstreamModelIds, getAiRuntimeSettings } from "@/lib/upstream";
+import {
+  AI_RUNTIME_SETTINGS_CACHE_KEY,
+  fetchUpstreamModelIds,
+  getAiRuntimeSettings
+} from "@/lib/upstream";
 
 export const runtime = "nodejs";
 
@@ -123,6 +129,8 @@ export async function POST(request: NextRequest) {
         webSearchMaxResults: runtimeSettings.webSearchMaxResults
       }
     });
+
+    await cacheDelete([AI_RUNTIME_SETTINGS_CACHE_KEY, SITE_SETTINGS_CACHE_KEY]);
 
     return NextResponse.json({
       count: modelIds.length,

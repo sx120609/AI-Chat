@@ -52,8 +52,6 @@ type CreateForm = {
   name: string;
   password: string;
   role: Role;
-  monthlyTokenLimit: number;
-  monthlyMessageLimit: number;
   monthlyCostLimitCents: number;
 };
 
@@ -102,8 +100,6 @@ const emptyForm: CreateForm = {
   name: "",
   password: "",
   role: "USER",
-  monthlyTokenLimit: 200000,
-  monthlyMessageLimit: 500,
   monthlyCostLimitCents: 5000
 };
 
@@ -330,8 +326,6 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         name: user.name,
         role: user.role,
         active: user.active,
-        monthlyTokenLimit: user.monthlyTokenLimit,
-        monthlyMessageLimit: user.monthlyMessageLimit,
         monthlyCostLimitCents: user.monthlyCostLimitCents
       })
     });
@@ -890,7 +884,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             </div>
             <h2 className="text-base font-semibold">创建用户</h2>
           </div>
-          <form className="grid gap-3 lg:grid-cols-7" onSubmit={createUser}>
+          <form className="grid gap-3 lg:grid-cols-6" onSubmit={createUser}>
             <input
               className="ios-input lg:col-span-2"
               onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
@@ -924,49 +918,21 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               <option value="USER">用户</option>
               <option value="ADMIN">管理员</option>
             </select>
-            <input
+            <CostLimitInput
               className="ios-input"
-              min={1}
-              onChange={(event) =>
+              onChange={(value) =>
                 setForm((current) => ({
                   ...current,
-                  monthlyMessageLimit: Number(event.target.value)
+                  monthlyCostLimitCents: value
                 }))
               }
-              placeholder="消息额度"
-              type="number"
-              value={form.monthlyMessageLimit}
+              placeholder="费用额度（美元）"
+              value={form.monthlyCostLimitCents}
             />
             <button className="ios-button-primary flex items-center justify-center gap-2 px-3" type="submit">
               <Plus className="size-4" />
               创建
             </button>
-            <input
-              className="ios-input lg:col-span-2"
-              min={1}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  monthlyTokenLimit: Number(event.target.value)
-                }))
-              }
-              placeholder="Token 额度"
-              type="number"
-              value={form.monthlyTokenLimit}
-            />
-            <input
-              className="ios-input lg:col-span-2"
-              min={1}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  monthlyCostLimitCents: Number(event.target.value)
-                }))
-              }
-              placeholder="费用额度（美分）"
-              type="number"
-              value={form.monthlyCostLimitCents}
-            />
           </form>
         </section>
 
@@ -985,16 +951,14 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
           ) : (
             <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[900px] border-collapse text-left text-sm">
                 <thead className="bg-white/50 text-xs text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">用户</th>
                     <th className="px-4 py-3 font-semibold">角色</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
-                    <th className="px-4 py-3 font-semibold">消息</th>
-                    <th className="px-4 py-3 font-semibold">Token</th>
-                    <th className="px-4 py-3 font-semibold">费用</th>
-                    <th className="px-4 py-3 font-semibold">消耗</th>
+                    <th className="px-4 py-3 font-semibold">费用额度</th>
+                    <th className="px-4 py-3 font-semibold">本月用量</th>
                     <th className="px-4 py-3 font-semibold">操作</th>
                   </tr>
                 </thead>
@@ -1043,19 +1007,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         </button>
                       </td>
                       <td className="px-4 py-3">
-                        <NumberInput
-                          onChange={(value) => patchUser(user.id, { monthlyMessageLimit: value })}
-                          value={user.monthlyMessageLimit}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <NumberInput
-                          onChange={(value) => patchUser(user.id, { monthlyTokenLimit: value })}
-                          value={user.monthlyTokenLimit}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <NumberInput
+                        <CostLimitInput
                           onChange={(value) =>
                             patchUser(user.id, { monthlyCostLimitCents: value })
                           }
@@ -1065,17 +1017,11 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       <td className="px-4 py-3">
                         <div className="space-y-1 text-xs ios-muted">
                           <p>
-                            {formatNumber(user.usage.messagesUsed)} /{" "}
-                            {formatNumber(user.monthlyMessageLimit)} 次
-                          </p>
-                          <p>
-                            {formatNumber(user.usage.tokensUsed)} /{" "}
-                            {formatNumber(user.monthlyTokenLimit)} tokens
-                          </p>
-                          <p>
-                            {formatCents(user.usage.costUsedCents)} /{" "}
+                            费用 {formatCents(user.usage.costUsedCents)} /{" "}
                             {formatCents(user.monthlyCostLimitCents)}
                           </p>
+                          <p>消息 {formatNumber(user.usage.messagesUsed)} 条</p>
+                          <p>Token {formatNumber(user.usage.tokensUsed)}</p>
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -1158,39 +1104,13 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         {user.active ? "启用" : "停用"}
                       </button>
                     </label>
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium ios-muted">消息</span>
-                      <input
-                        className="ios-input h-9 w-full text-sm"
-                        min={1}
-                        onChange={(event) =>
-                          patchUser(user.id, { monthlyMessageLimit: Number(event.target.value) })
-                        }
-                        type="number"
-                        value={user.monthlyMessageLimit}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium ios-muted">Token</span>
-                      <input
-                        className="ios-input h-9 w-full text-sm"
-                        min={1}
-                        onChange={(event) =>
-                          patchUser(user.id, { monthlyTokenLimit: Number(event.target.value) })
-                        }
-                        type="number"
-                        value={user.monthlyTokenLimit}
-                      />
-                    </label>
                     <label className="block col-span-2">
-                      <span className="mb-1 block text-xs font-medium ios-muted">费用（美分）</span>
-                      <input
+                      <span className="mb-1 block text-xs font-medium ios-muted">费用额度（美元）</span>
+                      <CostLimitInput
                         className="ios-input h-9 w-full text-sm"
-                        min={1}
-                        onChange={(event) =>
-                          patchUser(user.id, { monthlyCostLimitCents: Number(event.target.value) })
+                        onChange={(value) =>
+                          patchUser(user.id, { monthlyCostLimitCents: value })
                         }
-                        type="number"
                         value={user.monthlyCostLimitCents}
                       />
                     </label>
@@ -1198,17 +1118,11 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
                   <div className="mt-3 rounded-lg bg-white/60 px-3 py-2 text-xs ios-muted">
                     <p>
-                      消息 {formatNumber(user.usage.messagesUsed)} /{" "}
-                      {formatNumber(user.monthlyMessageLimit)} 次
-                    </p>
-                    <p className="mt-1">
-                      Token {formatNumber(user.usage.tokensUsed)} /{" "}
-                      {formatNumber(user.monthlyTokenLimit)}
-                    </p>
-                    <p className="mt-1">
                       费用 {formatCents(user.usage.costUsedCents)} /{" "}
                       {formatCents(user.monthlyCostLimitCents)}
                     </p>
+                    <p className="mt-1">消息 {formatNumber(user.usage.messagesUsed)} 条</p>
+                    <p className="mt-1">Token {formatNumber(user.usage.tokensUsed)}</p>
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1269,6 +1183,10 @@ function ModelToggle({
         <span className="mt-0.5 block truncate text-xs ios-muted">
           {model.upstreamId} · {model.source === "upstream" ? "上游" : model.contextNote}
         </span>
+        <span className="mt-1 block truncate text-[11px] ios-muted">
+          输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 输出{" "}
+          {formatCents(model.outputCentsPerMillionTokens)}/百万
+        </span>
       </span>
     </label>
   );
@@ -1313,14 +1231,34 @@ function DiagnosticsPanel({ result }: { result: DiagnosticsResult }) {
   );
 }
 
-function NumberInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+function CostLimitInput({
+  className = "ios-input h-9 w-32 text-sm",
+  onChange,
+  placeholder,
+  value
+}: {
+  className?: string;
+  onChange: (value: number) => void;
+  placeholder?: string;
+  value: number;
+}) {
   return (
     <input
-      className="ios-input h-9 w-28 text-sm"
-      min={1}
-      onChange={(event) => onChange(Number(event.target.value))}
+      className={className}
+      min={0.01}
+      onChange={(event) => {
+        const dollars = Number(event.target.value);
+
+        if (!Number.isFinite(dollars)) {
+          return;
+        }
+
+        onChange(Math.max(1, Math.round(dollars * 100)));
+      }}
+      placeholder={placeholder}
+      step={0.01}
       type="number"
-      value={value}
+      value={value / 100}
     />
   );
 }

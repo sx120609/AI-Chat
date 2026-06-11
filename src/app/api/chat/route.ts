@@ -289,11 +289,19 @@ async function pipeOpenAiSse(
   return usage;
 }
 
-async function streamMockAnswer(prompt: string, onDelta: (delta: string) => void) {
+async function streamMockAnswer(
+  prompt: string,
+  onDelta: (delta: string) => void,
+  signal?: AbortSignal
+) {
   const text = `这是来自本地 Mock 模式的流式响应。你刚才说：“${prompt}”。真实部署时，请在后端设置 AI_API_KEY 和 AI_API_BASE_URL，前端不会接触密钥。`;
   const chunks = text.match(/.{1,8}/gs) ?? [text];
 
   for (const chunk of chunks) {
+    if (signal?.aborted) {
+      throw new Error("请求已停止。");
+    }
+
     onDelta(chunk);
     await new Promise((resolve) => setTimeout(resolve, 22));
   }
@@ -552,6 +560,7 @@ export async function POST(request: NextRequest) {
     force: body.useWebSearch === true,
     modelId: model.id,
     prompt: content,
+    signal: request.signal,
     settings: aiSettings
   });
   const webSearchResult = webSearchPlan.shouldSearch
@@ -564,7 +573,7 @@ export async function POST(request: NextRequest) {
             aiSettings.webSearchProvider
           )
         },
-        { force: true, query: webSearchPlan.query }
+        { force: true, query: webSearchPlan.query, signal: request.signal }
       )
     : null;
   const webSearchSources: WebSearchSource[] = webSearchResult?.sources ?? [];
@@ -583,7 +592,7 @@ export async function POST(request: NextRequest) {
   const quotaCostEstimate = estimateChatCostForModel(model, promptTokensEstimate, 0);
 
   try {
-    await assertQuotaAvailable(user.id, promptTokensEstimate, quotaCostEstimate);
+    await assertQuotaAvailable(user.id, quotaCostEstimate);
   } catch (error) {
     if (error instanceof QuotaError) {
       return jsonError(error.message, error.status, { usage: error.summary });
@@ -614,11 +623,7 @@ export async function POST(request: NextRequest) {
     upstreamMessages = rebuiltContext.upstreamMessages;
 
     try {
-      await assertQuotaAvailable(
-        user.id,
-        promptTokensEstimate,
-        estimateChatCostForModel(model, promptTokensEstimate, 0)
-      );
+      await assertQuotaAvailable(user.id, estimateChatCostForModel(model, promptTokensEstimate, 0));
     } catch (error) {
       if (error instanceof QuotaError) {
         return jsonError(error.message, error.status, { usage: error.summary });
@@ -678,6 +683,14 @@ export async function POST(request: NextRequest) {
     fileAnalysisReport,
     webSearchResult
   });
+  const streamAbortController = new AbortController();
+  const abortStream = () => streamAbortController.abort();
+
+  if (request.signal.aborted) {
+    abortStream();
+  } else {
+    request.signal.addEventListener("abort", abortStream, { once: true });
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -755,13 +768,13 @@ export async function POST(request: NextRequest) {
           await streamMockAnswer(content, (delta) => {
             assistantContent += delta;
             sse(controller, "delta", { delta });
-          });
+          }, streamAbortController.signal);
         } else {
           const upstreamBody = await createChatCompletionStream(
             model.id,
             upstreamMessages,
             aiSettings,
-            { reasoningEffort }
+            { reasoningEffort, signal: streamAbortController.signal }
           );
           upstreamUsage = await pipeOpenAiSse(upstreamBody, {
             onDelta: (delta) => {
@@ -775,7 +788,7 @@ export async function POST(request: NextRequest) {
         }
 
         const assistantMessage = await persistAssistantMessage(upstreamUsage);
-        const usage = await getUsageSummary(user.id);
+        const usage = await getUsageSummary(user.id, { readCache: false });
         const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
 
         if (visibleReasoningContent) {
@@ -796,12 +809,18 @@ export async function POST(request: NextRequest) {
           await persistAssistantMessage(undefined).catch(() => undefined);
         }
 
-        sse(controller, "error", {
-          error: error instanceof Error ? error.message : "上游调用失败。"
-        });
+        if (!streamAbortController.signal.aborted) {
+          sse(controller, "error", {
+            error: error instanceof Error ? error.message : "上游调用失败。"
+          });
+        }
       } finally {
+        request.signal.removeEventListener("abort", abortStream);
         controller.close();
       }
+    },
+    cancel() {
+      abortStream();
     }
   });
 

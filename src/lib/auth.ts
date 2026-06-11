@@ -18,8 +18,6 @@ export type CurrentUser = {
   name: string;
   role: "USER" | "ADMIN";
   active: boolean;
-  monthlyTokenLimit: number;
-  monthlyMessageLimit: number;
   monthlyCostLimitCents: number;
   quotaResetAt: Date;
 };
@@ -124,8 +122,6 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       name: true,
       role: true,
       active: true,
-      monthlyTokenLimit: true,
-      monthlyMessageLimit: true,
       monthlyCostLimitCents: true,
       quotaResetAt: true
     }
@@ -147,8 +143,6 @@ export async function getUserFromRequest(request: NextRequest): Promise<CurrentU
       name: true,
       role: true,
       active: true,
-      monthlyTokenLimit: true,
-      monthlyMessageLimit: true,
       monthlyCostLimitCents: true,
       quotaResetAt: true
     }

@@ -34,6 +34,7 @@ dev-server*.log
 
 # user uploads
 uploads/
+.cache/
 
 # system
 .DS_Store

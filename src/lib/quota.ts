@@ -1,3 +1,4 @@
+import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { prisma } from "@/lib/prisma";
 
 export type UsageSummary = {
@@ -5,11 +6,7 @@ export type UsageSummary = {
   tokensUsed: number;
   messagesUsed: number;
   costUsedCents: number;
-  remainingTokens: number;
-  remainingMessages: number;
   remainingCostCents: number;
-  monthlyTokenLimit: number;
-  monthlyMessageLimit: number;
   monthlyCostLimitCents: number;
 };
 
@@ -21,6 +18,12 @@ export class QuotaError extends Error {
   }
 }
 
+const USAGE_SUMMARY_CACHE_TTL_SECONDS = 8;
+
+function usageSummaryCacheKey(userId: string) {
+  return `usage-summary:${userId}`;
+}
+
 function monthStart(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
@@ -29,13 +32,24 @@ function laterDate(a: Date, b: Date) {
   return a.getTime() > b.getTime() ? a : b;
 }
 
-export async function getUsageSummary(userId: string): Promise<UsageSummary> {
+export async function getUsageSummary(
+  userId: string,
+  options: { readCache?: boolean } = {}
+): Promise<UsageSummary> {
+  const cacheKey = usageSummaryCacheKey(userId);
+
+  if (options.readCache !== false) {
+    const cached = await cacheGetJson<UsageSummary>(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
+  }
+
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
     select: {
       quotaResetAt: true,
-      monthlyTokenLimit: true,
-      monthlyMessageLimit: true,
       monthlyCostLimitCents: true
     }
   });
@@ -67,34 +81,22 @@ export async function getUsageSummary(userId: string): Promise<UsageSummary> {
   const tokensUsed = usage._sum.totalTokens ?? 0;
   const costUsedCents = usage._sum.estimatedCostCents ?? 0;
 
-  return {
+  const summary = {
     windowStart: windowStart.toISOString(),
     tokensUsed,
     messagesUsed,
     costUsedCents,
-    remainingTokens: Math.max(0, user.monthlyTokenLimit - tokensUsed),
-    remainingMessages: Math.max(0, user.monthlyMessageLimit - messagesUsed),
     remainingCostCents: Math.max(0, user.monthlyCostLimitCents - costUsedCents),
-    monthlyTokenLimit: user.monthlyTokenLimit,
-    monthlyMessageLimit: user.monthlyMessageLimit,
     monthlyCostLimitCents: user.monthlyCostLimitCents
   };
+
+  await cacheSetJson(cacheKey, summary, USAGE_SUMMARY_CACHE_TTL_SECONDS);
+
+  return summary;
 }
 
-export async function assertQuotaAvailable(
-  userId: string,
-  expectedTokens: number,
-  expectedCostCents: number
-) {
-  const summary = await getUsageSummary(userId);
-
-  if (summary.remainingMessages <= 0) {
-    throw new QuotaError("本月消息次数额度已用完。", summary);
-  }
-
-  if (summary.tokensUsed + expectedTokens > summary.monthlyTokenLimit) {
-    throw new QuotaError("本月 token 额度不足。", summary);
-  }
+export async function assertQuotaAvailable(userId: string, expectedCostCents: number) {
+  const summary = await getUsageSummary(userId, { readCache: false });
 
   if (summary.costUsedCents + expectedCostCents > summary.monthlyCostLimitCents) {
     throw new QuotaError("本月费用额度不足。", summary);

@@ -28,9 +28,19 @@ type PlannerResponse = {
 
 const MAX_TOOL_REPORT_CHARS = 16_000;
 const MAX_PLANNER_RESPONSE_CHARS = 24_000;
+const CODE_ANALYSIS_PROMPT_PATTERN =
+  /(代码解释器|运行代码|python|脚本|沙盒|计算|统计|数据分析|数据处理|表格分析|求和|平均|均值|中位数|排序|筛选|分组|图表|画图|可视化|回归|预测|excel|csv|zip|压缩包|解压|文件列表|目录|ocr)/i;
 
-function shouldAnalyzeWithCode(attachments: AttachmentForAnalysis[]) {
-  return attachments.some((attachment) => attachment.kind !== "IMAGE");
+function shouldAnalyzeWithCode(attachments: AttachmentForAnalysis[], prompt: string) {
+  if (!attachments.some((attachment) => attachment.kind !== "IMAGE")) {
+    return false;
+  }
+
+  if (attachments.some((attachment) => attachment.kind === "SPREADSHEET" || attachment.kind === "ARCHIVE")) {
+    return true;
+  }
+
+  return CODE_ANALYSIS_PROMPT_PATTERN.test(prompt);
 }
 
 function jsonFromPlannerResponse(text: string): PlannerResponse | null {
@@ -128,7 +138,11 @@ export async function maybeRunFileAnalysisAgent(options: {
 }) {
   const { attachments, settings } = options;
 
-  if (!settings.codeInterpreterEnabled || settings.mockResponses || !shouldAnalyzeWithCode(attachments)) {
+  if (
+    !settings.codeInterpreterEnabled ||
+    settings.mockResponses ||
+    !shouldAnalyzeWithCode(attachments, options.prompt)
+  ) {
     return "";
   }
 

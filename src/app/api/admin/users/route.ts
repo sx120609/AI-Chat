@@ -12,8 +12,6 @@ type CreateUserBody = {
   name?: string;
   password?: string;
   role?: "USER" | "ADMIN";
-  monthlyTokenLimit?: number;
-  monthlyMessageLimit?: number;
   monthlyCostLimitCents?: number;
 };
 
@@ -37,8 +35,6 @@ export async function GET(request: NextRequest) {
       name: true,
       role: true,
       active: true,
-      monthlyTokenLimit: true,
-      monthlyMessageLimit: true,
       monthlyCostLimitCents: true,
       quotaResetAt: true,
       createdAt: true,
@@ -94,8 +90,6 @@ export async function POST(request: NextRequest) {
         name: name || email,
         passwordHash: await hashPassword(password),
         role: body.role === "ADMIN" ? "ADMIN" : "USER",
-        monthlyTokenLimit: coerceInt(body.monthlyTokenLimit, 200000, 1),
-        monthlyMessageLimit: coerceInt(body.monthlyMessageLimit, 500, 1),
         monthlyCostLimitCents: coerceInt(body.monthlyCostLimitCents, 5000, 1)
       },
       select: {

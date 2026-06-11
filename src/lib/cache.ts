@@ -1,0 +1,125 @@
+import { createClient, type RedisClientType } from "redis";
+
+type MemoryEntry = {
+  expiresAt: number;
+  value: string;
+};
+
+const CACHE_PREFIX = process.env.CACHE_PREFIX || "team-ai-gateway";
+const CACHE_ENABLED = process.env.CACHE_ENABLED !== "false";
+const REDIS_URL = process.env.REDIS_URL?.trim() || "redis://127.0.0.1:6379";
+const memoryCache = new Map<string, MemoryEntry>();
+let redisClientPromise: Promise<RedisClientType | null> | null = null;
+
+function namespacedKey(key: string) {
+  return `${CACHE_PREFIX}:${key}`;
+}
+
+function readMemory(key: string) {
+  const entry = memoryCache.get(key);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    memoryCache.delete(key);
+    return null;
+  }
+
+  return entry.value;
+}
+
+function writeMemory(key: string, value: string, ttlSeconds: number) {
+  memoryCache.set(key, {
+    expiresAt: Date.now() + ttlSeconds * 1000,
+    value
+  });
+}
+
+async function getRedisClient() {
+  if (!CACHE_ENABLED || !REDIS_URL) {
+    return null;
+  }
+
+  if (!redisClientPromise) {
+    redisClientPromise = (async () => {
+      const client = createClient({ url: REDIS_URL });
+
+      client.on("error", (error) => {
+        console.warn(
+          "[cache] Redis error:",
+          error instanceof Error ? error.message : String(error)
+        );
+      });
+
+      try {
+        await client.connect();
+        return client as RedisClientType;
+      } catch (error) {
+        console.warn(
+          "[cache] Redis disabled after connection failure:",
+          error instanceof Error ? error.message : String(error)
+        );
+        redisClientPromise = null;
+        return null;
+      }
+    })();
+  }
+
+  return redisClientPromise;
+}
+
+export async function cacheGetJson<T>(key: string): Promise<T | null> {
+  if (!CACHE_ENABLED) {
+    return null;
+  }
+
+  const namespaced = namespacedKey(key);
+  const memoryValue = readMemory(namespaced);
+
+  if (memoryValue) {
+    return JSON.parse(memoryValue) as T;
+  }
+
+  const redis = await getRedisClient();
+  const redisValue = await redis?.get(namespaced).catch(() => null);
+
+  if (!redisValue) {
+    return null;
+  }
+
+  return JSON.parse(redisValue) as T;
+}
+
+export async function cacheSetJson(key: string, value: unknown, ttlSeconds: number) {
+  if (!CACHE_ENABLED || ttlSeconds <= 0) {
+    return;
+  }
+
+  const namespaced = namespacedKey(key);
+  const serialized = JSON.stringify(value);
+
+  writeMemory(namespaced, serialized, ttlSeconds);
+
+  const redis = await getRedisClient();
+  await redis?.set(namespaced, serialized, { EX: ttlSeconds }).catch(() => undefined);
+}
+
+export async function cacheDelete(keys: string[]) {
+  if (!CACHE_ENABLED || keys.length === 0) {
+    return;
+  }
+
+  const namespacedKeys = keys.map(namespacedKey);
+
+  for (const key of namespacedKeys) {
+    memoryCache.delete(key);
+  }
+
+  const redis = await getRedisClient();
+
+  if (redis) {
+    await redis.del(namespacedKeys).catch(() => undefined);
+  }
+}

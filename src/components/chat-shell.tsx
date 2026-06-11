@@ -99,6 +99,11 @@ type ToolEventView = {
 
 type WebSearchProviderOption = "auto" | "bing" | "duckduckgo";
 
+type ComposerDraftState = {
+  focusToken: number;
+  text: string;
+};
+
 function parseSseBlock(block: string): SseEvent | null {
   const lines = block.split(/\r?\n/);
   let event = "message";
@@ -289,7 +294,10 @@ export function ChatShell({
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
     initialDefaultReasoningEffort
   );
-  const [input, setInput] = useState("");
+  const [composerDraft, setComposerDraft] = useState<ComposerDraftState>({
+    focusToken: 0,
+    text: ""
+  });
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentView[]>([]);
   const [editingMessage, setEditingMessage] = useState<MessageView | null>(null);
   const [error, setError] = useState("");
@@ -305,14 +313,12 @@ export function ChatShell({
   const autoScrollRef = useRef(true);
   const initialConversationsLoadedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const headerControlsRef = useRef<HTMLDivElement | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const searchProviderMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const quotaBlocked =
-    usage.remainingMessages <= 0 || usage.remainingTokens <= 0 || usage.remainingCostCents <= 0;
+  const quotaBlocked = usage.remainingCostCents <= 0;
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId),
@@ -339,6 +345,12 @@ export function ChatShell({
   const groupedConversations = useMemo(() => groupConversations(conversations), [conversations]);
   const sidebarHeaderButtonClass =
     "min-h-9 min-w-9 shrink-0 place-items-center rounded-lg border border-[color:var(--ios-separator)] bg-[rgba(255,253,247,0.76)] text-[#4f4338] transition hover:bg-[rgba(255,253,247,0.98)] hover:text-[color:var(--claude-ink)] active:scale-95";
+  const setComposerText = useCallback((text: string, focus = false) => {
+    setComposerDraft((current) => ({
+      focusToken: focus ? current.focusToken + 1 : current.focusToken,
+      text
+    }));
+  }, []);
 
   const refreshMe = useCallback(async () => {
     const response = await fetch("/api/me");
@@ -541,6 +553,7 @@ export function ChatShell({
     setRenamingConversationId(null);
     setRenamingTitle("");
     setSearchProviderMenuOpen(false);
+    setComposerText("");
   }
 
   async function patchConversation(
@@ -1235,12 +1248,11 @@ export function ChatShell({
 
   function startEditMessage(message: MessageView) {
     setEditingMessage(message);
-    setInput(message.content);
+    setComposerText(message.content, true);
     setPendingAttachments([]);
     setSourceImageMessage(null);
     setError("");
     setStreamStatus("正在编辑消息。");
-    requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   function startEditImage(message: MessageView) {
@@ -1254,12 +1266,12 @@ export function ChatShell({
     setWebSearchEnabledForMessage(false);
     setError("");
     setStreamStatus("已选择图片，可输入修改要求。");
-    requestAnimationFrame(() => textareaRef.current?.focus());
+    setComposerText("", true);
   }
 
   function cancelEditMessage() {
     setEditingMessage(null);
-    setInput("");
+    setComposerText("");
     setStreamStatus("");
   }
 
@@ -1352,11 +1364,11 @@ export function ChatShell({
     }
   }
 
-  async function send() {
+  async function send(draftText: string) {
     const attachments = pendingAttachments;
     const sourceImage = sourceImageMessage;
     const prompt =
-      input.trim() ||
+      draftText.trim() ||
       (sourceImage
         ? "请基于这张图片生成新图片。"
         : attachments.length
@@ -1372,7 +1384,6 @@ export function ChatShell({
       return;
     }
 
-    setInput("");
     setPendingAttachments([]);
     setSourceImageMessage(null);
     setError("");
@@ -1402,13 +1413,6 @@ export function ChatShell({
     } finally {
       setLoading(false);
       void refreshMe();
-    }
-  }
-
-  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void send();
     }
   }
 
@@ -1797,11 +1801,7 @@ export function ChatShell({
                 </p>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs ios-muted">
-                  <span className="min-w-0 truncate">
-                    剩余 {formatNumber(usage.remainingMessages)} 次 ·{" "}
-                    {formatNumber(usage.remainingTokens)} tokens ·{" "}
-                    {formatCents(usage.remainingCostCents)}
-                  </span>
+                  <span className="min-w-0 truncate">本月费用剩余 {formatCents(usage.remainingCostCents)}</span>
                   {activeModel ? (
                     <ContextBadge
                       contextStats={lastContextStats}
@@ -2094,45 +2094,118 @@ export function ChatShell({
                   ) : null}
                 </div>
               ) : null}
-              <textarea
-                className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-stone-950 outline-none"
-                disabled={loading || quotaBlocked}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder={
-                  sourceImageMessage
-                    ? "描述想如何修改这张图片"
-                    : imageToolEnabled
-                      ? "描述要生成的图片"
-                    : webSearchEnabledForMessage
-                      ? "输入需要联网查询的问题"
-                      : "输入消息，或直接说“画一张...”"
-                }
-                ref={textareaRef}
-                rows={1}
-                value={input}
+              <ComposerInputArea
+                draftFocusToken={composerDraft.focusToken}
+                draftText={composerDraft.text}
+                imageToolEnabled={imageToolEnabled}
+                loading={loading}
+                onSend={send}
+                onStop={stopGeneration}
+                pendingAttachmentCount={pendingAttachments.length}
+                quotaBlocked={quotaBlocked}
+                sourceImageSelected={Boolean(sourceImageMessage)}
+                uploadingAttachments={uploadingAttachments}
+                webSearchEnabledForMessage={webSearchEnabledForMessage}
               />
-              <button
-                className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
-                disabled={
-                  (!loading &&
-                    !input.trim() &&
-                    pendingAttachments.length === 0 &&
-                    !sourceImageMessage) ||
-                  quotaBlocked ||
-                  uploadingAttachments
-                }
-                onClick={loading ? stopGeneration : send}
-                title={loading ? "停止生成" : "发送"}
-                type="button"
-              >
-                {loading ? <Square className="size-4" /> : <Send className="size-4" />}
-              </button>
             </div>
           </div>
         </footer>
       </section>
     </main>
+  );
+}
+
+function ComposerInputArea({
+  draftFocusToken,
+  draftText,
+  imageToolEnabled,
+  loading,
+  onSend,
+  onStop,
+  pendingAttachmentCount,
+  quotaBlocked,
+  sourceImageSelected,
+  uploadingAttachments,
+  webSearchEnabledForMessage
+}: {
+  draftFocusToken: number;
+  draftText: string;
+  imageToolEnabled: boolean;
+  loading: boolean;
+  onSend: (draftText: string) => Promise<void>;
+  onStop: () => void;
+  pendingAttachmentCount: number;
+  quotaBlocked: boolean;
+  sourceImageSelected: boolean;
+  uploadingAttachments: boolean;
+  webSearchEnabledForMessage: boolean;
+}) {
+  const [draft, setDraft] = useState(draftText);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const placeholder = sourceImageSelected
+    ? "描述想如何修改这张图片"
+    : imageToolEnabled
+      ? "描述要生成的图片"
+      : webSearchEnabledForMessage
+        ? "输入需要联网查询的问题"
+        : "输入消息，或直接说“画一张...”";
+  const sendDisabled =
+    (!loading && !draft.trim() && pendingAttachmentCount === 0 && !sourceImageSelected) ||
+    quotaBlocked ||
+    uploadingAttachments;
+
+  useEffect(() => {
+    setDraft(draftText);
+
+    if (draftFocusToken > 0) {
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    }
+  }, [draftFocusToken, draftText]);
+
+  async function submitDraft() {
+    if (loading) {
+      onStop();
+      return;
+    }
+
+    if (sendDisabled) {
+      return;
+    }
+
+    const currentDraft = draft;
+    setDraft("");
+    await onSend(currentDraft);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submitDraft();
+    }
+  }
+
+  return (
+    <>
+      <textarea
+        className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-stone-950 outline-none"
+        disabled={loading || quotaBlocked}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        ref={textareaRef}
+        rows={1}
+        value={draft}
+      />
+      <button
+        className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
+        disabled={sendDisabled}
+        onClick={() => void submitDraft()}
+        title={loading ? "停止生成" : "发送"}
+        type="button"
+      >
+        {loading ? <Square className="size-4" /> : <Send className="size-4" />}
+      </button>
+    </>
   );
 }
 
@@ -2321,51 +2394,33 @@ function ContextNotice({ lastContextStats }: { lastContextStats: ContextStats | 
 }
 
 function UsageBars({ usage }: { usage: UsageSummary }) {
-  const rows = [
-    {
-      label: "消息",
-      used: usage.messagesUsed,
-      limit: usage.monthlyMessageLimit,
-      usedText: `${formatNumber(usage.messagesUsed)} / ${formatNumber(usage.monthlyMessageLimit)}`,
-      remainingText: `${formatNumber(usage.remainingMessages)} 次`
-    },
-    {
-      label: "Token",
-      used: usage.tokensUsed,
-      limit: usage.monthlyTokenLimit,
-      usedText: `${formatNumber(usage.tokensUsed)} / ${formatNumber(usage.monthlyTokenLimit)}`,
-      remainingText: `${formatNumber(usage.remainingTokens)} tokens`
-    },
-    {
-      label: "费用",
-      used: usage.costUsedCents,
-      limit: usage.monthlyCostLimitCents,
-      usedText: `${formatCents(usage.costUsedCents)} / ${formatCents(usage.monthlyCostLimitCents)}`,
-      remainingText: formatCents(usage.remainingCostCents)
-    }
-  ];
-
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
         <Gauge className="size-4 text-[color:var(--claude-accent)]" />
-        本月额度
+        本月费用额度
       </div>
-      {rows.map((row) => (
-        <div key={row.label}>
-          <div className="mb-1 flex items-center justify-between gap-2 text-xs ios-muted">
-            <span>{row.label}</span>
-            <span>剩余 {row.remainingText}</span>
-          </div>
-          <p className="mb-1 text-[11px] ios-muted">已用 {row.usedText}</p>
-          <div className="h-2 overflow-hidden rounded-full bg-white/80">
-            <div
-              className="h-full rounded-full bg-[color:var(--claude-accent)]"
-              style={{ width: `${usagePercent(row.used, row.limit)}%` }}
-            />
-          </div>
+      <div>
+        <div className="mb-1 flex items-center justify-between gap-2 text-xs ios-muted">
+          <span>费用</span>
+          <span>剩余 {formatCents(usage.remainingCostCents)}</span>
         </div>
-      ))}
+        <p className="mb-1 text-[11px] ios-muted">
+          已用 {formatCents(usage.costUsedCents)} / {formatCents(usage.monthlyCostLimitCents)}
+        </p>
+        <div className="h-2 overflow-hidden rounded-full bg-white/80">
+          <div
+            className="h-full rounded-full bg-[color:var(--claude-accent)]"
+            style={{
+              width: `${usagePercent(usage.costUsedCents, usage.monthlyCostLimitCents)}%`
+            }}
+          />
+        </div>
+        <p className="mt-2 text-[11px] leading-5 ios-muted">
+          本月已产生 {formatNumber(usage.messagesUsed)} 条记录 ·{" "}
+          {formatNumber(usage.tokensUsed)} tokens
+        </p>
+      </div>
     </div>
   );
 }
@@ -2464,10 +2519,11 @@ function MessageActionButton({
 }) {
   return (
     <button
-      className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs transition ${
+      aria-label={title}
+      className={`transition ${
         tone === "user"
-          ? "text-white/80 hover:bg-white/15 hover:text-white"
-          : "text-stone-500 hover:bg-stone-200/60 hover:text-stone-900"
+          ? "grid size-7 place-items-center rounded-md border border-[color:var(--ios-separator)] bg-white/55 text-stone-500 shadow-sm hover:bg-white/90 hover:text-stone-900"
+          : "inline-flex h-7 items-center gap-1 rounded-md border border-transparent px-2 text-xs text-stone-500 hover:border-[color:var(--ios-separator)] hover:bg-white/55 hover:text-stone-900"
       }`}
       onClick={onClick}
       title={title}
@@ -2672,8 +2728,15 @@ function MessageBubble({
       <div
         className={`${
           isUser
-            ? "max-w-[min(680px,86%)] break-words rounded-2xl bg-[color:var(--claude-accent)] px-4 py-3 text-white shadow-sm"
-            : "min-w-0 w-full max-w-[760px] px-1 py-1 text-stone-900"
+            ? "flex max-w-[min(680px,86%)] flex-col items-end"
+            : "min-w-0 w-full max-w-[760px]"
+        }`}
+      >
+        <div
+          className={`${
+            isUser
+              ? "max-w-full break-words rounded-2xl bg-[color:var(--claude-accent)] px-4 py-3 text-white shadow-sm"
+              : "min-w-0 w-full px-1 py-1 text-stone-900"
         }`}
       >
         {message.attachments?.length ? (
@@ -2721,12 +2784,16 @@ function MessageBubble({
           </p>
         ) : null}
         {message.pending ? <p className="mt-2 text-xs opacity-70">处理中</p> : null}
+        </div>
         {!message.pending ? (
-          <div className={`mt-2 flex flex-wrap gap-1 ${isUser ? "justify-end" : "justify-start"}`}>
+          <div
+            className={`mt-1.5 flex flex-wrap gap-1 ${
+              isUser ? "justify-end pr-1" : "justify-start px-1"
+            }`}
+          >
             {isUser ? (
               <MessageActionButton onClick={() => onEdit(message)} title="编辑" tone="user">
                 <Pencil className="size-3.5" />
-                编辑
               </MessageActionButton>
             ) : (
               <>
@@ -2754,7 +2821,7 @@ function MessageBubble({
               tone={isUser ? "user" : "default"}
             >
               <Copy className="size-3.5" />
-              复制
+              {isUser ? null : "复制"}
             </MessageActionButton>
             <MessageActionButton
               onClick={() => void onDelete(message)}
@@ -2762,7 +2829,7 @@ function MessageBubble({
               tone={isUser ? "user" : "default"}
             >
               <Trash2 className="size-3.5" />
-              删除
+              {isUser ? null : "删除"}
             </MessageActionButton>
           </div>
         ) : null}

@@ -140,6 +140,7 @@ export async function planWebSearchQuery(options: {
   attachmentCount?: number;
   modelId: string;
   prompt: string;
+  signal?: AbortSignal;
   settings: AiRuntimeSettings;
 }): Promise<SearchQueryPlan> {
   const attachmentBound = isAttachmentBoundPrompt(options.prompt, options.attachmentCount ?? 0);
@@ -150,6 +151,10 @@ export async function planWebSearchQuery(options: {
       hasSearchableQuery(fallbackQuery(options.prompt)) &&
       (options.force || shouldUseWebSearch(options.prompt))
   };
+
+  if (attachmentBound || (!options.force && !shouldUseWebSearch(options.prompt))) {
+    return fallback;
+  }
 
   if (!options.settings.webSearchEnabled || options.settings.mockResponses) {
     return fallback;
@@ -163,7 +168,8 @@ export async function planWebSearchQuery(options: {
         force: options.force,
         prompt: options.prompt
       }),
-      options.settings
+      options.settings,
+      { signal: options.signal }
     );
 
     const planned = normalizePlan(jsonFromPlannerResponse(plannerText), fallback);

@@ -160,7 +160,8 @@ install_system_packages() {
   require_apt
   log "Installing system packages..."
   as_root apt-get update
-  as_root apt-get install -y ca-certificates curl git build-essential openssl postgresql postgresql-contrib
+  as_root apt-get install -y ca-certificates curl git build-essential openssl postgresql postgresql-contrib redis-server
+  as_root systemctl enable --now redis-server
 
   local current_major="0"
   if command -v node >/dev/null 2>&1; then
@@ -200,6 +201,8 @@ DB_NAME="$DB_NAME"
 DB_USER="$DB_USER"
 DB_PASSWORD="$DB_PASSWORD"
 DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:5432/$DB_NAME?schema=public"
+REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
+CACHE_ENABLED="${CACHE_ENABLED:-true}"
 
 AUTH_SECRET="$AUTH_SECRET"
 
@@ -239,6 +242,9 @@ EOF
         "DATABASE_URL" \
         "postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:5432/$DB_NAME?schema=public"
     fi
+
+    append_env_line_if_missing "REDIS_URL" "${REDIS_URL:-redis://127.0.0.1:6379}"
+    append_env_line_if_missing "CACHE_ENABLED" "${CACHE_ENABLED:-true}"
 
     if [[ -z "${AUTH_SECRET:-}" ]]; then
       append_env_line_if_missing "AUTH_SECRET" "$(random_hex 32)"
@@ -306,10 +312,10 @@ SQL
 }
 
 prepare_app_dir() {
-  mkdir -p "$APP_DIR/uploads" "$APP_DIR/logs"
+  mkdir -p "$APP_DIR/uploads" "$APP_DIR/logs" "$APP_DIR/.cache/code-interpreter"
 
   if [[ "$(id -u)" -eq 0 && "$APP_USER" != "root" ]]; then
-    chown -R "$APP_USER:$APP_GROUP" "$APP_DIR/uploads" "$APP_DIR/logs"
+    chown -R "$APP_USER:$APP_GROUP" "$APP_DIR/uploads" "$APP_DIR/logs" "$APP_DIR/.cache"
   fi
 }
 
@@ -347,7 +353,7 @@ write_systemd_service() {
   as_root tee "/etc/systemd/system/${SERVICE_NAME}.service" >/dev/null <<EOF
 [Unit]
 Description=Team AI Gateway
-After=network.target postgresql.service
+After=network.target postgresql.service redis-server.service
 
 [Service]
 Type=simple

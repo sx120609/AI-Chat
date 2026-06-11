@@ -19,6 +19,7 @@ import {
   parseModelSystemPrompts,
   type SystemPromptMode
 } from "@/lib/system-prompt";
+import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { prisma } from "@/lib/prisma";
 import type { ChatMessageContent } from "@/lib/tokens";
 
@@ -58,17 +59,25 @@ export type AiRuntimeSettings = {
 const CHAT_HEADERS_TIMEOUT_MS = 60_000;
 const MODELS_TIMEOUT_MS = 20_000;
 const IMAGE_TIMEOUT_MS = 300_000;
+export const AI_RUNTIME_SETTINGS_CACHE_KEY = "ai-runtime-settings:v1";
+const AI_RUNTIME_SETTINGS_CACHE_TTL_SECONDS = 30;
 
 function normalizeWebSearchProvider(provider: string | null | undefined) {
   return provider === "bing" ? "bing" : "duckduckgo";
 }
 
 export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
+  const cached = await cacheGetJson<AiRuntimeSettings>(AI_RUNTIME_SETTINGS_CACHE_KEY);
+
+  if (cached) {
+    return cached;
+  }
+
   const settings = await prisma.aiSettings.findUnique({
     where: { id: "default" }
   });
 
-  return {
+  const runtimeSettings: AiRuntimeSettings = {
     apiBaseUrl: (
       settings?.apiBaseUrl ||
       process.env.AI_API_BASE_URL ||
@@ -111,6 +120,14 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
       Math.max(1, settings?.webSearchMaxResults || Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5)
     )
   };
+
+  await cacheSetJson(
+    AI_RUNTIME_SETTINGS_CACHE_KEY,
+    runtimeSettings,
+    AI_RUNTIME_SETTINGS_CACHE_TTL_SECONDS
+  );
+
+  return runtimeSettings;
 }
 
 const streamEncoder = new TextEncoder();
@@ -263,15 +280,31 @@ function upstreamAuthHeaders(settings: AiRuntimeSettings) {
 // 超时仅作用于"等待响应头"阶段：fetch resolve 后清除定时器，不影响后续流式读取。
 async function fetchWithHeadersTimeout(url: string, init: RequestInit, timeoutMs: number) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const parentSignal = init.signal;
+  let timedOut = false;
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  if (parentSignal?.aborted) {
+    abortFromParent();
+  } else {
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  }
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (timedOut) {
       throw new Error(
         `上游 API 在 ${Math.round(timeoutMs / 1000)} 秒内没有响应，请检查 API 地址与网络连通性。`
       );
+    }
+
+    if (controller.signal.aborted || parentSignal?.aborted) {
+      throw new Error("请求已停止。");
     }
 
     throw new Error(
@@ -279,6 +312,7 @@ async function fetchWithHeadersTimeout(url: string, init: RequestInit, timeoutMs
     );
   } finally {
     clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", abortFromParent);
   }
 }
 
@@ -348,6 +382,7 @@ export async function createChatCompletionStream(
   settings: AiRuntimeSettings,
   options?: {
     reasoningEffort?: ReasoningEffort;
+    signal?: AbortSignal;
   }
 ) {
   assertUpstreamConfigured(settings);
@@ -378,7 +413,8 @@ export async function createChatCompletionStream(
   const requestInit = (body: Record<string, unknown>): RequestInit => ({
     method: "POST",
     headers: upstreamHeaders(settings),
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: options?.signal
   });
 
   let response = await fetchWithHeadersTimeout(url, requestInit(fullBody), CHAT_HEADERS_TIMEOUT_MS);
@@ -403,7 +439,8 @@ export async function createChatCompletionStream(
 export async function createChatCompletionText(
   model: string,
   messages: UpstreamChatMessage[],
-  settings: AiRuntimeSettings
+  settings: AiRuntimeSettings,
+  options?: { signal?: AbortSignal }
 ) {
   assertUpstreamConfigured(settings);
   const selectedModel = getChatModel(model, settings.chatModels);
@@ -418,7 +455,8 @@ export async function createChatCompletionText(
     {
       method: "POST",
       headers: upstreamHeaders(settings),
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: options?.signal
     },
     CHAT_HEADERS_TIMEOUT_MS
   );

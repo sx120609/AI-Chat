@@ -17,6 +17,8 @@ export type ChatModelView = {
   id: string;
   label: string;
   upstreamId: string;
+  inputCentsPerMillionTokens: number;
+  outputCentsPerMillionTokens: number;
   contextWindowTokens: number;
   contextNote: string;
   source: "default" | "upstream";
@@ -29,11 +31,7 @@ export type UsageSummary = {
   tokensUsed: number;
   messagesUsed: number;
   costUsedCents: number;
-  remainingTokens: number;
-  remainingMessages: number;
   remainingCostCents: number;
-  monthlyTokenLimit: number;
-  monthlyMessageLimit: number;
   monthlyCostLimitCents: number;
 };
 
@@ -43,8 +41,6 @@ export type UserView = {
   name: string;
   role: Role;
   active: boolean;
-  monthlyTokenLimit: number;
-  monthlyMessageLimit: number;
   monthlyCostLimitCents: number;
   quotaResetAt: string;
 };

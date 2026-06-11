@@ -1,3 +1,4 @@
+import { cacheGetJson, cacheSetJson } from "./cache";
 import { prisma } from "./prisma";
 
 export type SiteSettings = {
@@ -6,6 +7,8 @@ export type SiteSettings = {
 };
 
 export const DEFAULT_SITE_NAME = "Team AI Gateway";
+export const SITE_SETTINGS_CACHE_KEY = "site-settings:v1";
+const SITE_SETTINGS_CACHE_TTL_SECONDS = 60;
 
 export function normalizeSiteName(value: string | null | undefined) {
   const name = value?.trim();
@@ -34,6 +37,12 @@ export function normalizeSiteUrl(value: string | null | undefined) {
 }
 
 export async function getSiteSettings(): Promise<SiteSettings> {
+  const cached = await cacheGetJson<SiteSettings>(SITE_SETTINGS_CACHE_KEY);
+
+  if (cached) {
+    return cached;
+  }
+
   const settings = await prisma.aiSettings.findUnique({
     where: { id: "default" },
     select: {
@@ -43,14 +52,22 @@ export async function getSiteSettings(): Promise<SiteSettings> {
   });
 
   if (settings) {
-    return {
+    const siteSettings = {
       siteName: normalizeSiteName(settings.siteName),
       siteUrl: normalizeSiteUrl(settings.siteUrl)
     };
+
+    await cacheSetJson(SITE_SETTINGS_CACHE_KEY, siteSettings, SITE_SETTINGS_CACHE_TTL_SECONDS);
+
+    return siteSettings;
   }
 
-  return {
+  const siteSettings = {
     siteName: normalizeSiteName(process.env.SITE_NAME),
     siteUrl: normalizeSiteUrl(process.env.SITE_URL)
   };
+
+  await cacheSetJson(SITE_SETTINGS_CACHE_KEY, siteSettings, SITE_SETTINGS_CACHE_TTL_SECONDS);
+
+  return siteSettings;
 }

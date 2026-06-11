@@ -20,7 +20,7 @@
 - 预留代码解释器式文件分析底座：可由管理员开启 Docker 沙箱，后续用于让 AI 生成 Python 分析附件
 - 可选服务端联网搜索：管理员允许后，后端会先规划是否需要搜索，用户也可为单次消息强制开启并选择自动/Bing/DuckDuckGo，回答保留来源卡片
 - 管理后台可设置站点名称、站点地址、API Base URL、API Key、Org ID 和 Mock 模式
-- 用户级月度 token、消息次数、预估费用额度
+- 用户级月度费用额度，费用按模型输入/输出 token 单价估算
 - 超额前置拦截，超额后禁止继续调用
 - 管理员查看所有用户用量、调整额度、启停账号、重置额度窗口
 - Prisma + PostgreSQL 默认配置，并提供旧 SQLite 数据迁移脚本
@@ -57,7 +57,7 @@ chmod +x deploy.sh
 ./deploy.sh install
 ```
 
-脚本会安装系统依赖、Node.js、PostgreSQL，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务 `team-ai-gateway`。生产服务默认监听 `20131` 端口；重新执行 `deploy` 或 `update` 会重写 systemd 服务并重启到当前端口。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
+脚本会安装系统依赖、Node.js、PostgreSQL、Redis，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务 `team-ai-gateway`。生产服务默认监听 `20131` 端口；重新执行 `deploy` 或 `update` 会重写 systemd 服务并重启到当前端口。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
 
 从 GitHub 拉取最新代码并更新部署：
 
@@ -114,6 +114,8 @@ DB_NAME="team_ai_gateway"
 DB_USER="team_ai_gateway"
 DB_PASSWORD="change-me"
 DATABASE_URL="postgresql://team_ai_gateway:change-me@127.0.0.1:5432/team_ai_gateway?schema=public"
+REDIS_URL="redis://127.0.0.1:6379"
+CACHE_ENABLED="true"
 AUTH_SECRET="change-me-to-a-long-random-secret"
 AI_API_KEY=""
 AI_API_BASE_URL="https://api.openai.com/v1"
@@ -124,6 +126,8 @@ ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
 ADMIN_NAME="管理员"
 ```
+
+Redis 是默认部署依赖，`deploy.sh install` 会安装并启用本机 `redis-server`。后端会缓存 AI 运行设置、站点设置和短 TTL 用量摘要；发消息前的额度校验仍强制刷新数据库，避免缓存导致超额放行。
 
 `AI_API_BASE_URL` 可指向任何 OpenAI-compatible 的自定义接口地址，例如 `https://your-gateway.example.com/v1`。推荐在管理后台配置；前端只会看到是否已设置 Key 和 Key 尾号，不会拿到完整 Key。
 
@@ -144,6 +148,9 @@ CODE_INTERPRETER_DOCKER_IMAGE="python:3.12-slim"
 CODE_INTERPRETER_ALLOW_PACKAGE_INSTALL="false"
 CODE_INTERPRETER_PIP_INDEX_URL="https://pypi.org/simple"
 CODE_INTERPRETER_TIMEOUT_MS="45000"
+CODE_INTERPRETER_PACKAGE_CACHE="true"
+CODE_INTERPRETER_CACHE_DIR=".cache/code-interpreter"
+CODE_INTERPRETER_PACKAGE_INSTALL_TIMEOUT_MS="120000"
 CODE_INTERPRETER_DOCKER_MEMORY="768m"
 CODE_INTERPRETER_DOCKER_CPUS="1"
 WEB_SEARCH_ENABLED="false"
@@ -152,7 +159,7 @@ WEB_SEARCH_PROVIDER="duckduckgo"
 WEB_SEARCH_MAX_RESULTS="5"
 ```
 
-如果允许沙箱内安装 Python 包，后端会强制使用 `CODE_INTERPRETER_PIP_INDEX_URL`，默认是 PyPI 官方源 `https://pypi.org/simple`。这只限制 pip 的包源参数；生产环境如果需要严格网络白名单，仍建议在 Docker/宿主机/防火墙层面限制容器 egress。
+如果允许沙箱内安装 Python 包，后端会强制使用 `CODE_INTERPRETER_PIP_INDEX_URL`，默认是 PyPI 官方源 `https://pypi.org/simple`。包缓存默认开启：首次遇到同一 Docker 镜像、pip 源和包集合时会安装到 `CODE_INTERPRETER_CACHE_DIR`，后续分析容器以只读 `/deps` 复用，不再重复安装；正式分析容器仍使用 `--network none`。这只限制 pip 的包源参数；生产环境如果需要严格网络白名单，仍建议在 Docker/宿主机/防火墙层面限制容器 egress。
 
 ## 联网搜索
 
@@ -192,9 +199,9 @@ npm run db:migrate:sqlite-to-pg
 
 ## 额度与费用估算
 
-额度窗口按自然月自动切换；管理员点击“重置额度”会把该用户的 `quotaResetAt` 设置为当前时间，当前窗口用量重新从该时间开始统计。
+额度窗口按自然月自动切换；管理员点击“重置额度”会把该用户的 `quotaResetAt` 设置为当前时间，当前窗口用量重新从该时间开始统计。额度只按费用扣减，消息数和 token 数仅作为用量明细展示。
 
-价格表位于 `src/lib/models.ts`。由于 MVP 支持的模型名可能来自自定义上游，默认价格是网关侧估算值，可按实际供应商价格调整。
+聊天模型的输入/输出 token 单价与 image2 固定费用位于 `src/lib/models.ts`，管理后台模型列表也会展示单价。由于 MVP 支持的模型名可能来自自定义上游，默认价格是网关侧估算值，可按实际供应商价格调整。
 
 token 统计优先使用上游返回的 `usage`；如果上游流式响应没有返回 usage，网关会用 `src/lib/tokens.ts` 的近似算法估算。
 

@@ -17,8 +17,6 @@ type UpdateUserBody = {
   password?: string;
   role?: "USER" | "ADMIN";
   active?: boolean;
-  monthlyTokenLimit?: number;
-  monthlyMessageLimit?: number;
   monthlyCostLimitCents?: number;
 };
 
@@ -48,8 +46,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     passwordHash?: string;
     role?: "USER" | "ADMIN";
     active?: boolean;
-    monthlyTokenLimit?: number;
-    monthlyMessageLimit?: number;
     monthlyCostLimitCents?: number;
   } = {};
 
@@ -71,14 +67,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   if (typeof body.active === "boolean") {
     data.active = body.active;
-  }
-
-  if (body.monthlyTokenLimit !== undefined) {
-    data.monthlyTokenLimit = coerceInt(body.monthlyTokenLimit, 200000, 1);
-  }
-
-  if (body.monthlyMessageLimit !== undefined) {
-    data.monthlyMessageLimit = coerceInt(body.monthlyMessageLimit, 500, 1);
   }
 
   if (body.monthlyCostLimitCents !== undefined) {

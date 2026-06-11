@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import { cacheDelete } from "@/lib/cache";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
 import {
   buildChatModelCatalog,
@@ -17,13 +18,14 @@ import {
   type ChatModelId
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
-import { normalizeSiteName, normalizeSiteUrl } from "@/lib/site-settings";
+import { normalizeSiteName, normalizeSiteUrl, SITE_SETTINGS_CACHE_KEY } from "@/lib/site-settings";
 import {
   DEFAULT_SYSTEM_PROMPT_MODE,
   normalizeModelSystemPrompts,
   normalizeSystemPromptMode,
   parseModelSystemPrompts
 } from "@/lib/system-prompt";
+import { AI_RUNTIME_SETTINGS_CACHE_KEY } from "@/lib/upstream";
 
 export const runtime = "nodejs";
 
@@ -266,6 +268,8 @@ export async function GET(request: NextRequest) {
     }
   });
 
+  await cacheDelete([AI_RUNTIME_SETTINGS_CACHE_KEY, SITE_SETTINGS_CACHE_KEY]);
+
   return NextResponse.json({ settings: serializeSettings(settings) });
 }
 
@@ -391,6 +395,8 @@ export async function PATCH(request: NextRequest) {
       ...data
     }
   });
+
+  await cacheDelete([AI_RUNTIME_SETTINGS_CACHE_KEY, SITE_SETTINGS_CACHE_KEY]);
 
   return NextResponse.json({ settings: serializeSettings(settings) });
 }

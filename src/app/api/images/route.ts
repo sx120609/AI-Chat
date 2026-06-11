@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
   const estimatedCostCents = estimateImageCostCents(promptTokens);
 
   try {
-    await assertQuotaAvailable(user.id, promptTokens, estimatedCostCents);
+    await assertQuotaAvailable(user.id, estimatedCostCents);
   } catch (error) {
     if (error instanceof QuotaError) {
       return jsonError(error.message, error.status, { usage: error.summary });
@@ -415,7 +415,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    const usage = await getUsageSummary(user.id);
+    const usage = await getUsageSummary(user.id, { readCache: false });
 
     return NextResponse.json({
       conversationId: conversation.id,

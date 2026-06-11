@@ -2,7 +2,6 @@
 
 import {
   Archive,
-  ArchiveRestore,
   Check,
   ChevronDown,
   Copy,
@@ -289,10 +288,6 @@ function startOfLocalDay(date: Date) {
 }
 
 function conversationGroupLabel(conversation: ConversationSummary) {
-  if (conversation.archivedAt) {
-    return "已归档";
-  }
-
   if (conversation.pinned) {
     return "固定";
   }
@@ -321,7 +316,7 @@ function conversationGroupLabel(conversation: ConversationSummary) {
 }
 
 function groupConversations(conversations: ConversationSummary[]) {
-  const order = ["固定", "今天", "昨天", "最近 7 天", "最近 30 天", "更早", "已归档"];
+  const order = ["固定", "今天", "昨天", "最近 7 天", "最近 30 天", "更早"];
   const groups = new Map<string, ConversationSummary[]>();
 
   for (const conversation of conversations) {
@@ -371,7 +366,6 @@ export function ChatShell({
     createLocalConversationKey
   );
   const [conversationSearch, setConversationSearch] = useState("");
-  const [showArchivedConversations, setShowArchivedConversations] = useState(false);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [openConversationMenuId, setOpenConversationMenuId] = useState<string | null>(null);
@@ -641,10 +635,6 @@ export function ChatShell({
         params.set("search", conversationSearch.trim());
       }
 
-      if (showArchivedConversations) {
-        params.set("includeArchived", "true");
-      }
-
       const response = await fetch(
         `/api/conversations${params.toString() ? `?${params.toString()}` : ""}`
       );
@@ -669,7 +659,7 @@ export function ChatShell({
         await loadConversation(target);
       }
     },
-    [conversationSearch, loadConversation, showArchivedConversations]
+    [conversationSearch, loadConversation]
   );
 
   useEffect(() => {
@@ -683,7 +673,7 @@ export function ChatShell({
     );
 
     return () => window.clearTimeout(handle);
-  }, [conversationSearch, refreshConversations, showArchivedConversations]);
+  }, [conversationSearch, refreshConversations]);
 
   useEffect(() => {
     void refreshMe();
@@ -788,7 +778,7 @@ export function ChatShell({
 
   async function patchConversation(
     conversationId: string,
-    body: { archived?: boolean; pinned?: boolean; title?: string }
+    body: { pinned?: boolean; title?: string }
   ) {
     const response = await fetch(`/api/conversations/${conversationId}`, {
       method: "PATCH",
@@ -850,24 +840,6 @@ export function ChatShell({
     setOpenConversationMenuId(null);
     await refreshConversations(updated.id);
     setStreamStatus(updated.pinned ? "会话已固定。" : "已取消固定。");
-  }
-
-  async function toggleArchiveConversation(conversation: ConversationSummary) {
-    const archived = !conversation.archivedAt;
-    const updated = await patchConversation(conversation.id, { archived });
-
-    if (!updated) {
-      return;
-    }
-
-    setOpenConversationMenuId(null);
-
-    if (archived && !showArchivedConversations && activeConversationId === conversation.id) {
-      startNewConversation();
-    }
-
-    await refreshConversations(archived ? undefined : updated.id);
-    setStreamStatus(archived ? "会话已归档。" : "会话已恢复。");
   }
 
   async function deleteConversation(conversationId: string, skipConfirm = false) {
@@ -2093,27 +2065,9 @@ export function ChatShell({
             ) : null}
           </label>
         </div>
-        <div className="mt-2">
-          <button
-            className={`flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border px-2 text-xs font-medium transition ${
-              showArchivedConversations
-                ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                : "border-[color:var(--ios-separator)] bg-white/45 text-stone-600 hover:bg-white/75"
-            }`}
-            onClick={() => setShowArchivedConversations((current) => !current)}
-            type="button"
-          >
-            {showArchivedConversations ? (
-              <ArchiveRestore className="size-3.5" />
-            ) : (
-              <Archive className="size-3.5" />
-            )}
-            {showArchivedConversations ? "全部会话" : "含归档"}
-          </button>
-        </div>
       </div>
 
-      <div className="border-b border-[color:var(--ios-separator)] p-4">
+      <div className="border-b border-[color:var(--ios-separator)] p-2.5 lg:p-4">
         <UsageBars usage={usage} />
       </div>
 
@@ -2177,9 +2131,6 @@ export function ChatShell({
                           {conversation.pinned ? (
                             <Pin className="size-3.5 shrink-0 text-[color:var(--claude-accent)]" />
                           ) : null}
-                          {conversation.archivedAt ? (
-                            <Archive className="size-3.5 shrink-0 text-stone-400" />
-                          ) : null}
                           {running ? (
                             <Loader2 className="size-3.5 shrink-0 animate-spin text-[color:var(--claude-accent)]" />
                           ) : null}
@@ -2231,18 +2182,6 @@ export function ChatShell({
                         >
                           <Pencil className="size-3.5" />
                           重命名
-                        </button>
-                        <button
-                          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
-                          onClick={() => void toggleArchiveConversation(conversation)}
-                          type="button"
-                        >
-                          {conversation.archivedAt ? (
-                            <ArchiveRestore className="size-3.5" />
-                          ) : (
-                            <Archive className="size-3.5" />
-                          )}
-                          {conversation.archivedAt ? "恢复" : "归档"}
                         </button>
                         <button
                           className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-red-600 hover:bg-red-50"
@@ -2365,7 +2304,7 @@ export function ChatShell({
             </div>
 
             <div
-              className="w-[min(11.5rem,46vw)] min-w-[8rem] shrink-0 sm:w-auto sm:min-w-0 sm:shrink-0"
+              className="w-[min(12.75rem,52vw)] min-w-[8.5rem] shrink-0 sm:w-auto sm:min-w-0 sm:shrink-0"
               ref={headerControlsRef}
             >
               <ModelReasoningPicker
@@ -2878,8 +2817,7 @@ function ModelReasoningPicker({
             <span className="sm:hidden">{mobileModelLabel}</span>
             <span className="hidden sm:inline">{modelLabel}</span>
           </span>
-          <span className="text-stone-300">/</span>
-          <span className="shrink-0 text-stone-500 sm:hidden">{activeReasoningLabel}</span>
+          <span className="hidden text-stone-300 sm:inline">/</span>
           <span className="hidden shrink-0 text-stone-500 sm:inline">
             思考 {activeReasoningLabel}
           </span>
@@ -2897,7 +2835,10 @@ function ModelReasoningPicker({
 }
 
 function getCompactModelLabel(label: string) {
-  return label.replace(/^GPT-/, "GPT-").replace("-Codex-Spark", "");
+  return label
+    .replace(/^GPT[-\s]?/i, "")
+    .replace("-Codex-Spark", "-Spark")
+    .replace(/\s+/g, "");
 }
 
 function getModelPickerDetail(model: ChatModelView) {
@@ -3156,20 +3097,20 @@ function ContextNotice({ lastContextStats }: { lastContextStats: ContextStats | 
 
 function UsageBars({ usage }: { usage: UsageSummary }) {
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 text-sm font-semibold text-stone-800">
-        <Gauge className="size-4 text-[color:var(--claude-accent)]" />
+    <div className="space-y-2 lg:space-y-3">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800 lg:gap-2 lg:text-sm">
+        <Gauge className="size-3.5 text-[color:var(--claude-accent)] lg:size-4" />
         本月费用额度
       </div>
       <div>
-        <div className="mb-1 flex items-center justify-between gap-2 text-xs ios-muted">
+        <div className="mb-0.5 flex items-center justify-between gap-2 text-[11px] ios-muted lg:mb-1 lg:text-xs">
           <span>费用</span>
           <span>剩余 {formatCents(usage.remainingCostCents)}</span>
         </div>
-        <p className="mb-1 text-[11px] ios-muted">
+        <p className="mb-1 text-[10px] ios-muted lg:text-[11px]">
           已用 {formatCents(usage.costUsedCents)} / {formatCents(usage.monthlyCostLimitCents)}
         </p>
-        <div className="h-2 overflow-hidden rounded-full bg-white/80">
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/80 lg:h-2">
           <div
             className="h-full rounded-full bg-[color:var(--claude-accent)]"
             style={{
@@ -3177,7 +3118,7 @@ function UsageBars({ usage }: { usage: UsageSummary }) {
             }}
           />
         </div>
-        <p className="mt-2 text-[11px] leading-5 ios-muted">
+        <p className="mt-1 text-[10px] leading-4 ios-muted lg:mt-2 lg:text-[11px] lg:leading-5">
           本月已产生 {formatNumber(usage.messagesUsed)} 条记录 ·{" "}
           {formatNumber(usage.tokensUsed)} tokens
         </p>

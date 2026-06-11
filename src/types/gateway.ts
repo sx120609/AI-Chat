@@ -58,7 +58,6 @@ export type ConversationSummary = {
   model: string;
   mode: GenerationMode;
   pinned: boolean;
-  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: {

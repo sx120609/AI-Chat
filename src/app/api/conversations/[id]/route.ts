@@ -21,20 +21,19 @@ type RouteContext = {
 };
 
 type UpdateConversationBody = {
-  archived?: boolean;
   pinned?: boolean;
   title?: string;
 };
 
-function serializeConversation(conversation: {
-  archivedAt?: Date | null;
-  createdAt: Date;
-  pinned?: boolean;
-  updatedAt: Date;
-}) {
+function serializeConversation<
+  T extends {
+    createdAt: Date;
+    pinned?: boolean;
+    updatedAt: Date;
+  }
+>(conversation: T) {
   return {
     ...conversation,
-    archivedAt: conversation.archivedAt ? conversation.archivedAt.toISOString() : null,
     createdAt: conversation.createdAt.toISOString(),
     pinned: Boolean(conversation.pinned),
     updatedAt: conversation.updatedAt.toISOString()
@@ -70,7 +69,18 @@ export async function GET(request: NextRequest, context: RouteContext) {
       id,
       userId: user.id
     },
-    include: {
+    select: {
+      id: true,
+      title: true,
+      model: true,
+      mode: true,
+      pinned: true,
+      createdAt: true,
+      updatedAt: true,
+      contextSummary: true,
+      contextSummaryUntilMessageId: true,
+      contextSummaryUntilCreatedAt: true,
+      contextSummaryMessageCount: true,
       messages: {
         include: {
           attachments: true
@@ -178,7 +188,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 
   const data: {
-    archivedAt?: Date | null;
     pinned?: boolean;
     title?: string;
   } = {};
@@ -197,10 +206,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     data.pinned = body.pinned;
   }
 
-  if (typeof body.archived === "boolean") {
-    data.archivedAt = body.archived ? new Date() : null;
-  }
-
   if (Object.keys(data).length === 0) {
     return jsonError("没有可更新的内容。", 400);
   }
@@ -214,7 +219,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       model: true,
       mode: true,
       pinned: true,
-      archivedAt: true,
       createdAt: true,
       updatedAt: true,
       _count: {

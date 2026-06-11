@@ -16,7 +16,6 @@ type CreateConversationBody = {
 
 function serializeConversation(conversation: {
   _count?: { messages: number };
-  archivedAt?: Date | null;
   createdAt: Date;
   id: string;
   mode: "CHAT" | "IMAGE";
@@ -30,7 +29,6 @@ function serializeConversation(conversation: {
     title: conversation.title,
     model: conversation.model,
     mode: conversation.mode,
-    archivedAt: conversation.archivedAt ? conversation.archivedAt.toISOString() : null,
     createdAt: conversation.createdAt.toISOString(),
     pinned: Boolean(conversation.pinned),
     updatedAt: conversation.updatedAt.toISOString(),
@@ -52,10 +50,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search")?.trim();
-  const includeArchived = searchParams.get("includeArchived") === "true";
   const where: Prisma.ConversationWhereInput = {
     userId: user.id,
-    ...(includeArchived ? {} : { archivedAt: null }),
     ...(search
       ? {
           OR: [
@@ -79,7 +75,6 @@ export async function GET(request: NextRequest) {
       model: true,
       mode: true,
       pinned: true,
-      archivedAt: true,
       createdAt: true,
       updatedAt: true,
       _count: {

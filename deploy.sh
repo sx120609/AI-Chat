@@ -263,6 +263,11 @@ EOF
     fi
 
     append_env_line_if_missing "ADMIN_NAME" "${ADMIN_NAME:-Admin}"
+    append_env_line_if_missing "CODE_INTERPRETER_PACKAGE_CACHE" "${CODE_INTERPRETER_PACKAGE_CACHE:-true}"
+    append_env_line_if_missing "CODE_INTERPRETER_CACHE_DIR" "${CODE_INTERPRETER_CACHE_DIR:-.cache/code-interpreter}"
+    append_env_line_if_missing \
+      "CODE_INTERPRETER_PACKAGE_INSTALL_TIMEOUT_MS" \
+      "${CODE_INTERPRETER_PACKAGE_INSTALL_TIMEOUT_MS:-120000}"
   fi
 
   chmod 600 "$ENV_FILE"

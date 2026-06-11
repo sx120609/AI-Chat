@@ -19,11 +19,16 @@ import { SiteLogo } from "@/components/site-logo";
 import { formatCents, formatNumber } from "@/lib/format";
 import {
   CHAT_MODELS,
+  DEFAULT_CONTEXT_COMPRESSION_ENABLED,
+  DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
+  DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
   DEFAULT_IMAGE_UPSTREAM_MODEL,
   DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_PARAM_MODE,
   DEFAULT_UPSTREAM_MODEL_MAP,
+  MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+  MAX_LONG_CONTEXT_THRESHOLD_TOKENS,
   REASONING_EFFORTS,
   REASONING_PARAM_MODES
 } from "@/lib/models";
@@ -68,6 +73,8 @@ type SettingsForm = {
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
   reasoningParamMode: ReasoningParamMode;
+  contextCompressionEnabled: boolean;
+  contextCompressionThresholdPercent: number;
   longContextThresholdTokens: number;
   systemPromptMode: SystemPromptMode;
   customSystemPrompt: string;
@@ -119,6 +126,8 @@ const emptySettings: SettingsForm = {
   imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
   defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
   reasoningParamMode: DEFAULT_REASONING_PARAM_MODE,
+  contextCompressionEnabled: DEFAULT_CONTEXT_COMPRESSION_ENABLED,
+  contextCompressionThresholdPercent: DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
   longContextThresholdTokens: DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   systemPromptMode: "default",
   customSystemPrompt: "",
@@ -188,6 +197,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       imageModelId: nextSettings.imageModelId,
       defaultReasoningEffort: nextSettings.defaultReasoningEffort,
       reasoningParamMode: nextSettings.reasoningParamMode,
+      contextCompressionEnabled: nextSettings.contextCompressionEnabled,
+      contextCompressionThresholdPercent: nextSettings.contextCompressionThresholdPercent,
       longContextThresholdTokens: nextSettings.longContextThresholdTokens,
       systemPromptMode: nextSettings.systemPromptMode,
       customSystemPrompt: nextSettings.customSystemPrompt,
@@ -386,7 +397,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
   return (
     <main className="ios-page app-shell flex flex-col text-stone-950">
-      <header className="ios-glass z-20 shrink-0 px-3 py-3 sm:px-5 sm:py-4">
+      <header className="ios-glass z-20 shrink-0 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5 sm:py-4">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--claude-accent)]">
@@ -403,7 +414,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:py-6">
         <div className="mx-auto max-w-7xl">
         {error ? <Banner tone="error">{error}</Banner> : null}
         {notice ? <Banner tone="success">{notice}</Banner> : null}
@@ -545,6 +556,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               <span className="mb-1 block text-xs font-medium ios-muted">长上下文阈值</span>
               <input
                 className="ios-input w-full"
+                max={MAX_LONG_CONTEXT_THRESHOLD_TOKENS}
                 min={8000}
                 onChange={(event) =>
                   setSettingsForm((current) => ({
@@ -554,6 +566,39 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                 }
                 type="number"
                 value={settingsForm.longContextThresholdTokens}
+              />
+              <span className="mt-1 block text-[11px] ios-muted">
+                默认模型按 {formatNumber(DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens 节省成本；启用 GPT-5.5 1M 后可使用 {formatNumber(MAX_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens。
+              </span>
+            </label>
+            <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+              <input
+                checked={settingsForm.contextCompressionEnabled}
+                className="size-4 accent-[color:var(--claude-accent)]"
+                onChange={(event) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    contextCompressionEnabled: event.target.checked
+                  }))
+                }
+                type="checkbox"
+              />
+              自动压缩旧上下文
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium ios-muted">压缩触发比例</span>
+              <input
+                className="ios-input w-full"
+                max={95}
+                min={50}
+                onChange={(event) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    contextCompressionThresholdPercent: Number(event.target.value)
+                  }))
+                }
+                type="number"
+                value={settingsForm.contextCompressionThresholdPercent}
               />
             </label>
 
@@ -1230,20 +1275,20 @@ function ModelToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex min-h-14 items-start gap-3 rounded-lg bg-white/70 px-3 py-2 text-sm">
+    <label className="flex min-h-14 w-full min-w-0 items-start gap-3 rounded-lg bg-white/70 px-3 py-2 text-sm">
       <input
         checked={checked}
         className="mt-1 size-4 accent-[color:var(--claude-accent)]"
         onChange={(event) => onChange(event.target.checked)}
         type="checkbox"
       />
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span className="block truncate font-medium text-slate-800">{model.label}</span>
         <span className="mt-0.5 block truncate text-xs ios-muted">
           {model.upstreamId} · {model.source === "upstream" ? "上游" : model.contextNote}
         </span>
         <span className="mt-1 block truncate text-[11px] ios-muted">
-          输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 缓存{" "}
+          上下文 {formatNumber(model.contextWindowTokens)} · 输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 缓存{" "}
           {formatCents(model.cachedInputCentsPerMillionTokens)}/百万 · 输出{" "}
           {formatCents(model.outputCentsPerMillionTokens)}/百万
         </span>

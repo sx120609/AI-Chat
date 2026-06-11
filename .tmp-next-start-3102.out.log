@@ -1,0 +1,8 @@
+
+> team-ai-gateway@0.1.0 start
+> next start -p 3102
+
+▲ Next.js 16.2.9
+- Local:         http://localhost:3102
+- Network:       http://198.18.0.1:3102
+✓ Ready in 246ms

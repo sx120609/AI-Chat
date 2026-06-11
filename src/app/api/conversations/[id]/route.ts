@@ -101,7 +101,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const previousMessages = messages
     .filter(
       (message) =>
-        !message.imageUrl && (message.role === "USER" || message.role === "ASSISTANT")
+        !message.imageUrl &&
+        (message.role === "USER" || message.role === "ASSISTANT") &&
+        (!conversation.contextSummaryUntilCreatedAt ||
+          message.createdAt > conversation.contextSummaryUntilCreatedAt)
     )
     .reverse()
     .map((message) => ({
@@ -109,6 +112,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       content: contentWithAttachmentContext(message.content, message.attachments)
     }));
   const { contextStats } = buildContextMessages({
+    compressedHistoryMessageCount: conversation.contextSummaryMessageCount,
+    contextSummary: conversation.contextSummary || "",
     previousMessages,
     systemPrompt,
     model,

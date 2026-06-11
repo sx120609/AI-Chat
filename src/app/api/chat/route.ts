@@ -7,6 +7,11 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE
 } from "@/lib/attachments";
 import { ensureAttachmentsText } from "@/lib/attachment-repair";
+import {
+  maybeCompressConversationContext,
+  resetContextSummaryData,
+  type ContextCompressionResult
+} from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
@@ -65,10 +70,12 @@ type ChatAttachment = {
 
 type ToolEventPayload = {
   detail: string;
+  finishedAt?: number;
   id: string;
   label: string;
+  startedAt?: number;
   status: "done" | "running" | "skipped" | "error";
-  type: "router" | "attachments" | "web_search" | "file_analysis";
+  type: "router" | "attachments" | "web_search" | "file_analysis" | "context_compression";
 };
 
 function normalizeRequestWebSearchProvider(value: string | undefined, fallback: string) {
@@ -393,22 +400,35 @@ async function streamMockAnswer(
 
 function buildToolEvents(options: {
   attachmentCount: number;
+  attachmentFinishedAt?: number;
+  attachmentStartedAt?: number;
+  contextCompression?: ContextCompressionResult | null;
   fileAnalysisReport: string;
+  fileAnalysisFinishedAt?: number;
+  fileAnalysisStartedAt?: number;
+  routerFinishedAt?: number;
+  routerStartedAt?: number;
   webSearchResult: Awaited<ReturnType<typeof searchWeb>>;
+  webSearchFinishedAt?: number;
+  webSearchStartedAt?: number;
 }): ToolEventPayload[] {
   const events: ToolEventPayload[] = [];
   const usedWebSearch = Boolean(options.webSearchResult);
   const usedFileAnalysis = Boolean(options.fileAnalysisReport);
+  const usedContextCompression = Boolean(options.contextCompression);
   const routeParts = [
     options.attachmentCount > 0 ? "附件上下文" : "",
+    usedContextCompression ? "上下文压缩" : "",
     usedWebSearch ? "联网搜索" : "",
     usedFileAnalysis ? "文件分析" : ""
   ].filter(Boolean);
 
   events.push({
     detail: routeParts.length ? `已启用：${routeParts.join("、")}` : "未启用额外工具，直接对话",
+    finishedAt: options.routerFinishedAt,
     id: "router",
     label: "工具状态",
+    startedAt: options.routerStartedAt,
     status: "done",
     type: "router"
   });
@@ -416,10 +436,26 @@ function buildToolEvents(options: {
   if (options.attachmentCount > 0) {
     events.push({
       detail: `已读取 ${options.attachmentCount} 个附件并加入上下文`,
+      finishedAt: options.attachmentFinishedAt,
       id: "attachments",
       label: "附件",
+      startedAt: options.attachmentStartedAt,
       status: "done",
       type: "attachments"
+    });
+  }
+
+  if (options.contextCompression) {
+    const result = options.contextCompression;
+
+    events.push({
+      detail: result.error ? `${result.detail}（${result.error}）` : result.detail,
+      finishedAt: result.finishedAt,
+      id: "context-compression",
+      label: "上下文压缩",
+      startedAt: result.startedAt,
+      status: result.compressed ? "done" : "skipped",
+      type: "context_compression"
     });
   }
 
@@ -431,8 +467,10 @@ function buildToolEvents(options: {
         sourceCount > 0
           ? `查询“${options.webSearchResult.query}”，找到 ${sourceCount} 个来源`
           : `查询“${options.webSearchResult.query}”，没有拿到可用来源`,
+      finishedAt: options.webSearchFinishedAt,
       id: "web-search",
       label: "联网搜索",
+      startedAt: options.webSearchStartedAt,
       status: sourceCount > 0 ? "done" : "skipped",
       type: "web_search"
     });
@@ -441,8 +479,10 @@ function buildToolEvents(options: {
   if (options.fileAnalysisReport) {
     events.push({
       detail: "沙箱文件分析已完成",
+      finishedAt: options.fileAnalysisFinishedAt,
       id: "file-analysis",
       label: "文件分析",
+      startedAt: options.fileAnalysisStartedAt,
       status: "done",
       type: "file_analysis"
     });
@@ -541,6 +581,8 @@ export async function POST(request: NextRequest) {
     return jsonError("会话不存在。", 404);
   }
 
+  const routerStartedAt = Date.now();
+  const attachmentStartedAt = Date.now();
   const attachments = attachmentIds.length
     ? await ensureAttachmentsText(
         await prisma.attachment.findMany({
@@ -551,6 +593,7 @@ export async function POST(request: NextRequest) {
         })
       )
     : [];
+  let attachmentFinishedAt = Date.now();
 
   if (attachments.length !== attachmentIds.length) {
     return jsonError("部分附件不存在或无权访问。", 404);
@@ -563,6 +606,7 @@ export async function POST(request: NextRequest) {
   const effectiveAttachments = reusedUserMessage
     ? await ensureAttachmentsText(reusedUserMessage.attachments)
     : attachments;
+  attachmentFinishedAt = effectiveAttachments.length > 0 ? Date.now() : attachmentFinishedAt;
 
   if (reusedUserMessage) {
     const laterAttachments = await prisma.attachment.findMany({
@@ -595,6 +639,11 @@ export async function POST(request: NextRequest) {
         }
       }
     });
+
+    await prisma.conversation.update({
+      where: { id: reusedUserMessage.conversationId },
+      data: resetContextSummaryData()
+    });
   }
 
   const previousMessages = existingConversation
@@ -625,6 +674,8 @@ export async function POST(request: NextRequest) {
       const messageAttachments = await ensureAttachmentsText(message.attachments);
 
       return {
+        createdAt: message.createdAt,
+        id: message.id,
         role: message.role as "USER" | "ASSISTANT",
         content: contentWithAttachmentContext(message.content, messageAttachments)
       };
@@ -639,6 +690,7 @@ export async function POST(request: NextRequest) {
       aiSettings.modelSystemPrompts[model.id] || aiSettings.modelSystemPrompts[model.upstreamId],
     modelLabel: model.label
   });
+  const webSearchStartedAt = Date.now();
   const webSearchPlan = await planWebSearchQuery({
     attachmentCount: effectiveAttachments.length,
     force: body.useWebSearch === true,
@@ -660,14 +712,41 @@ export async function POST(request: NextRequest) {
         { force: true, query: webSearchPlan.query, signal: request.signal }
       )
     : null;
+  const webSearchFinishedAt = Date.now();
   const webSearchSources: WebSearchSource[] = webSearchResult?.sources ?? [];
   const webSearchContext = webSearchResult?.sources.length
     ? formatWebSearchContext(webSearchResult)
     : "";
   let modelContent = webSearchContext ? `${content}\n\n---\n${webSearchContext}` : content;
   let userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
-  let { contextStats, promptTokensEstimate, upstreamMessages } = buildContextMessages({
+  let contextSummary = existingConversation?.contextSummary || "";
+  let compressedHistoryMessageCount = existingConversation?.contextSummaryMessageCount ?? 0;
+  let requestPreviousContextMessages = previousContextMessages;
+  const compressionResult = await maybeCompressConversationContext({
+    conversation: existingConversation,
+    longContextThresholdTokens: aiSettings.longContextThresholdTokens,
+    model,
     previousMessages: previousContextMessages,
+    settings: aiSettings,
+    signal: request.signal,
+    systemPrompt,
+    userContent
+  });
+
+  if (compressionResult.contextSummary !== undefined) {
+    contextSummary = compressionResult.contextSummary || "";
+  }
+
+  if (compressionResult.compressedHistoryMessageCount !== undefined) {
+    compressedHistoryMessageCount = compressionResult.compressedHistoryMessageCount;
+  }
+
+  requestPreviousContextMessages = compressionResult.previousMessages;
+
+  let { contextStats, promptTokensEstimate, upstreamMessages } = buildContextMessages({
+    compressedHistoryMessageCount,
+    contextSummary,
+    previousMessages: requestPreviousContextMessages,
     systemPrompt,
     userContent,
     model,
@@ -685,18 +764,22 @@ export async function POST(request: NextRequest) {
     throw error;
   }
 
+  const fileAnalysisStartedAt = Date.now();
   const fileAnalysisReport = await maybeRunFileAnalysisAgent({
     attachments: effectiveAttachments,
     modelId: model.id,
     prompt: content,
     settings: aiSettings
   });
+  const fileAnalysisFinishedAt = Date.now();
 
   if (fileAnalysisReport) {
     modelContent = `${content}${webSearchContext ? `\n\n---\n${webSearchContext}` : ""}\n\n---\n${fileAnalysisReport}`;
     userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
     const rebuiltContext = buildContextMessages({
-      previousMessages: previousContextMessages,
+      compressedHistoryMessageCount,
+      contextSummary,
+      previousMessages: requestPreviousContextMessages,
       systemPrompt,
       userContent,
       model,
@@ -762,10 +845,20 @@ export async function POST(request: NextRequest) {
     ...userMessage,
     attachments: effectiveAttachments.map(attachmentToView)
   };
+  const routerFinishedAt = Date.now();
   const toolEvents = buildToolEvents({
     attachmentCount: effectiveAttachments.length,
+    attachmentFinishedAt,
+    attachmentStartedAt,
+    contextCompression: compressionResult.compression,
     fileAnalysisReport,
-    webSearchResult
+    fileAnalysisFinishedAt,
+    fileAnalysisStartedAt,
+    routerFinishedAt,
+    routerStartedAt,
+    webSearchResult,
+    webSearchFinishedAt,
+    webSearchStartedAt
   });
   const streamAbortController = new AbortController();
   const abortStream = () => streamAbortController.abort();

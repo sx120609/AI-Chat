@@ -57,7 +57,7 @@ chmod +x deploy.sh
 ./deploy.sh install
 ```
 
-脚本会安装系统依赖、Node.js、PostgreSQL、Redis，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务 `team-ai-gateway`。生产服务默认监听 `20131` 端口；重新执行 `deploy` 或 `update` 会重写 systemd 服务并重启到当前端口。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
+脚本会安装系统依赖、Node.js、PostgreSQL，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务 `team-ai-gateway`。如果没有可用 Redis，脚本会尝试安装并启动本机 `redis-server`；如果服务器已有可连接的 Redis，会直接复用。生产服务默认监听 `20131` 端口；重新执行 `deploy` 或 `update` 会重写 systemd 服务并重启到当前端口。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
 
 从 GitHub 拉取最新代码并更新部署：
 
@@ -127,7 +127,7 @@ ADMIN_PASSWORD=""
 ADMIN_NAME="管理员"
 ```
 
-Redis 是默认部署依赖，`deploy.sh install` 会安装并启用本机 `redis-server`。后端会缓存 AI 运行设置、站点设置和短 TTL 用量摘要；发消息前的额度校验仍强制刷新数据库，避免缓存导致超额放行。
+Redis 是默认缓存依赖。`deploy.sh` 会先检测 `.env` 里的 `REDIS_URL` 是否可连接；可连接时直接复用现有 Redis，不会强制重启 `redis-server.service`。如果不需要 Redis 缓存，可以设置 `CACHE_ENABLED="false"`。后端会缓存 AI 运行设置、站点设置和短 TTL 用量摘要；发消息前的额度校验仍强制刷新数据库，避免缓存导致超额放行。Redis 连接失败时应用会短暂禁用缓存并继续运行。
 
 `AI_API_BASE_URL` 可指向任何 OpenAI-compatible 的自定义接口地址，例如 `https://your-gateway.example.com/v1`。推荐在管理后台配置；前端只会看到是否已设置 Key 和 Key 尾号，不会拿到完整 Key。
 

@@ -8,6 +8,7 @@ import {
   readAttachmentBuffer
 } from "@/lib/attachments";
 import { ensureAttachmentsText } from "@/lib/attachment-repair";
+import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { estimateImageCostCents } from "@/lib/models";
@@ -326,6 +327,11 @@ export async function POST(request: NextRequest) {
           gt: reusedUserMessage.id
         }
       }
+    });
+
+    await prisma.conversation.update({
+      where: { id: reusedUserMessage.conversationId },
+      data: resetContextSummaryData()
     });
   }
 

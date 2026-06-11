@@ -1,11 +1,14 @@
 import {
   buildChatModelCatalog,
+  DEFAULT_CONTEXT_COMPRESSION_ENABLED,
+  DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
   DEFAULT_IMAGE_UPSTREAM_MODEL,
   DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_PARAM_MODE,
   getChatModel,
   IMAGE_MODEL,
+  normalizeContextCompressionThresholdPercent,
   normalizeLongContextThresholdTokens,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
@@ -69,6 +72,8 @@ export type AiRuntimeSettings = {
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
   reasoningParamMode: ReasoningParamMode;
+  contextCompressionEnabled: boolean;
+  contextCompressionThresholdPercent: number;
   longContextThresholdTokens: number;
   systemPromptMode: SystemPromptMode;
   customSystemPrompt: string;
@@ -114,6 +119,12 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
     apiKey: settings?.apiKey || process.env.AI_API_KEY || "",
     orgId: settings?.orgId || process.env.AI_ORG_ID || "",
     mockResponses: settings ? settings.mockResponses : process.env.AI_MOCK_RESPONSES === "true",
+    contextCompressionEnabled:
+      settings?.contextCompressionEnabled ?? DEFAULT_CONTEXT_COMPRESSION_ENABLED,
+    contextCompressionThresholdPercent: normalizeContextCompressionThresholdPercent(
+      settings?.contextCompressionThresholdPercent ||
+        DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT
+    ),
     chatModels: buildChatModelCatalog(settings ?? undefined),
     imageModelId: settings?.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
     defaultReasoningEffort: normalizeReasoningEffort(

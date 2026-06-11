@@ -160,8 +160,7 @@ install_system_packages() {
   require_apt
   log "Installing system packages..."
   as_root apt-get update
-  as_root apt-get install -y ca-certificates curl git build-essential openssl postgresql postgresql-contrib redis-server
-  as_root systemctl enable --now redis-server
+  as_root apt-get install -y ca-certificates curl git build-essential openssl postgresql postgresql-contrib
 
   local current_major="0"
   if command -v node >/dev/null 2>&1; then
@@ -182,8 +181,76 @@ install_system_packages() {
   fi
 }
 
+redact_redis_url() {
+  printf '%s' "$1" | sed -E 's#^(rediss?://)([^/@]*@)#\1***@#'
+}
+
+redis_url_host() {
+  local url="$1"
+  local authority host
+
+  if [[ ! "$url" =~ ^rediss?://([^/]+) ]]; then
+    printf '127.0.0.1'
+    return
+  fi
+
+  authority="${BASH_REMATCH[1]}"
+  authority="${authority##*@}"
+
+  if [[ "$authority" == \[*\]* ]]; then
+    host="${authority#\[}"
+    host="${host%%\]*}"
+  else
+    host="${authority%%:*}"
+  fi
+
+  printf '%s' "$host"
+}
+
+is_local_redis_url() {
+  local host
+  host="$(redis_url_host "$1")"
+
+  case "$host" in
+    ""|localhost|127.*|0.0.0.0|::1)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+redis_ping() {
+  local redis_url="$1"
+
+  command -v redis-cli >/dev/null 2>&1 || return 1
+  timeout 3 redis-cli -u "$redis_url" ping 2>/dev/null | tr -d '\r' | grep -qx PONG
+}
+
 ensure_redis() {
   require_apt
+
+  load_env_file
+
+  if [[ "${CACHE_ENABLED:-true}" == "false" ]]; then
+    log "Skipping Redis setup because CACHE_ENABLED=false."
+    return
+  fi
+
+  local redis_url redis_url_for_log
+  redis_url="${REDIS_URL:-redis://127.0.0.1:6379}"
+  redis_url_for_log="$(redact_redis_url "$redis_url")"
+
+  if redis_ping "$redis_url"; then
+    log "Redis is already reachable at $redis_url_for_log."
+    return
+  fi
+
+  if ! is_local_redis_url "$redis_url"; then
+    warn "Redis is not reachable at $redis_url_for_log. Skipping local redis-server management because REDIS_URL is not local."
+    return
+  fi
 
   if ! command -v redis-server >/dev/null 2>&1; then
     log "Installing Redis cache..."
@@ -191,7 +258,19 @@ ensure_redis() {
     as_root apt-get install -y redis-server
   fi
 
-  as_root systemctl enable --now redis-server
+  log "Ensuring local Redis service is running..."
+  if as_root systemctl enable --now redis-server; then
+    if redis_ping "$redis_url"; then
+      return
+    fi
+
+    warn "redis-server.service started, but Redis did not answer PING at $redis_url_for_log."
+    return
+  fi
+
+  warn "redis-server.service could not be started. Continuing because Redis is only used as a cache."
+  warn "If your server already has a panel-managed Redis, set REDIS_URL to that instance or set CACHE_ENABLED=false."
+  as_root systemctl --no-pager --full status redis-server || true
 }
 
 ensure_env_file() {
@@ -375,7 +454,7 @@ write_systemd_service() {
   as_root tee "/etc/systemd/system/${SERVICE_NAME}.service" >/dev/null <<EOF
 [Unit]
 Description=Team AI Gateway
-After=network.target postgresql.service redis-server.service
+After=network.target postgresql.service
 
 [Service]
 Type=simple
@@ -444,8 +523,8 @@ start_service() {
 }
 
 deploy_app() {
-  ensure_redis
   ensure_env_file
+  ensure_redis
   prepare_app_dir
   install_node_dependencies
   setup_postgres
@@ -471,8 +550,8 @@ install_all() {
 }
 
 update_app() {
-  ensure_redis
   ensure_env_file
+  ensure_redis
 
   if [[ -d "$APP_DIR/.git" ]]; then
     log "Pulling latest code from GitHub..."

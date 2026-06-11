@@ -21,6 +21,7 @@ export type ChatModelView = {
   cachedInputCentsPerMillionTokens: number;
   outputCentsPerMillionTokens: number;
   contextWindowTokens: number;
+  maxContextWindowTokens: number;
   contextNote: string;
   source: "default" | "upstream";
   enabled: boolean;
@@ -118,6 +119,8 @@ export type AiSettingsView = {
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
   reasoningParamMode: ReasoningParamMode;
+  contextCompressionEnabled: boolean;
+  contextCompressionThresholdPercent: number;
   longContextThresholdTokens: number;
   systemPromptMode: SystemPromptMode;
   customSystemPrompt: string;

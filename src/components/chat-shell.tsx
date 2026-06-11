@@ -89,15 +89,29 @@ type ContextStats = {
   reserveTokens: number;
   longContextThresholdExceeded: boolean;
   contextWindowPercent: number;
+  compressedHistoryMessageCount: number;
+  compressedSummaryTokens: number;
 };
 
 type ToolEventView = {
   detail?: string;
+  finishedAt?: number;
   id: string;
   label: string;
+  startedAt: number;
   status: "running" | "done" | "skipped" | "error";
-  type: "router" | "attachments" | "web_search" | "file_analysis" | "image";
+  type:
+    | "router"
+    | "attachments"
+    | "web_search"
+    | "file_analysis"
+    | "context_compression"
+    | "generation"
+    | "usage"
+    | "image";
 };
+type ToolEventUpdate = Omit<ToolEventView, "finishedAt" | "startedAt"> &
+  Partial<Pick<ToolEventView, "finishedAt" | "startedAt">>;
 
 type WebSearchProviderOption = "auto" | "bing" | "duckduckgo" | "google";
 
@@ -144,6 +158,56 @@ function usagePercent(used: number, limit: number) {
 }
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
+
+function formatElapsedDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  }
+
+  return `${seconds}s`;
+}
+
+function createToolEvent(
+  event: ToolEventUpdate,
+  now = Date.now()
+): ToolEventView {
+  return {
+    ...event,
+    finishedAt: event.finishedAt ?? (event.status === "running" ? undefined : now),
+    startedAt: event.startedAt ?? now
+  };
+}
+
+function mergeToolEvent(
+  current: ToolEventView[],
+  event: ToolEventUpdate,
+  now = Date.now()
+) {
+  const index = current.findIndex((item) => item.id === event.id);
+
+  if (index < 0) {
+    return [...current, createToolEvent(event, now)];
+  }
+
+  return current.map((item) =>
+    item.id === event.id
+      ? {
+          ...item,
+          ...event,
+          finishedAt:
+            event.finishedAt ??
+            (event.status === "running"
+              ? undefined
+              : item.finishedAt ?? now),
+          startedAt: event.startedAt ?? item.startedAt
+        }
+      : item
+  );
+}
 const STREAM_RENDER_INTERVAL_MS = 48;
 
 function isLikelyImagePrompt(prompt: string) {
@@ -325,11 +389,14 @@ export function ChatShell({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
-  const [openMenu, setOpenMenu] = useState<"model" | "reasoning" | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [streamStatus, setStreamStatus] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEventView[]>([]);
+  const [processStartedAt, setProcessStartedAt] = useState<number | null>(null);
+  const [processFinishedAt, setProcessFinishedAt] = useState<number | null>(null);
+  const [processNow, setProcessNow] = useState(Date.now());
   const [lastContextStats, setLastContextStats] = useState<ContextStats | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const autoScrollRef = useRef(true);
@@ -436,6 +503,8 @@ export function ChatShell({
     setMessages(payload.conversation.messages);
     setLastContextStats(payload.context ?? null);
     setToolEvents([]);
+    setProcessStartedAt(null);
+    setProcessFinishedAt(null);
     if (payload.conversation.model && payload.conversation.model !== "image2") {
       setModel(payload.conversation.model);
     }
@@ -506,6 +575,16 @@ export function ChatShell({
     document.title = siteSettings.siteName;
   }, [siteSettings.siteName]);
 
+  useEffect(() => {
+    if (!processStartedAt || processFinishedAt) {
+      return;
+    }
+
+    const timer = window.setInterval(() => setProcessNow(Date.now()), 1000);
+
+    return () => window.clearInterval(timer);
+  }, [processFinishedAt, processStartedAt]);
+
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     scrollRef.current?.scrollIntoView({ behavior, block: "end" });
   }, []);
@@ -549,7 +628,7 @@ export function ChatShell({
         return;
       }
 
-      setOpenMenu(null);
+      setModelPickerOpen(false);
       setSearchProviderMenuOpen(false);
     }
 
@@ -573,6 +652,8 @@ export function ChatShell({
     setLastContextStats(null);
     setStreamStatus("");
     setToolEvents([]);
+    setProcessStartedAt(null);
+    setProcessFinishedAt(null);
     setImageToolEnabled(false);
     setSourceImageMessage(null);
     setWebSearchEnabledForMessage(false);
@@ -805,14 +886,16 @@ export function ChatShell({
   }
 
   function stopGeneration() {
+    const now = Date.now();
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     setLoading(false);
+    setProcessFinishedAt(now);
     setStreamStatus("已停止。");
     setToolEvents((current) =>
       current.map((event) =>
         event.status === "running"
-          ? { ...event, detail: "已停止", status: "skipped" }
+          ? { ...event, detail: "已停止", finishedAt: now, status: "skipped" }
           : event
       )
     );
@@ -835,9 +918,13 @@ export function ChatShell({
       model
     };
     const controller = new AbortController();
+    const processStart = Date.now();
 
     abortControllerRef.current = controller;
     autoScrollRef.current = true;
+    setProcessStartedAt(processStart);
+    setProcessFinishedAt(null);
+    setProcessNow(processStart);
 
     setMessages((current) => {
       if (!reuseUserMessageId) {
@@ -851,19 +938,32 @@ export function ChatShell({
     });
     scheduleMessagesToBottom();
     setToolEvents([
-      {
-        detail: useWebSearch
-          ? "已强制开启联网搜索，正在整理来源"
-          : attachments.length
-            ? "正在判断是否需要读取附件、搜索或直接对话"
-            : "正在判断是否需要搜索或直接对话",
-        id: "router",
-        label: "自动路由",
-        status: "running",
-        type: "router"
-      }
+      createToolEvent(
+        {
+          detail: useWebSearch
+            ? "已强制开启联网搜索，正在整理来源"
+            : attachments.length
+              ? "正在判断是否需要读取附件、搜索或直接对话"
+              : "正在判断是否需要搜索或直接对话",
+          id: "router",
+          label: "自动路由",
+          status: "running",
+          type: "router"
+        },
+        processStart
+      )
     ]);
     setStreamStatus(useWebSearch ? "正在联网搜索..." : "正在自动选择工具...");
+
+    const finishProcess = () => {
+      const now = Date.now();
+      setProcessFinishedAt(now);
+      setToolEvents((current) =>
+        current.map((event) =>
+          event.status === "running" ? { ...event, finishedAt: now, status: "skipped" } : event
+        )
+      );
+    };
 
     let response: Response;
 
@@ -884,6 +984,8 @@ export function ChatShell({
         signal: controller.signal
       });
     } catch (fetchError) {
+      finishProcess();
+
       if (controller.signal.aborted) {
         setStreamStatus("已停止。");
         return;
@@ -902,6 +1004,7 @@ export function ChatShell({
     }
 
     if (!response.ok || !response.body) {
+      finishProcess();
       const payload = (await response.json().catch(() => null)) as
         | { error?: string; usage?: UsageSummary }
         | null;
@@ -971,16 +1074,9 @@ export function ChatShell({
         streamFlushTimer = setTimeout(flushPendingOutput, STREAM_RENDER_INTERVAL_MS);
       }
     };
-    const upsertToolEvent = (toolEvent: ToolEventView) => {
-      setToolEvents((current) => {
-        const index = current.findIndex((item) => item.id === toolEvent.id);
-
-        if (index < 0) {
-          return [...current, toolEvent];
-        }
-
-        return current.map((item) => (item.id === toolEvent.id ? { ...item, ...toolEvent } : item));
-      });
+    const upsertToolEvent = (toolEvent: ToolEventUpdate) => {
+      const now = Date.now();
+      setToolEvents((current) => mergeToolEvent(current, toolEvent, now));
     };
 
     const handleEvent = (event: SseEvent) => {
@@ -998,6 +1094,14 @@ export function ChatShell({
             current.map((message) => (message.id === localUser.id ? userMessage : message))
           );
         }
+
+        upsertToolEvent({
+          detail: "已创建会话并整理上下文",
+          id: "generation",
+          label: "模型生成",
+          status: "running",
+          type: "generation"
+        });
       }
 
       if (event.event === "tool") {
@@ -1006,8 +1110,10 @@ export function ChatShell({
         if (toolEvent.id && toolEvent.label && toolEvent.type && toolEvent.status) {
           upsertToolEvent({
             detail: typeof toolEvent.detail === "string" ? toolEvent.detail : undefined,
+            finishedAt: typeof toolEvent.finishedAt === "number" ? toolEvent.finishedAt : undefined,
             id: toolEvent.id,
             label: toolEvent.label,
+            startedAt: typeof toolEvent.startedAt === "number" ? toolEvent.startedAt : undefined,
             status: toolEvent.status,
             type: toolEvent.type
           });
@@ -1030,6 +1136,13 @@ export function ChatShell({
 
           if (!streamStatusStarted) {
             streamStatusStarted = true;
+            upsertToolEvent({
+              detail: "正在流式输出回答",
+              id: "generation",
+              label: "模型生成",
+              status: "running",
+              type: "generation"
+            });
             setStreamStatus("正在流式输出...");
           }
         }
@@ -1045,6 +1158,7 @@ export function ChatShell({
       }
 
       if (event.event === "done") {
+        const now = Date.now();
         clearStreamFlushTimer();
         pendingContentDelta = "";
         pendingReasoningDelta = "";
@@ -1059,10 +1173,31 @@ export function ChatShell({
           setUsage(event.data.usage as UsageSummary);
         }
 
+        setToolEvents((current) =>
+          mergeToolEvent(
+            mergeToolEvent(current, {
+              detail: receivedDelta ? "回答已生成" : "上游已完成，但没有返回可见文本",
+              id: "generation",
+              label: "模型生成",
+              status: "done",
+              type: "generation"
+            }, now),
+            {
+              detail: "已更新本月用量和费用",
+              id: "usage",
+              label: "用量统计",
+              status: "done",
+              type: "usage"
+            },
+            now
+          )
+        );
+        setProcessFinishedAt(now);
         setStreamStatus(receivedDelta ? "已完成。" : "上游已完成，但没有返回可见文本。");
       }
 
       if (event.event === "error") {
+        const now = Date.now();
         clearStreamFlushTimer();
         pendingContentDelta = "";
         pendingReasoningDelta = "";
@@ -1073,6 +1208,16 @@ export function ChatShell({
           )
         );
         setError(message);
+        setToolEvents((current) =>
+          mergeToolEvent(current, {
+            detail: message,
+            id: "generation",
+            label: "模型生成",
+            status: "error",
+            type: "generation"
+          }, now)
+        );
+        setProcessFinishedAt(now);
         setStreamStatus("上游调用失败。");
       }
     };
@@ -1106,9 +1251,19 @@ export function ChatShell({
         handleEvent(tailEvent);
       }
     } catch (streamError) {
+      const now = Date.now();
+
       if (controller.signal.aborted) {
         flushPendingOutput();
+        setProcessFinishedAt(now);
         setStreamStatus("已停止。");
+        setToolEvents((current) =>
+          current.map((event) =>
+            event.status === "running"
+              ? { ...event, detail: "已停止", finishedAt: now, status: "skipped" }
+              : event
+          )
+        );
         setMessages((current) =>
           current.map((item) =>
             item.id === localAssistant.id ? { ...item, pending: false } : item
@@ -1128,6 +1283,16 @@ export function ChatShell({
         )
       );
       setError(message);
+      setToolEvents((current) =>
+        mergeToolEvent(current, {
+          detail: message,
+          id: "generation",
+          label: "模型生成",
+          status: "error",
+          type: "generation"
+        }, now)
+      );
+      setProcessFinishedAt(now);
       setStreamStatus("流式连接中断。");
     }
 
@@ -1139,7 +1304,6 @@ export function ChatShell({
 
     await refreshConversations();
   }
-
   async function sendImage(
     prompt: string,
     attachments: AttachmentView[],
@@ -1153,9 +1317,13 @@ export function ChatShell({
       : emptyMessage("USER", prompt, "IMAGE", attachments);
     const localAssistant = emptyMessage("ASSISTANT", "生成中...", "IMAGE");
     const controller = new AbortController();
+    const processStart = Date.now();
 
     abortControllerRef.current = controller;
     autoScrollRef.current = true;
+    setProcessStartedAt(processStart);
+    setProcessFinishedAt(null);
+    setProcessNow(processStart);
     setMessages((current) => {
       if (!reuseUserMessageId) {
         return [...current, localUser, localAssistant];
@@ -1171,16 +1339,19 @@ export function ChatShell({
     });
     scheduleMessagesToBottom();
     setToolEvents([
-      {
-        detail:
-          sourceImage || attachments.some((attachment) => attachment.kind === "IMAGE")
-            ? "正在基于图片生成或编辑"
-            : "正在根据文字生成图片",
-        id: "image",
-        label: "image2",
-        status: "running",
-        type: "image"
-      }
+      createToolEvent(
+        {
+          detail:
+            sourceImage || attachments.some((attachment) => attachment.kind === "IMAGE")
+              ? "正在基于图片生成或编辑"
+              : "正在根据文字生成图片",
+          id: "image",
+          label: "image2",
+          status: "running",
+          type: "image"
+        },
+        processStart
+      )
     ]);
     setStreamStatus("正在提交生图请求...");
 
@@ -1201,6 +1372,18 @@ export function ChatShell({
         signal: controller.signal
       });
     } catch (fetchError) {
+      const now = Date.now();
+      setProcessFinishedAt(now);
+      setToolEvents((current) =>
+        mergeToolEvent(current, {
+          detail: fetchError instanceof Error ? fetchError.message : "生图请求失败",
+          id: "image",
+          label: "image2",
+          status: controller.signal.aborted ? "skipped" : "error",
+          type: "image"
+        }, now)
+      );
+
       if (controller.signal.aborted) {
         setStreamStatus("已停止。");
         setMessages((current) =>
@@ -1234,6 +1417,17 @@ export function ChatShell({
       | null;
 
     if (!response.ok || !payload) {
+      const now = Date.now();
+      setProcessFinishedAt(now);
+      setToolEvents((current) =>
+        mergeToolEvent(current, {
+          detail: payload?.error || "生图失败",
+          id: "image",
+          label: "image2",
+          status: "error",
+          type: "image"
+        }, now)
+      );
       setMessages((current) =>
         current.map((message) =>
           message.id === localAssistant.id
@@ -1268,18 +1462,30 @@ export function ChatShell({
       setUsage(payload.usage);
     }
 
-    setToolEvents([
-      {
-        detail:
-          sourceImage || attachments.some((attachment) => attachment.kind === "IMAGE")
-            ? "图片编辑已完成"
-            : "图片生成已完成",
-        id: "image",
-        label: "image2",
-        status: "done",
-        type: "image"
-      }
-    ]);
+    const finishTime = Date.now();
+    setToolEvents((current) =>
+      mergeToolEvent(
+        mergeToolEvent(current, {
+          detail:
+            sourceImage || attachments.some((attachment) => attachment.kind === "IMAGE")
+              ? "图片编辑已完成"
+              : "图片生成已完成",
+          id: "image",
+          label: "image2",
+          status: "done",
+          type: "image"
+        }, finishTime),
+        {
+          detail: "已更新本月用量和费用",
+          id: "usage",
+          label: "用量统计",
+          status: "done",
+          type: "usage"
+        },
+        finishTime
+      )
+    );
+    setProcessFinishedAt(finishTime);
     setStreamStatus("生图完成。");
     if (abortControllerRef.current === controller) {
       abortControllerRef.current = null;
@@ -1466,6 +1672,8 @@ export function ChatShell({
     setError("");
     setStreamStatus("");
     setToolEvents([]);
+    setProcessStartedAt(null);
+    setProcessFinishedAt(null);
     setLoading(true);
 
     try {
@@ -1853,7 +2061,7 @@ export function ChatShell({
       ) : null}
 
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="relative shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 py-2 backdrop-blur sm:px-4 sm:py-3">
+        <header className="relative shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur sm:px-4 sm:py-3">
           {!desktopSidebarOpen ? (
             <button
               aria-expanded={desktopSidebarOpen}
@@ -1866,7 +2074,7 @@ export function ChatShell({
             </button>
           ) : null}
           <div
-            className={`mx-auto flex max-w-5xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 ${
+            className={`mx-auto flex max-w-5xl items-center justify-between gap-2 sm:gap-3 ${
               desktopSidebarOpen ? "" : "lg:pl-10"
             }`}
           >
@@ -1882,11 +2090,11 @@ export function ChatShell({
                   >
                     <Menu className="size-3.5" />
                   </button>
-                <p className="truncate text-sm font-semibold text-stone-950">
-                  {activeConversation?.title || "新聊天"}
-                </p>
+                  <p className="truncate text-sm font-semibold text-stone-950">
+                    {activeConversation?.title || "新聊天"}
+                  </p>
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs ios-muted">
+                <div className="mt-1 hidden flex-wrap items-center gap-2 text-xs ios-muted sm:flex">
                   <span className="min-w-0 truncate">本月费用剩余 {formatCents(usage.remainingCostCents)}</span>
                   {activeModel ? (
                     <ContextBadge
@@ -1895,44 +2103,32 @@ export function ChatShell({
                     />
                   ) : null}
                 </div>
+                {activeModel ? (
+                  <div className="mt-1 flex sm:hidden">
+                    <ContextBadge
+                      compact
+                      contextStats={lastContextStats}
+                      contextWindowTokens={activeModel.contextWindowTokens}
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
 
             <div
-              className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,0.76fr)] gap-1.5 sm:flex sm:w-auto sm:shrink-0 sm:items-center"
+              className="w-[min(12.5rem,56vw)] min-w-0 shrink-0 sm:w-auto"
               ref={headerControlsRef}
             >
-              <MenuSelect
-                menuId="model"
-                onChange={(value) => {
-                  setModel(value);
-                  setOpenMenu(null);
-                }}
-                onOpenChange={setOpenMenu}
-                openMenu={openMenu}
-                options={chatModels.map((item) => ({
-                  id: item.id,
-                  label: `${item.label}${item.source === "upstream" ? " · 上游" : ""}`
-                }))}
-                value={model}
-                valueLabel={activeModel?.label || model}
-                widthClassName="min-w-0 sm:w-44"
-              />
-              <MenuSelect
-                menuId="reasoning"
-                onChange={(value) => {
-                  setReasoningEffort(value as ReasoningEffort);
-                  setOpenMenu(null);
-                }}
-                onOpenChange={setOpenMenu}
-                openMenu={openMenu}
-                options={REASONING_EFFORTS.map((item) => ({
-                  id: item.id,
-                  label: `推理：${item.shortLabel}`
-                }))}
-                value={reasoningEffort}
-                valueLabel={`推理：${activeReasoningEffort.shortLabel}`}
-                widthClassName="min-w-0 sm:w-28"
+              <ModelReasoningPicker
+                activeModel={activeModel}
+                activeReasoningEffort={activeReasoningEffort}
+                models={chatModels}
+                modelValue={model}
+                onModelChange={setModel}
+                onOpenChange={setModelPickerOpen}
+                onReasoningChange={setReasoningEffort}
+                open={modelPickerOpen}
+                reasoningValue={reasoningEffort}
               />
             </div>
           </div>
@@ -1974,8 +2170,8 @@ export function ChatShell({
           </div>
         </div>
 
-        <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[rgba(247,243,234,0.86)] px-3 py-2 backdrop-blur sm:px-4 sm:py-3">
-          <div className="mx-auto max-w-4xl">
+        <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[rgba(247,243,234,0.86)] px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
+          <div className="mx-auto max-w-3xl">
             {activeModel ? (
               <ContextNotice
                 lastContextStats={lastContextStats}
@@ -1993,8 +2189,15 @@ export function ChatShell({
                 下一条将联网搜索（{webSearchProviderLabel}）
               </div>
             ) : null}
-            {toolEvents.length > 0 ? <ToolStatusStrip events={toolEvents} /> : null}
-            {streamStatus ? (
+            {toolEvents.length > 0 && processStartedAt ? (
+              <ProcessTimelinePanel
+                events={toolEvents}
+                finishedAt={processFinishedAt}
+                now={processNow}
+                startedAt={processStartedAt}
+                status={streamStatus}
+              />
+            ) : streamStatus ? (
               <div className="mb-3 flex items-center gap-2 text-xs text-stone-600">
                 {loading ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 <span>{streamStatus}</span>
@@ -2058,7 +2261,7 @@ export function ChatShell({
                 ))}
               </div>
             ) : null}
-            <div className="ios-panel claude-composer flex min-h-14 items-center gap-2 px-2 py-2 shadow-[0_16px_38px_rgba(83,69,54,0.12)]">
+            <div className="ios-panel claude-composer flex min-h-14 flex-col gap-2 px-2 py-2 shadow-[0_16px_38px_rgba(83,69,54,0.12)] sm:flex-row sm:items-center sm:bg-white/90 sm:px-3 sm:shadow-[0_18px_70px_rgba(83,69,54,0.18)]">
               <input
                 accept=".zip,application/zip,application/x-zip-compressed,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,image/png,image/jpeg,image/webp,image/gif"
                 className="hidden"
@@ -2067,120 +2270,125 @@ export function ChatShell({
                 ref={fileInputRef}
                 type="file"
               />
-              <button
-                className="grid size-9 shrink-0 place-items-center rounded-lg border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50"
-                disabled={loading || quotaBlocked || uploadingAttachments}
-                onClick={() => fileInputRef.current?.click()}
-                title="上传文件或图片"
-                type="button"
-              >
-                {uploadingAttachments ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Paperclip className="size-4" />
-                )}
-              </button>
-              <button
-                className={`grid size-9 shrink-0 place-items-center rounded-lg border transition ${
-                  imageToolEnabled
-                    ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                    : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
-                }`}
-                disabled={loading || quotaBlocked}
-                onClick={() => {
-                  const nextImageToolEnabled = !imageToolEnabled;
-                  setImageToolEnabled(nextImageToolEnabled);
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0">
+                <button
+                  className="grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50 sm:border-transparent sm:bg-transparent sm:hover:bg-stone-100/80"
+                  disabled={loading || quotaBlocked || uploadingAttachments}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="上传文件或图片"
+                  type="button"
+                >
+                  {uploadingAttachments ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Paperclip className="size-4" />
+                  )}
+                </button>
+                <button
+                  className={`grid size-9 shrink-0 place-items-center rounded-full border transition ${
+                    imageToolEnabled
+                      ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+                      : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
+                  }`}
+                  disabled={loading || quotaBlocked}
+                  onClick={() => {
+                    const nextImageToolEnabled = !imageToolEnabled;
+                    setImageToolEnabled(nextImageToolEnabled);
 
-                  if (!nextImageToolEnabled) {
-                    setSourceImageMessage(null);
-                  }
-
-                  if (nextImageToolEnabled) {
-                    setWebSearchEnabledForMessage(false);
-                  }
-                }}
-                title={imageToolEnabled ? "已开启：下一条按 image2 生图" : "下一条按 image2 生图"}
-                type="button"
-              >
-                <ImageIcon className="size-4" />
-              </button>
-              {webSearchAvailable ? (
-                <div className="relative flex shrink-0 items-center" ref={searchProviderMenuRef}>
-                  <button
-                    aria-pressed={webSearchEnabledForMessage}
-                    className={`grid size-9 place-items-center rounded-l-lg border border-r-0 transition ${
-                      webSearchEnabledForMessage
-                        ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                        : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
-                    }`}
-                    disabled={loading || quotaBlocked}
-                    onClick={() => {
-                      const nextWebSearchEnabled = !webSearchEnabledForMessage;
-                      setWebSearchEnabledForMessage(nextWebSearchEnabled);
-
-                      if (nextWebSearchEnabled) {
-                        setImageToolEnabled(false);
-                      }
-                    }}
-                    title={
-                      webSearchEnabledForMessage
-                        ? `已开启：下一条联网搜索（${webSearchProviderLabel}）`
-                        : `下一条联网搜索（${webSearchProviderLabel}）`
+                    if (!nextImageToolEnabled) {
+                      setSourceImageMessage(null);
                     }
-                    type="button"
+
+                    if (nextImageToolEnabled) {
+                      setWebSearchEnabledForMessage(false);
+                    }
+                  }}
+                  title={imageToolEnabled ? "已开启：下一条按 image2 生图" : "下一条按 image2 生图"}
+                  type="button"
+                >
+                  <ImageIcon className="size-4" />
+                </button>
+                {webSearchAvailable ? (
+                  <div
+                    className="relative flex min-w-0 shrink-0 items-center"
+                    ref={searchProviderMenuRef}
                   >
-                    <Search className="size-4" />
-                  </button>
-                  <button
-                    aria-expanded={searchProviderMenuOpen}
-                    className={`flex h-9 items-center gap-1 rounded-r-lg border px-2 text-[11px] font-semibold transition ${
-                      webSearchEnabledForMessage
-                        ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                        : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
-                    }`}
-                    disabled={loading || quotaBlocked}
-                    onClick={() => setSearchProviderMenuOpen((current) => !current)}
-                    title="选择搜索引擎"
-                    type="button"
-                  >
-                    <span className="max-w-12 truncate">{webSearchProviderLabel}</span>
-                    <ChevronDown
-                      className={`size-3.5 transition ${
-                        searchProviderMenuOpen ? "rotate-180" : ""
+                    <button
+                      aria-pressed={webSearchEnabledForMessage}
+                      className={`grid size-9 place-items-center rounded-l-full border border-r-0 transition ${
+                        webSearchEnabledForMessage
+                          ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+                          : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
                       }`}
-                    />
-                  </button>
-                  {searchProviderMenuOpen ? (
-                    <div className="absolute bottom-full left-0 z-50 mb-2 w-36 rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 shadow-[0_18px_45px_rgba(83,69,54,0.16)]">
-                      {[
-                        { id: "auto", label: "自动" },
-                        { id: "bing", label: "Bing" },
-                        { id: "google", label: "Google" },
-                        { id: "duckduckgo", label: "DuckDuckGo" }
-                      ].map((option) => (
-                        <button
-                          className={`flex h-9 w-full items-center justify-between gap-2 rounded-md px-2.5 text-left text-sm transition ${
-                            option.id === webSearchProvider
-                              ? "bg-[#f3d8ca] font-semibold text-[color:var(--claude-accent-dark)]"
-                              : "text-stone-700 hover:bg-[#f6eadf]"
-                          }`}
-                          key={option.id}
-                          onClick={() => {
-                            setWebSearchProvider(option.id as WebSearchProviderOption);
-                            setSearchProviderMenuOpen(false);
-                          }}
-                          type="button"
-                        >
-                          <span className="min-w-0 truncate">{option.label}</span>
-                          {option.id === webSearchProvider ? (
-                            <Check className="size-4 shrink-0" />
-                          ) : null}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
+                      disabled={loading || quotaBlocked}
+                      onClick={() => {
+                        const nextWebSearchEnabled = !webSearchEnabledForMessage;
+                        setWebSearchEnabledForMessage(nextWebSearchEnabled);
+
+                        if (nextWebSearchEnabled) {
+                          setImageToolEnabled(false);
+                        }
+                      }}
+                      title={
+                        webSearchEnabledForMessage
+                          ? `已开启：下一条联网搜索（${webSearchProviderLabel}）`
+                          : `下一条联网搜索（${webSearchProviderLabel}）`
+                      }
+                      type="button"
+                    >
+                      <Search className="size-4" />
+                    </button>
+                    <button
+                      aria-expanded={searchProviderMenuOpen}
+                      className={`flex h-9 min-w-0 items-center gap-1 rounded-r-full border px-2 text-[11px] font-semibold transition ${
+                        webSearchEnabledForMessage
+                          ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+                          : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
+                      }`}
+                      disabled={loading || quotaBlocked}
+                      onClick={() => setSearchProviderMenuOpen((current) => !current)}
+                      title="选择搜索引擎"
+                      type="button"
+                    >
+                      <span className="max-w-16 truncate sm:max-w-12">{webSearchProviderLabel}</span>
+                      <ChevronDown
+                        className={`size-3.5 shrink-0 transition ${
+                          searchProviderMenuOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                    {searchProviderMenuOpen ? (
+                      <div className="absolute bottom-full left-0 z-50 mb-2 w-36 rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 shadow-[0_18px_45px_rgba(83,69,54,0.16)]">
+                        {[
+                          { id: "auto", label: "自动" },
+                          { id: "bing", label: "Bing" },
+                          { id: "google", label: "Google" },
+                          { id: "duckduckgo", label: "DuckDuckGo" }
+                        ].map((option) => (
+                          <button
+                            className={`flex h-9 w-full items-center justify-between gap-2 rounded-md px-2.5 text-left text-sm transition ${
+                              option.id === webSearchProvider
+                                ? "bg-[#f3d8ca] font-semibold text-[color:var(--claude-accent-dark)]"
+                                : "text-stone-700 hover:bg-[#f6eadf]"
+                            }`}
+                            key={option.id}
+                            onClick={() => {
+                              setWebSearchProvider(option.id as WebSearchProviderOption);
+                              setSearchProviderMenuOpen(false);
+                            }}
+                            type="button"
+                          >
+                            <span className="min-w-0 truncate">{option.label}</span>
+                            {option.id === webSearchProvider ? (
+                              <Check className="size-4 shrink-0" />
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               <ComposerInputArea
                 draftFocusToken={composerDraft.focusToken}
                 draftText={composerDraft.text}
@@ -2272,7 +2480,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
   }
 
   return (
-    <>
+    <div className="flex min-h-9 w-full min-w-0 flex-1 items-center gap-2">
       <textarea
         className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-stone-950 outline-none"
         disabled={loading || quotaBlocked}
@@ -2284,7 +2492,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
         value={draft}
       />
       <button
-        className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
+        className="grid size-9 shrink-0 place-items-center rounded-full bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
         disabled={sendDisabled}
         onClick={() => void submitDraft()}
         title={loading ? "停止生成" : "发送"}
@@ -2292,78 +2500,217 @@ const ComposerInputArea = memo(function ComposerInputArea({
       >
         {loading ? <Square className="size-4" /> : <Send className="size-4" />}
       </button>
-    </>
+    </div>
   );
 });
 
-function MenuSelect({
-  menuId,
-  onChange,
+function ModelReasoningPicker({
+  activeModel,
+  activeReasoningEffort,
+  models,
+  modelValue,
+  onModelChange,
   onOpenChange,
-  openMenu,
-  options,
-  value,
-  valueLabel,
-  widthClassName
+  onReasoningChange,
+  open,
+  reasoningValue
 }: {
-  menuId: "model" | "reasoning";
-  onChange: (value: string) => void;
-  onOpenChange: (value: "model" | "reasoning" | null) => void;
-  openMenu: "model" | "reasoning" | null;
-  options: Array<{ id: string; label: string }>;
-  value: string;
-  valueLabel: string;
-  widthClassName: string;
+  activeModel: ChatModelView | undefined;
+  activeReasoningEffort: (typeof REASONING_EFFORTS)[number];
+  models: ChatModelView[];
+  modelValue: string;
+  onModelChange: (value: string) => void;
+  onOpenChange: (open: boolean) => void;
+  onReasoningChange: (value: ReasoningEffort) => void;
+  open: boolean;
+  reasoningValue: ReasoningEffort;
 }) {
-  const isOpen = openMenu === menuId;
+  const reasoningSupported = activeModel?.supportsReasoning ?? true;
+  const modelLabel = activeModel?.label || modelValue || "选择模型";
+  const mobileModelLabel = getCompactModelLabel(modelLabel);
+  const activeReasoningLabel = getReasoningUiCopy(activeReasoningEffort.id).label;
 
   return (
-    <div className={`relative ${widthClassName}`}>
+    <div className="relative w-full sm:w-auto">
       <button
-        aria-expanded={isOpen}
-        className={`flex h-8 w-full items-center justify-between gap-1.5 rounded-md border px-2.5 text-left text-xs font-medium transition ${
-          isOpen
-            ? "border-[color:var(--claude-accent)] bg-white text-stone-900 shadow-[0_0_0_3px_rgba(201,100,66,0.1)]"
-            : "border-transparent bg-white/35 text-stone-700 hover:border-[color:var(--ios-separator)] hover:bg-white/75"
+        aria-expanded={open}
+        aria-label="选择模型和思考强度"
+        className={`flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-xs font-medium backdrop-blur transition sm:h-9 sm:min-w-60 sm:px-3.5 ${
+          open
+            ? "border-stone-300 bg-white text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10)]"
+            : "border-black/10 bg-white/70 text-stone-800 shadow-[0_8px_28px_rgba(83,69,54,0.08)] hover:border-stone-300 hover:bg-white/95"
         }`}
-        onClick={() => onOpenChange(isOpen ? null : menuId)}
+        onClick={() => onOpenChange(!open)}
+        data-testid="model-reasoning-picker"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
-            onOpenChange(null);
+            onOpenChange(false);
           }
         }}
         type="button"
       >
-        <span className="min-w-0 truncate">{valueLabel}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]">
+            <Sparkles className="size-3" />
+          </span>
+          <span className="min-w-0 truncate text-stone-950">
+            <span className="sm:hidden">{mobileModelLabel}</span>
+            <span className="hidden sm:inline">{modelLabel}</span>
+          </span>
+          <span className="text-stone-300">/</span>
+          <span className="shrink-0 text-stone-500 sm:hidden">{activeReasoningLabel}</span>
+          <span className="hidden shrink-0 text-stone-500 sm:inline">
+            思考 {activeReasoningLabel}
+          </span>
+        </span>
         <ChevronDown
-          className={`size-3.5 shrink-0 text-stone-400 transition ${isOpen ? "rotate-180" : ""}`}
+          className={`size-3.5 shrink-0 text-stone-500 transition ${open ? "rotate-180" : ""}`}
         />
       </button>
-      {isOpen ? (
-        <div className="absolute right-0 top-full z-50 mt-1.5 max-h-72 min-w-full overflow-y-auto rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 shadow-[0_14px_34px_rgba(83,69,54,0.14)]">
-          {options.map((option) => {
-            const selected = option.id === value;
 
-            return (
-              <button
-                className={`flex h-8 w-full items-center justify-between gap-2 rounded-md px-2.5 text-left text-xs transition ${
-                  selected
-                    ? "bg-[#f3d8ca] font-semibold text-[color:var(--claude-accent-dark)]"
-                    : "text-stone-700 hover:bg-[#f6eadf]"
-                }`}
-                key={option.id}
-                onClick={() => onChange(option.id)}
-                type="button"
-              >
-                <span className="min-w-0 truncate">{option.label}</span>
-                {selected ? <Check className="size-4 shrink-0" /> : null}
-              </button>
-            );
-          })}
+      {open ? (
+        <div className="fixed left-3 right-3 top-[calc(3.65rem+env(safe-area-inset-top))] z-50 max-h-[min(34rem,calc(100dvh-5.25rem))] overflow-y-auto rounded-[1.35rem] border border-[#eadfce] bg-[color:var(--claude-surface)] p-2 shadow-[0_24px_80px_rgba(83,69,54,0.18)] ring-1 ring-white/70 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[26rem]">
+          <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+            <div>
+              <p className="text-sm font-semibold text-stone-950">模型与思考</p>
+              <p className="mt-0.5 text-[11px] text-stone-500">下一次回复生效</p>
+            </div>
+            <button
+              className="grid size-8 shrink-0 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
+              onClick={() => onOpenChange(false)}
+              title="关闭"
+              type="button"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <div className="mt-2 rounded-[1.05rem] bg-[#f6efe4] p-1">
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <span className="text-[11px] font-semibold text-stone-500">模型</span>
+              <span className="text-[11px] text-stone-400">{formatNumber(models.length)}</span>
+            </div>
+            <div className="grid gap-1">
+              {models.map((item) => {
+                const selected = item.id === modelValue;
+                const detail = getModelPickerDetail(item);
+
+                return (
+                  <button
+                    className={`group flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-[0.9rem] px-3 text-left text-sm transition ${
+                      selected
+                        ? "bg-[#fffaf4] text-stone-950 shadow-sm ring-1 ring-[rgba(201,100,66,0.22)]"
+                        : "text-stone-700 hover:bg-[#fffaf4]/80 hover:text-stone-950"
+                    }`}
+                    key={item.id}
+                    onClick={() => onModelChange(item.id)}
+                    type="button"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold">{item.label}</span>
+                      <span className="mt-0.5 block truncate text-[11px] text-stone-500">
+                        {detail}
+                      </span>
+                    </span>
+                    {selected ? (
+                      <Check className="size-4 shrink-0 text-[color:var(--claude-accent-dark)]" />
+                    ) : (
+                      <span className="size-4 shrink-0 rounded-full border border-[#dfd2c0] opacity-0 transition group-hover:opacity-100" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-2 rounded-[1.05rem] bg-[#f6efe4] p-1">
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <span className="text-[11px] font-semibold text-stone-500">思考</span>
+              {!reasoningSupported ? (
+                <span className="text-[11px] text-stone-500">可能不会生效</span>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+              {REASONING_EFFORTS.map((item) => {
+                const selected = item.id === reasoningValue;
+                const copy = getReasoningUiCopy(item.id);
+
+                return (
+                  <button
+                    className={`min-h-12 rounded-[0.9rem] px-2.5 text-left transition ${
+                      selected
+                        ? "bg-[#fffaf4] text-stone-950 shadow-sm ring-1 ring-[rgba(201,100,66,0.22)]"
+                        : "text-stone-600 hover:bg-[#fffaf4]/80 hover:text-stone-950"
+                    }`}
+                    key={item.id}
+                    onClick={() => onReasoningChange(item.id)}
+                    type="button"
+                  >
+                    <span className="block text-xs font-semibold">{copy.label}</span>
+                    <span className="mt-0.5 block text-[11px] text-stone-500">{copy.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <button
+            className="mt-2 flex h-10 w-full items-center justify-center rounded-full bg-[color:var(--claude-accent)] px-3 text-sm font-semibold text-white transition hover:bg-[color:var(--claude-accent-dark)]"
+            onClick={() => onOpenChange(false)}
+            type="button"
+          >
+            完成
+          </button>
         </div>
       ) : null}
     </div>
   );
+}
+
+function getCompactModelLabel(label: string) {
+  return label.replace(/^GPT-/, "GPT-").replace("-Codex-Spark", "");
+}
+
+function getModelPickerDetail(model: ChatModelView) {
+  const role =
+    model.source === "upstream"
+      ? "上游模型"
+      : model.contextNote === "低成本"
+        ? "轻量快速"
+        : model.contextNote === "代码" || model.contextNote === "轻量代码"
+          ? "轻量代码"
+          : model.contextNote || "通用";
+
+  return `${role} · ${formatCompactContext(model.contextWindowTokens)} 上下文`;
+}
+
+function getReasoningUiCopy(id: ReasoningEffort) {
+  if (id === "low") {
+    return { label: "快速", hint: "轻任务" };
+  }
+
+  if (id === "high") {
+    return { label: "深入", hint: "复杂" };
+  }
+
+  if (id === "xhigh") {
+    return { label: "极致", hint: "最强" };
+  }
+
+  return { label: "均衡", hint: "默认" };
+}
+
+function formatCompactContext(tokens: number) {
+  if (tokens >= 1_000_000) {
+    const value = tokens / 1_000_000;
+    return Number.isInteger(value) ? `${value}M` : `${value.toFixed(1)}M`;
+  }
+
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}K`;
+  }
+
+  return formatNumber(tokens);
 }
 
 function ToolStatusIcon({ event }: { event: ToolEventView }) {
@@ -2391,39 +2738,120 @@ function ToolStatusIcon({ event }: { event: ToolEventView }) {
     return <FileText className="size-3.5" />;
   }
 
+  if (event.type === "context_compression") {
+    return <Archive className="size-3.5" />;
+  }
+
   return <Sparkles className="size-3.5" />;
 }
 
-function ToolStatusStrip({ events }: { events: ToolEventView[] }) {
+function eventStatusLabel(status: ToolEventView["status"]) {
+  if (status === "running") {
+    return "运行中";
+  }
+
+  if (status === "done") {
+    return "完成";
+  }
+
+  if (status === "error") {
+    return "失败";
+  }
+
+  return "跳过";
+}
+
+function ProcessTimelinePanel({
+  events,
+  finishedAt,
+  now,
+  startedAt,
+  status
+}: {
+  events: ToolEventView[];
+  finishedAt: number | null;
+  now: number;
+  startedAt: number;
+  status: string;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const active = !finishedAt;
+  const elapsed = formatElapsedDuration((finishedAt ?? now) - startedAt);
+  const latestRunningEvent = [...events].reverse().find((event) => event.status === "running");
+
   return (
-    <div className="mb-2 flex flex-wrap gap-2">
-      {events.map((event) => (
-        <div
-          className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
-            event.status === "error"
-              ? "border-red-200 bg-red-50 text-red-700"
-              : event.status === "running"
-              ? "border-[color:var(--ios-separator)] bg-white/75 text-stone-700"
-              : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600"
+    <div className="mb-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-xs text-stone-700">
+      <button
+        className="flex w-full items-center justify-between gap-3 text-left"
+        onClick={() => setExpanded((current) => !current)}
+        type="button"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {active ? (
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-[color:var(--claude-accent)]" />
+          ) : (
+            <Check className="size-3.5 shrink-0 text-[color:var(--claude-accent)]" />
+          )}
+          <span className="shrink-0 font-semibold">{active ? "处理中" : "已处理"}</span>
+          <span className="shrink-0 ios-muted">{elapsed}</span>
+          <span className="min-w-0 truncate ios-muted">
+            {status || latestRunningEvent?.detail || latestRunningEvent?.label}
+          </span>
+        </span>
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-stone-400 transition ${
+            expanded ? "rotate-180" : ""
           }`}
-          key={event.id}
-          title={event.detail}
-        >
-          <ToolStatusIcon event={event} />
-          <span className="shrink-0 font-medium">{event.label}</span>
-          {event.detail ? (
-            <span className="min-w-0 truncate opacity-80">{event.detail}</span>
-          ) : null}
+        />
+      </button>
+      {expanded ? (
+        <div className="mt-2 border-t border-[color:var(--ios-separator)] pt-2">
+          <div className="space-y-2">
+            {events.map((event) => {
+              const eventFinishedAt = event.finishedAt ?? (event.status === "running" ? now : event.startedAt);
+              const eventElapsed = formatElapsedDuration(eventFinishedAt - event.startedAt);
+
+              return (
+                <div className="flex min-w-0 items-start gap-2" key={event.id}>
+                  <span
+                    className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full ${
+                      event.status === "error"
+                        ? "bg-red-50 text-red-700"
+                        : event.status === "running"
+                          ? "bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+                          : "bg-stone-100 text-stone-500"
+                    }`}
+                  >
+                    <ToolStatusIcon event={event} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-medium text-stone-800">{event.label}</span>
+                      <span className="ios-muted">{eventStatusLabel(event.status)}</span>
+                      <span className="ios-muted">{eventElapsed}</span>
+                    </span>
+                    {event.detail ? (
+                      <span className="mt-0.5 block break-words leading-5 ios-muted">
+                        {event.detail}
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      ))}
+      ) : null}
     </div>
   );
 }
 
 function ContextBadge({
+  compact = false,
   contextStats,
   contextWindowTokens
 }: {
+  compact?: boolean;
   contextStats: ContextStats | null;
   contextWindowTokens: number;
 }) {
@@ -2431,6 +2859,10 @@ function ContextBadge({
   const usedTokens = contextStats?.promptTokensEstimate ?? 0;
   const windowTokens = contextStats?.contextWindowTokens ?? contextWindowTokens;
   const remainingTokens = Math.max(0, windowTokens - usedTokens);
+  const compressedTitle =
+    contextStats && contextStats.compressedHistoryMessageCount > 0
+      ? `；已压缩 ${formatNumber(contextStats.compressedHistoryMessageCount)} 条历史，摘要约 ${formatNumber(contextStats.compressedSummaryTokens)} tokens`
+      : "";
 
   return (
     <span
@@ -2439,15 +2871,28 @@ function ContextBadge({
           ? "border-amber-200 bg-amber-50 text-amber-800"
           : "border-[color:var(--ios-separator)] bg-white/45 text-stone-500"
       }`}
-      title={`上下文窗口 ${formatNumber(windowTokens)} tokens；后端按实际请求体估算，最终计费以上游 usage 为准。`}
+      title={`上下文窗口 ${formatNumber(windowTokens)} tokens${compressedTitle}；后端按实际请求体估算，最终计费以上游 usage 为准。`}
     >
-      <span className="shrink-0">上下文</span>
-      {contextStats ? (
-        <span className="min-w-0 truncate">
-          已用约 {formatNumber(usedTokens)} · 剩余 {formatNumber(remainingTokens)}
-        </span>
+      {compact ? (
+        <>
+          <span className="shrink-0">上下文</span>
+          <span className="min-w-0 truncate">
+            {contextStats
+              ? `${formatCompactContext(usedTokens)} / ${formatCompactContext(windowTokens)}`
+              : formatCompactContext(contextWindowTokens)}
+          </span>
+        </>
       ) : (
-        <span className="min-w-0 truncate">剩余 {formatNumber(contextWindowTokens)}</span>
+        <>
+          <span className="shrink-0">上下文</span>
+          {contextStats ? (
+            <span className="min-w-0 truncate">
+              已用约 {formatNumber(usedTokens)} · 剩余 {formatNumber(remainingTokens)}
+            </span>
+          ) : (
+            <span className="min-w-0 truncate">剩余 {formatNumber(contextWindowTokens)}</span>
+          )}
+        </>
       )}
     </span>
   );

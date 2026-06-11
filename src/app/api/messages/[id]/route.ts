@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attachmentToView, deleteAttachmentFiles } from "@/lib/attachments";
+import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -110,7 +111,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     await tx.conversation.update({
       where: { id: message.conversationId },
-      data: { updatedAt: new Date() }
+      data: {
+        ...resetContextSummaryData(),
+        updatedAt: new Date()
+      }
     });
 
     return tx.message.update({
@@ -159,7 +163,10 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
     await tx.conversation.update({
       where: { id: message.conversationId },
-      data: { updatedAt: new Date() }
+      data: {
+        ...resetContextSummaryData(),
+        updatedAt: new Date()
+      }
     });
   });
 

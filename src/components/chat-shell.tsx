@@ -2395,12 +2395,12 @@ export function ChatShell({
 
   const sidebarContent = (
     <>
-      <div className="border-b border-[color:var(--ios-separator)] p-4 max-lg:border-b-0 max-lg:px-6 max-lg:pb-4 max-lg:pr-20 max-lg:pt-[calc(1.25rem+var(--app-safe-area-top,0px))]">
+      <div className="border-b border-[color:var(--ios-separator)] p-4 max-lg:border-b-0 max-lg:px-5 max-lg:pb-3 max-lg:pr-16 max-lg:pt-[calc(1rem+var(--app-safe-area-top,0px))]">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <SiteLogo className="hidden size-8 shrink-0 lg:block" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-stone-800 max-lg:text-[2rem] max-lg:font-bold max-lg:leading-10">
+              <p className="truncate text-sm font-semibold text-stone-800 max-lg:text-[1.65rem] max-lg:font-bold max-lg:leading-9">
                 {siteSettings.siteName}
               </p>
               <p className="mt-1 truncate text-xs ios-muted max-lg:hidden">{user.email}</p>
@@ -2426,9 +2426,17 @@ export function ChatShell({
             </button>
           </div>
         </div>
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex gap-2 max-lg:mt-5">
           <button
-            className="ios-button-primary flex h-10 flex-1 items-center justify-center gap-2 px-3 text-sm max-lg:h-12 max-lg:rounded-full max-lg:text-base"
+            className="ios-button-primary hidden h-10 flex-1 items-center justify-center gap-2 px-3 text-sm lg:flex"
+            onClick={() => startNewConversation()}
+            type="button"
+          >
+            <MessageSquarePlus className="size-4" />
+            新聊天
+          </button>
+          <button
+            className="app-action-button flex h-11 flex-1 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-800 shadow-[0_12px_34px_rgba(83,69,54,0.1),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
             onClick={() => startNewConversation()}
             type="button"
           >
@@ -2437,10 +2445,10 @@ export function ChatShell({
           </button>
         </div>
         <div className="mt-3">
-          <label className="flex h-9 items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-2.5 text-sm text-stone-700 max-lg:h-12 max-lg:rounded-full max-lg:px-4">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-2.5 text-sm text-stone-700 max-lg:h-11 max-lg:rounded-2xl max-lg:border-white/50 max-lg:bg-white/45 max-lg:px-3.5 max-lg:shadow-[0_12px_34px_rgba(83,69,54,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] max-lg:backdrop-blur-xl">
             <Search className="size-4 shrink-0 text-stone-400" />
             <input
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 max-lg:text-base"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 max-lg:text-[15px]"
               onChange={(event) => setConversationSearch(event.target.value)}
               placeholder="搜索聊天"
               value={conversationSearch}
@@ -2463,7 +2471,7 @@ export function ChatShell({
         <UsageBars usage={usage} />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-6 max-lg:pb-24 max-lg:pt-1">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-5 max-lg:pb-20 max-lg:pt-1">
         {groupedConversations.length === 0 ? (
           <div className="px-3 py-8 text-center text-xs leading-5 ios-muted">
             {conversationSearch.trim() ? "没有找到匹配的聊天。" : "暂无会话。"}
@@ -2471,11 +2479,11 @@ export function ChatShell({
         ) : null}
 
         {groupedConversations.map((group) => (
-          <section className="mb-3 max-lg:mb-4" key={group.label}>
-            <div className="bg-[rgba(251,247,239,0.9)] px-2 py-1 text-[11px] font-semibold text-stone-500 backdrop-blur max-lg:bg-transparent max-lg:px-0 max-lg:py-3 max-lg:text-base lg:sticky lg:top-0 lg:z-10">
+          <section className="mb-3 max-lg:mb-2" key={group.label}>
+            <div className="px-0 py-2 text-[13px] font-semibold text-stone-500 lg:sticky lg:top-0 lg:z-10 lg:bg-[rgba(251,247,239,0.9)] lg:px-2 lg:py-1 lg:text-[11px] lg:backdrop-blur">
               {group.label}
             </div>
-            <div className="space-y-1 max-lg:space-y-0">
+            <div className="space-y-1">
               {group.conversations.map((conversation) => {
                 const active = conversation.id === activeConversationId;
                 const menuOpen = openConversationMenuId === conversation.id;
@@ -2484,7 +2492,7 @@ export function ChatShell({
 
                 return (
                   <div
-                    className={`app-list-row group relative flex items-center gap-2 rounded-lg px-2 py-2 transition max-lg:rounded-none max-lg:bg-transparent max-lg:px-0 max-lg:py-3 ${
+                    className={`app-list-row group relative flex items-center gap-2 rounded-xl px-2 py-2.5 transition lg:rounded-lg lg:py-2 ${
                       menuOpen ? "z-30" : "z-0"
                     } ${
                       active
@@ -2529,7 +2537,7 @@ export function ChatShell({
                           {running ? (
                             <Loader2 className="size-3.5 shrink-0 animate-spin text-[color:var(--claude-accent)]" />
                           ) : null}
-                          <p className="min-w-0 truncate text-sm font-medium max-lg:text-[1.35rem] max-lg:font-bold max-lg:leading-8">
+                          <p className="min-w-0 truncate text-[15px] font-semibold leading-5 lg:text-sm lg:font-medium">
                             {conversation.title}
                           </p>
                         </div>
@@ -2608,13 +2616,22 @@ export function ChatShell({
       </div>
 
       {user.role === "ADMIN" ? (
-        <a
-          className="ios-button-secondary m-3 flex h-10 items-center justify-center gap-2 text-sm"
-          href="/admin"
-        >
-          <Shield className="size-4" />
-          管理后台
-        </a>
+        <>
+          <a
+            className="ios-button-secondary m-3 hidden h-10 items-center justify-center gap-2 text-sm lg:flex"
+            href="/admin"
+          >
+            <Shield className="size-4" />
+            管理后台
+          </a>
+          <a
+            className="app-action-button mx-5 mb-[calc(0.75rem+env(safe-area-inset-bottom))] mt-2 flex h-11 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-700 shadow-[0_12px_34px_rgba(83,69,54,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
+            href="/admin"
+          >
+            <Shield className="size-4" />
+            管理后台
+          </a>
+        </>
       ) : null}
     </>
   );
@@ -2639,12 +2656,12 @@ export function ChatShell({
           />
           <aside className="ios-glass app-sidebar-sheet absolute inset-0 flex flex-col text-stone-950 shadow-none">
             <button
-              className="ios-icon-button app-action-button absolute right-5 top-[calc(1.4rem+var(--app-safe-area-top,0px))] z-20 size-11 rounded-full"
+              className="app-action-button absolute right-5 top-[calc(1rem+var(--app-safe-area-top,0px))] z-20 grid size-10 place-items-center rounded-full border border-white/50 bg-white/45 text-[#4f4338] shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95"
               onClick={() => setMobileSidebarOpen(false)}
               title="关闭"
               type="button"
             >
-              <X className="size-5" />
+              <X className="size-[18px]" />
             </button>
             {sidebarContent}
           </aside>
@@ -2687,10 +2704,10 @@ export function ChatShell({
             }`}
             ref={headerControlsRef}
           >
-            <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
+            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
               <button
                 aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
-                className="ios-icon-button app-action-button size-11 shrink-0 rounded-full lg:hidden"
+                className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[#4f4338] shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
                 onClick={toggleSidebar}
                 title="切换会话列表"
                 type="button"
@@ -2715,8 +2732,8 @@ export function ChatShell({
                 </div>
               </div>
 
-              <div className="min-w-0 justify-self-center lg:shrink-0 lg:justify-self-auto">
-                <div className="w-[min(13.5rem,56vw)] lg:w-auto">
+              <div className="flex min-w-0 flex-col items-center gap-1 justify-self-center lg:block lg:shrink-0 lg:justify-self-auto">
+                <div className="w-[min(12.25rem,54vw)] lg:w-auto">
                   <ModelReasoningPicker
                     activeModel={activeModel}
                     activeReasoningEffort={activeReasoningEffort}
@@ -2729,10 +2746,19 @@ export function ChatShell({
                     reasoningValue={reasoningEffort}
                   />
                 </div>
+                {activeModel ? (
+                  <div className="flex max-w-[12.25rem] justify-center lg:hidden">
+                    <ContextBadge
+                      compact
+                      contextStats={lastContextStats}
+                      contextWindowTokens={activeModel.contextWindowTokens}
+                    />
+                  </div>
+                ) : null}
               </div>
 
               <button
-                className="ios-icon-button app-action-button size-11 shrink-0 rounded-full lg:hidden"
+                className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[#4f4338] shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
                 onClick={() => startNewConversation()}
                 title="新聊天"
                 type="button"
@@ -3241,10 +3267,10 @@ function ModelReasoningPicker({
       <button
         aria-expanded={open}
         aria-label="选择模型和思考强度"
-        className={`app-action-button flex h-11 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3.5 text-left text-base font-semibold backdrop-blur transition sm:h-9 sm:min-w-60 sm:px-3.5 sm:text-xs sm:font-medium ${
+        className={`app-action-button flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-[15px] font-semibold backdrop-blur-xl transition sm:h-9 sm:min-w-60 sm:px-3.5 sm:text-xs sm:font-medium ${
           open
             ? "border-stone-300 bg-white text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10)]"
-            : "border-black/10 bg-white/70 text-stone-800 shadow-[0_8px_28px_rgba(83,69,54,0.08)] hover:border-stone-300 hover:bg-white/95"
+            : "border-white/50 bg-white/45 text-stone-800 shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] hover:border-stone-300 hover:bg-white/70"
         }`}
         onClick={() => onOpenChange(!open)}
         data-testid="model-reasoning-picker"
@@ -3256,8 +3282,8 @@ function ModelReasoningPicker({
         type="button"
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)] sm:size-5">
-            <Sparkles className="size-3.5 sm:size-3" />
+          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]">
+            <Sparkles className="size-3" />
           </span>
           <span className="min-w-0 truncate text-stone-950">
             <span className="sm:hidden">{modelLabel}</span>
@@ -3269,7 +3295,7 @@ function ModelReasoningPicker({
           </span>
         </span>
         <ChevronDown
-          className={`size-4 shrink-0 text-stone-500 transition sm:size-3.5 ${open ? "rotate-180" : ""}`}
+          className={`size-3.5 shrink-0 text-stone-500 transition ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -3484,16 +3510,16 @@ function ContextBadge({
       className={`app-status-pill inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${
         warned
           ? "border-amber-200 bg-amber-50 text-amber-800"
-          : "border-[color:var(--ios-separator)] bg-white/45 text-stone-500"
+          : "border-white/50 bg-white/40 text-stone-500 shadow-[0_8px_22px_rgba(83,69,54,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"
       }`}
       title={`上下文窗口 ${formatNumber(windowTokens)} tokens${compressedTitle}；后端按实际请求体估算，最终计费以上游 usage 为准。`}
     >
       {compact ? (
         <>
-          <span className="shrink-0">上下文</span>
+          <span className="shrink-0">剩余</span>
           <span className="min-w-0 truncate">
             {contextStats
-              ? `${formatCompactContext(usedTokens)} / ${formatCompactContext(windowTokens)}`
+              ? formatCompactContext(remainingTokens)
               : formatCompactContext(contextWindowTokens)}
           </span>
         </>

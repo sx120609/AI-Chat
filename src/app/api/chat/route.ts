@@ -368,7 +368,9 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
 }
 
 function directFileAttachmentIds(attachments: ChatAttachment[]) {
-  const fileAttachments = attachments.filter((attachment) => attachment.kind !== "IMAGE");
+  const fileAttachments = attachments.filter((attachment) =>
+    ["TEXT", "DOCUMENT", "SPREADSHEET"].includes(attachment.kind)
+  );
   const totalSize = fileAttachments.reduce((total, attachment) => total + attachment.sizeBytes, 0);
 
   if (totalSize > MAX_DIRECT_FILE_INPUT_BYTES) {

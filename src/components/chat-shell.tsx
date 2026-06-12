@@ -83,13 +83,6 @@ type SseEvent = {
   data: Record<string, unknown>;
 };
 
-type ToolRoutePlanView = {
-  query: string;
-  reason: string;
-  shouldSearch: boolean;
-  tool: "chat" | "image";
-};
-
 type ContextStats = {
   promptTokensEstimate: number;
   historyMessageCount: number;
@@ -2303,45 +2296,6 @@ export function ChatShell({
     }
   }
 
-  async function planOutgoingMessageTool(
-    prompt: string,
-    attachments: AttachmentView[],
-    options: {
-      imageToolRequested?: boolean;
-      reuseUserMessage?: MessageView;
-      sourceImageMessage?: MessageView | null;
-      useWebSearch?: boolean;
-    } = {}
-  ) {
-    const promptClock = formatPromptClock();
-    const response = await fetch("/api/chat/route-plan", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        attachmentIds: attachments.map((attachment) => attachment.id),
-        clientDate: promptClock.date,
-        clientTime: promptClock.time,
-        clientTimeZone: promptClock.timeZone,
-        content: prompt,
-        imageToolRequested: Boolean(options.imageToolRequested),
-        model,
-        reuseUserMessageId: options.reuseUserMessage?.id,
-        sourceImageMessageId: options.sourceImageMessage?.id,
-        useWebSearch: Boolean(options.useWebSearch),
-      })
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; plan?: ToolRoutePlanView }
-      | null;
-
-    if (!response.ok || !payload?.plan) {
-      setError(payload?.error || "工具路由失败。");
-      return null;
-    }
-
-    return payload.plan;
-  }
-
   async function send(draftText: string) {
     const attachments = pendingAttachments;
     const sourceImage = sourceImageMessage;
@@ -2384,26 +2338,10 @@ export function ChatShell({
       setImageToolEnabled(false);
       setWebSearchEnabledForMessage(false);
 
-      const toolRoutePlan = await planOutgoingMessageTool(prompt, attachments, {
+      await sendChat(prompt, attachments, {
         imageToolRequested,
         sourceImageMessage: sourceImage,
         useWebSearch
-      });
-
-      if (!toolRoutePlan) {
-        return;
-      }
-
-      if (toolRoutePlan.tool === "image") {
-        await sendImage(prompt, attachments, {
-          sourceImageMessage: sourceImage
-        });
-        return;
-      }
-
-      await sendChat(prompt, attachments, {
-        sourceImageMessage: sourceImage,
-        useWebSearch: useWebSearch || toolRoutePlan.shouldSearch
       });
     } finally {
       void refreshMe();

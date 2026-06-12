@@ -423,7 +423,7 @@ async function upstreamErrorMessage(response: Response) {
 // Sub2API / One API 等网关的旧版本可能不认识 stream_options 或 reasoning 参数，
 // 遇到这类 400 报错时逐步降级，尽量保留 include_usage。
 function looksLikeUnsupportedParamError(message: string) {
-  return /stream_options|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|unsupported\s+file|file\s+type|supported\s+format|messages.*content.*file|too\s+large|entity\s+too\s+large|payload|request\s+body|combined\s+limit|under\s+50\s*mb|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数|请求体过大|文件过大/i.test(
+  return /stream_options|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|unsupported\s+file|file\s+type|supported\s+format|messages.*content.*file|too\s+large|entity\s+too\s+large|payload|request\s+body|combined\s+limit|under\s+50\s*mb|timeout|timed\s*out|no\s+response|connection|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数|请求体过大|文件过大|没有响应|无法连接|连接/i.test(
     message
   );
 }
@@ -494,11 +494,24 @@ export async function createChatCompletionStream(
   let lastUnsupportedParamError = "";
 
   for (const candidate of bodyCandidates) {
-    const response = await fetchWithHeadersTimeout(
-      url,
-      requestInit(candidate),
-      CHAT_HEADERS_TIMEOUT_MS
-    );
+    let response: Response;
+
+    try {
+      response = await fetchWithHeadersTimeout(
+        url,
+        requestInit(candidate),
+        CHAT_HEADERS_TIMEOUT_MS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (!options?.fallbackMessages || !looksLikeUnsupportedParamError(message)) {
+        throw error;
+      }
+
+      lastUnsupportedParamError = message;
+      continue;
+    }
 
     if (response.ok && response.body) {
       return openAiCompatibleBody(response);

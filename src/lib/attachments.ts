@@ -27,30 +27,64 @@ type AttachmentLike = {
 };
 
 const MIME_BY_EXTENSION: Record<string, string> = {
+  ".c": "text/x-c",
+  ".conf": "text/plain",
+  ".cpp": "text/x-c++",
+  ".cs": "text/x-csharp",
   ".csv": "text/csv",
+  ".css": "text/css",
   ".doc": "application/msword",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".go": "text/x-go",
   ".gif": "image/gif",
+  ".h": "text/x-c",
+  ".html": "text/html",
+  ".java": "text/x-java",
+  ".js": "text/javascript",
+  ".json": "application/json",
+  ".jsx": "text/jsx",
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
+  ".log": "text/plain",
   ".md": "text/markdown",
+  ".odt": "application/vnd.oasis.opendocument.text",
   ".pdf": "application/pdf",
   ".png": "image/png",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".py": "text/x-python",
+  ".rs": "text/x-rust",
+  ".rtf": "application/rtf",
+  ".sql": "application/x-sql",
+  ".ts": "text/x-typescript",
+  ".tsx": "text/tsx",
+  ".tsv": "text/tsv",
   ".txt": "text/plain",
   ".webp": "image/webp",
   ".xls": "application/vnd.ms-excel",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xml": "text/xml",
+  ".yaml": "text/x-yaml",
+  ".yml": "text/x-yaml",
   ".zip": "application/zip"
 };
 const UPLOADS_ROOT = path.join(process.cwd(), "uploads");
 
 const KIND_BY_MIME: Array<{ pattern: RegExp; kind: AttachmentKind }> = [
   { pattern: /^image\//, kind: "IMAGE" },
-  { pattern: /^text\/(plain|csv|markdown)/, kind: "TEXT" },
+  { pattern: /^text\//, kind: "TEXT" },
+  { pattern: /^application\/(?:json|javascript|typescript|x-sql)$/, kind: "TEXT" },
   { pattern: /^application\/pdf$/, kind: "DOCUMENT" },
   { pattern: /^application\/msword$/, kind: "DOCUMENT" },
+  { pattern: /^application\/rtf$/, kind: "DOCUMENT" },
+  { pattern: /^application\/vnd\.oasis\.opendocument\.text$/, kind: "DOCUMENT" },
   {
     pattern: /^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/,
+    kind: "DOCUMENT"
+  },
+  { pattern: /^application\/vnd\.ms-powerpoint$/, kind: "DOCUMENT" },
+  {
+    pattern: /^application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation$/,
     kind: "DOCUMENT"
   },
   { pattern: /^application\/vnd\.ms-excel$/, kind: "SPREADSHEET" },

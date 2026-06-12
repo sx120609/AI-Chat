@@ -70,13 +70,13 @@ export function SiteConfirmDialog({
       />
       <section
         aria-modal="true"
-        className="app-dialog-panel app-modal-panel relative w-full max-w-[26rem] overflow-hidden rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-4 text-stone-950 shadow-[0_24px_80px_rgba(83,69,54,0.2)] ring-1 ring-white/70 sm:p-5"
+        className="app-dialog-panel app-modal-panel relative w-full max-w-[26rem] overflow-hidden rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-4 text-stone-950 shadow-[0_24px_80px_rgba(18,42,35,0.2)] ring-1 ring-white/70 sm:p-5"
         role="dialog"
       >
         <div className="flex items-start gap-3">
           <span
             className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-full ${
-              danger ? "bg-red-50 text-red-600" : "bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+              danger ? "bg-red-50 text-red-600" : "bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
             }`}
           >
             <AlertTriangle className="size-4" />

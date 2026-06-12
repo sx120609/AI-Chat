@@ -84,7 +84,7 @@ function SharedAttachmentChip({ attachment }: { attachment: AttachmentView }) {
 
   return (
     <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-2.5 py-1.5 text-xs text-stone-700">
-      <span className="grid size-5 shrink-0 place-items-center rounded-md bg-[#f3e5d8] text-[color:var(--claude-accent)]">
+      <span className="grid size-5 shrink-0 place-items-center rounded-md bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
         {attachmentIcon(attachment.kind)}
       </span>
       <span className="min-w-0 truncate">{attachment.originalName}</span>
@@ -123,7 +123,7 @@ function SharedSources({ sources }: { sources?: WebSearchSource[] }) {
           target="_blank"
         >
           <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--claude-accent)]">
-            <span className="grid size-4 shrink-0 place-items-center rounded-full bg-[#f3d8ca]">
+            <span className="grid size-4 shrink-0 place-items-center rounded-full bg-[color:var(--app-accent-soft)]">
               {index + 1}
             </span>
             <span className="min-w-0 truncate">{source.displayUrl}</span>
@@ -144,7 +144,7 @@ function SharedSources({ sources }: { sources?: WebSearchSource[] }) {
 const markdownComponents: Components = {
   pre({ children }) {
     return (
-      <pre className="overflow-x-auto rounded-lg bg-[#302d27] p-3 text-xs leading-5 text-[#f8f4eb]">
+      <pre className="overflow-x-auto rounded-lg bg-[color:var(--app-ink)] p-3 text-xs leading-5 text-[#f8fcf9]">
         {children}
       </pre>
     );

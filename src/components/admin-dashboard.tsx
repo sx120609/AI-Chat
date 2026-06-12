@@ -611,7 +611,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         <section className="ios-panel motion-lift mb-5 p-4">
           <div className="mb-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
+              <div className="grid size-9 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
                 <ActiveTabIcon className="size-4" />
               </div>
               <div>
@@ -797,7 +797,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         value={settingsForm.longContextThresholdTokens}
                       />
                     </label>
-                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <label className="admin-check-row">
                       <input
                         checked={settingsForm.contextCompressionEnabled}
                         className="size-4 accent-[color:var(--claude-accent)]"
@@ -827,7 +827,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         value={settingsForm.contextCompressionThresholdPercent}
                       />
                     </label>
-                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <label className="admin-check-row">
                       <input
                         checked={settingsForm.mockResponses}
                         className="size-4 accent-[color:var(--claude-accent)]"
@@ -841,7 +841,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       />
                       Mock 模式
                     </label>
-                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <label className="admin-check-row">
                       <input
                         checked={settingsForm.clearApiKey}
                         className="size-4 accent-red-500"
@@ -1036,7 +1036,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         ))}
                       </select>
                     </label>
-                    <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-2">
+                    <div className="admin-note lg:col-span-2">
                       {SYSTEM_PROMPT_MODES.find((item) => item.id === settingsForm.systemPromptMode)
                         ?.description || ""}
                     </div>
@@ -1101,7 +1101,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <span className="text-xs font-semibold ios-muted">代码解释器沙箱</span>
                   </div>
                   <div className="grid gap-3 p-3 lg:grid-cols-3">
-                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <label className="admin-check-row">
                       <input
                         checked={settingsForm.codeInterpreterEnabled}
                         className="size-4 accent-[color:var(--claude-accent)]"
@@ -1130,7 +1130,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         <option value="docker">Docker 容器</option>
                       </select>
                     </label>
-                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <label className="admin-check-row">
                       <input
                         checked={settingsForm.codeInterpreterAllowPackageInstall}
                         className="size-4 accent-[color:var(--claude-accent)]"
@@ -1158,7 +1158,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         value={settingsForm.codeInterpreterPipIndexUrl}
                       />
                     </label>
-                    <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600">
+                    <div className="admin-note">
                       当前聊天不会自动调用代码解释器；附件会直接交给主模型，必要时仅使用内置文本解析作为兜底。
                     </div>
                   </div>
@@ -1169,7 +1169,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <span className="text-xs font-semibold ios-muted">联网搜索</span>
                   </div>
                   <div className="grid gap-3 p-3 lg:grid-cols-2">
-                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <label className="admin-check-row">
                       <input
                         checked={settingsForm.webSearchEnabled}
                         className="size-4 accent-[color:var(--claude-accent)]"
@@ -1199,7 +1199,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         value={settingsForm.webSearchMaxResults}
                       />
                     </label>
-                    <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-2">
+                    <div className="admin-note lg:col-span-2">
                       开启后，用户可在聊天输入框为单次消息打开联网搜索；后端通过 DuckDuckGo 搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。
                     </div>
                   </div>
@@ -1224,7 +1224,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   </button>
                 </div>
                 <div className="grid gap-3 p-3 lg:grid-cols-6">
-                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <label className="admin-check-row">
                     <input
                       checked={settingsForm.smtpEnabled}
                       className="size-4 accent-[color:var(--claude-accent)]"
@@ -1320,7 +1320,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       value={testEmail}
                     />
                   </label>
-                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <label className="admin-check-row">
                     <input
                       checked={settingsForm.smtpSecure}
                       className="size-4 accent-[color:var(--claude-accent)]"
@@ -1331,7 +1331,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     />
                     SSL/TLS
                   </label>
-                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <label className="admin-check-row">
                     <input
                       checked={settingsForm.smtpStartTls}
                       className="size-4 accent-[color:var(--claude-accent)]"
@@ -1342,7 +1342,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     />
                     STARTTLS
                   </label>
-                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <label className="admin-check-row">
                     <input
                       checked={settingsForm.clearSmtpPassword}
                       className="size-4 accent-red-500"
@@ -1369,7 +1369,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   </p>
                 </div>
                 <div className="grid gap-3 p-3 lg:grid-cols-6">
-                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <label className="admin-check-row">
                     <input
                       checked={settingsForm.easyPayEnabled}
                       className="size-4 accent-[color:var(--claude-accent)]"
@@ -1383,7 +1383,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     />
                     启用
                   </label>
-                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <label className="admin-check-row">
                     <input
                       checked={settingsForm.easyPayAllowRefund}
                       className="size-4 accent-[color:var(--claude-accent)]"
@@ -1569,7 +1569,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       </span>
                     </div>
                   </label>
-                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                  <label className="admin-check-row">
                     <input
                       checked={settingsForm.clearEasyPayKey}
                       className="size-4 accent-red-500"
@@ -1608,13 +1608,13 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         <>
         <section className="ios-panel motion-lift mb-5 p-4">
           <div className="mb-4 flex items-center gap-2">
-            <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
+            <div className="grid size-9 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
               <UserCog className="size-4" />
             </div>
             <h2 className="text-base font-semibold">注册设置</h2>
           </div>
           <form className="grid gap-3 lg:grid-cols-6" onSubmit={saveSettings}>
-            <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700 lg:col-span-2">
+            <label className="admin-check-row lg:col-span-2">
               <input
                 checked={settingsForm.registrationEnabled}
                 className="size-4 accent-[color:var(--claude-accent)]"
@@ -1628,7 +1628,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               />
               开放注册
             </label>
-            <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700 lg:col-span-2">
+            <label className="admin-check-row lg:col-span-2">
               <input
                 checked={settingsForm.registrationRequireEmailVerification}
                 className="size-4 accent-[color:var(--claude-accent)]"

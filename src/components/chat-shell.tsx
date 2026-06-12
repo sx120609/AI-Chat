@@ -547,7 +547,7 @@ export function ChatShell({
     return messages.some((message) => message.id === processMessageId) ? processMessageId : null;
   }, [messages, processMessageId, processStartedAt]);
   const sidebarHeaderButtonClass =
-    "app-action-button app-glass-control min-h-9 min-w-9 shrink-0 place-items-center rounded-xl text-[#4f4338] transition hover:text-[color:var(--claude-ink)] active:scale-95";
+    "app-action-button app-glass-control min-h-9 min-w-9 shrink-0 place-items-center rounded-xl text-[color:var(--app-ink-soft)] transition hover:text-[color:var(--claude-ink)] active:scale-95";
   const setComposerText = useCallback((text: string, focus = false) => {
     setComposerDraft((current) => ({
       focusToken: focus ? current.focusToken + 1 : current.focusToken,
@@ -2767,7 +2767,7 @@ export function ChatShell({
             新聊天
           </button>
           <button
-            className="app-action-button flex h-11 flex-1 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-800 shadow-[0_12px_34px_rgba(83,69,54,0.1),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
+            className="app-action-button flex h-11 flex-1 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-800 shadow-[0_12px_34px_rgba(18,42,35,0.1),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
             onClick={() => startNewConversation()}
             type="button"
           >
@@ -2831,8 +2831,8 @@ export function ChatShell({
                       menuOpen ? "z-30" : "z-0"
                     } ${
                       active
-                        ? "border border-white/45 bg-white/48 text-stone-950 shadow-[0_10px_30px_rgba(83,69,54,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl"
-                        : "border border-transparent text-stone-700 hover:border-white/40 hover:bg-white/35 hover:shadow-[0_10px_28px_rgba(83,69,54,0.07)] hover:backdrop-blur-xl"
+                        ? "border border-white/45 bg-white/48 text-stone-950 shadow-[0_10px_30px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl"
+                        : "border border-transparent text-stone-700 hover:border-white/40 hover:bg-white/35 hover:shadow-[0_10px_28px_rgba(18,42,35,0.07)] hover:backdrop-blur-xl"
                     }`}
                     key={conversation.id}
                   >
@@ -2908,7 +2908,7 @@ export function ChatShell({
                         data-conversation-menu
                       >
                         <button
-                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)]"
                           onClick={() => void togglePinConversation(conversation)}
                           type="button"
                         >
@@ -2920,7 +2920,7 @@ export function ChatShell({
                           {conversation.pinned ? "取消固定" : "固定"}
                         </button>
                         <button
-                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)]"
                           onClick={() => beginRenameConversation(conversation)}
                           type="button"
                         >
@@ -2928,7 +2928,7 @@ export function ChatShell({
                           重命名
                         </button>
                         <button
-                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf] disabled:opacity-50"
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)] disabled:opacity-50"
                           disabled={sharingConversationId === conversation.id}
                           onClick={() => void shareConversation(conversation)}
                           type="button"
@@ -2964,7 +2964,7 @@ export function ChatShell({
             管理后台
           </a>
           <a
-            className="app-action-button mx-5 mb-[calc(0.75rem+env(safe-area-inset-bottom))] mt-2 flex h-11 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-700 shadow-[0_12px_34px_rgba(83,69,54,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
+            className="app-action-button mx-5 mb-[calc(0.75rem+env(safe-area-inset-bottom))] mt-2 flex h-11 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-700 shadow-[0_12px_34px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
             href="/admin"
           >
             <Shield className="size-4" />
@@ -2995,7 +2995,7 @@ export function ChatShell({
           />
           <aside className="ios-glass app-sidebar-sheet absolute inset-0 flex flex-col text-stone-950 shadow-none">
             <button
-              className="app-action-button absolute right-5 top-[calc(1rem+var(--app-safe-area-top,0px))] z-20 grid size-10 place-items-center rounded-full border border-white/50 bg-white/45 text-[#4f4338] shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95"
+              className="app-action-button absolute right-5 top-[calc(1rem+var(--app-safe-area-top,0px))] z-20 grid size-10 place-items-center rounded-full border border-white/50 bg-white/45 text-[color:var(--app-ink-soft)] shadow-[0_12px_34px_rgba(18,42,35,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95"
               onClick={() => setMobileSidebarOpen(false)}
               title="关闭"
               type="button"
@@ -3017,7 +3017,7 @@ export function ChatShell({
         {draggingFiles ? (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-3 z-40 grid place-items-center rounded-[1.25rem] border-2 border-dashed border-[color:var(--claude-accent)] bg-[rgba(255,250,244,0.82)] shadow-[0_24px_80px_rgba(83,69,54,0.18)] backdrop-blur-sm"
+            className="pointer-events-none absolute inset-3 z-40 grid place-items-center rounded-[1.25rem] border-2 border-dashed border-[color:var(--claude-accent)] bg-[color:var(--app-surface)] shadow-[0_24px_80px_rgba(18,42,35,0.18)] backdrop-blur-sm"
           >
             <div className="app-status-pill app-glass-control inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-stone-800">
               <Paperclip className="size-4 text-[color:var(--claude-accent)]" />
@@ -3046,7 +3046,7 @@ export function ChatShell({
             <div className="grid grid-cols-[2.5rem_auto_minmax(0,1fr)_2.5rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
               <button
                 aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
-                className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[#4f4338] shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
+                className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[color:var(--app-ink-soft)] shadow-[0_12px_34px_rgba(18,42,35,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
                 onClick={toggleSidebar}
                 title="切换会话列表"
                 type="button"
@@ -3098,7 +3098,7 @@ export function ChatShell({
               </div>
 
               <button
-                className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[#4f4338] shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
+                className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[color:var(--app-ink-soft)] shadow-[0_12px_34px_rgba(18,42,35,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
                 onClick={() => startNewConversation()}
                 title="新聊天"
                 type="button"
@@ -3169,7 +3169,7 @@ export function ChatShell({
           </div>
         </div>
 
-        <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[rgba(247,243,234,0.86)] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
+        <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[color:var(--app-surface)] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
           <div className="mx-auto max-w-3xl">
             {activeModel ? (
               <ContextNotice
@@ -3289,7 +3289,7 @@ export function ChatShell({
                 <button
                   className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
                     imageToolEnabled
-                      ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+                      ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
                       : "app-glass-control text-stone-600 sm:text-stone-600"
                   }`}
                   disabled={loading || quotaBlocked || conversationSwitching}
@@ -3316,7 +3316,7 @@ export function ChatShell({
                       aria-pressed={webSearchEnabledForMessage}
                       className={`app-action-button grid size-9 place-items-center rounded-full border transition ${
                         webSearchEnabledForMessage
-                          ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+                          ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
                           : "app-glass-control text-stone-600 sm:text-stone-600"
                       }`}
                       disabled={loading || quotaBlocked || conversationSwitching}
@@ -3410,7 +3410,7 @@ function ShareNoticeToast({
   return createPortal(
     <div className="pointer-events-none fixed inset-x-3 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-[75] sm:bottom-auto sm:left-auto sm:right-6 sm:top-6 sm:w-[24rem]">
       <section
-        className={`app-reveal pointer-events-auto overflow-hidden rounded-2xl border bg-white/82 p-3 text-stone-900 shadow-[0_20px_70px_rgba(83,69,54,0.22),inset_0_1px_0_rgba(255,255,255,0.78)] backdrop-blur-2xl ${
+        className={`app-reveal pointer-events-auto overflow-hidden rounded-2xl border bg-white/82 p-3 text-stone-900 shadow-[0_20px_70px_rgba(18,42,35,0.22),inset_0_1px_0_rgba(255,255,255,0.78)] backdrop-blur-2xl ${
           success ? "border-emerald-200" : "border-red-200"
         }`}
         role="status"
@@ -3555,7 +3555,7 @@ function PaymentDialog({
 
   return createPortal(
     <div className="fixed inset-0 z-[90] grid place-items-center bg-stone-950/28 px-4 backdrop-blur-sm">
-      <section className="app-reveal w-full max-w-md overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-4 text-stone-950 shadow-[0_24px_90px_rgba(83,69,54,0.28)]">
+      <section className="app-reveal w-full max-w-md overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-4 text-stone-950 shadow-[0_24px_90px_rgba(18,42,35,0.28)]">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
@@ -3829,8 +3829,8 @@ const ComposerInputArea = memo(function ComposerInputArea({
       </div>
       {fullscreenOpen
         ? createPortal(
-            <div className="app-backdrop-enter fixed inset-0 z-[90] flex bg-[rgba(47,42,36,0.28)] p-3 backdrop-blur-md sm:p-6">
-              <section className="app-dialog-panel mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/55 bg-[rgba(255,250,244,0.94)] shadow-[0_28px_100px_rgba(47,42,36,0.28)]">
+            <div className="app-backdrop-enter fixed inset-0 z-[90] flex bg-[rgba(23,33,30,0.28)] p-3 backdrop-blur-md sm:p-6">
+              <section className="app-dialog-panel mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] shadow-[0_28px_100px_rgba(23,33,30,0.28)]">
                 <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-stone-900">全屏输入</div>
@@ -3961,7 +3961,7 @@ function ModelReasoningPicker({
                   <button
                     className={`app-list-row group flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-[0.9rem] px-3 py-2 text-left text-sm transition sm:py-0 ${
                       selected
-                        ? "bg-white/82 text-stone-950 shadow-[0_10px_26px_rgba(83,69,54,0.1)] ring-1 ring-[rgba(201,100,66,0.24)] backdrop-blur-xl"
+                        ? "bg-white/82 text-stone-950 shadow-[0_10px_26px_rgba(18,42,35,0.1)] ring-1 ring-[color:var(--app-accent-ring)] backdrop-blur-xl"
                         : "text-stone-700 hover:bg-white/62 hover:text-stone-950"
                     }`}
                     key={item.id}
@@ -3977,7 +3977,7 @@ function ModelReasoningPicker({
                     {selected ? (
                       <Check className="size-4 shrink-0 text-[color:var(--claude-accent-dark)]" />
                     ) : (
-                      <span className="size-4 shrink-0 rounded-full border border-[#dfd2c0] opacity-0 transition group-hover:opacity-100" />
+                      <span className="size-4 shrink-0 rounded-full border border-[color:var(--app-border-strong)] opacity-0 transition group-hover:opacity-100" />
                     )}
                   </button>
                 );
@@ -4001,7 +4001,7 @@ function ModelReasoningPicker({
                   <button
                     className={`app-list-row min-h-12 rounded-[0.9rem] px-1.5 text-center transition sm:px-2.5 sm:text-left ${
                       selected
-                        ? "bg-white/82 text-stone-950 shadow-[0_10px_26px_rgba(83,69,54,0.1)] ring-1 ring-[rgba(201,100,66,0.24)] backdrop-blur-xl"
+                        ? "bg-white/82 text-stone-950 shadow-[0_10px_26px_rgba(18,42,35,0.1)] ring-1 ring-[color:var(--app-accent-ring)] backdrop-blur-xl"
                         : "text-stone-600 hover:bg-white/62 hover:text-stone-950"
                     }`}
                     key={item.id}
@@ -4035,7 +4035,7 @@ function ModelReasoningPicker({
         aria-label="选择模型和思考强度"
         className={`app-action-button flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-[15px] font-semibold backdrop-blur-xl transition sm:h-9 sm:min-w-60 sm:px-3.5 sm:text-xs sm:font-medium ${
           open
-            ? "border-white/75 bg-white/78 text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10),0_16px_42px_rgba(83,69,54,0.14)]"
+            ? "border-white/75 bg-white/78 text-stone-950 shadow-[0_0_0_3px_rgba(19,81,68,0.10),0_16px_42px_rgba(18,42,35,0.14)]"
             : "app-glass-control text-stone-800"
         }`}
         onClick={() => onOpenChange(!open)}
@@ -4048,7 +4048,7 @@ function ModelReasoningPicker({
         type="button"
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]">
+          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]">
             <Sparkles className="size-3" />
           </span>
           <span className="min-w-0 truncate text-stone-950">
@@ -4327,7 +4327,7 @@ function ProcessTimelinePanel({
                       event.status === "error"
                         ? "bg-red-50 text-red-700"
                         : event.status === "running"
-                          ? "bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
+                          ? "bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
                           : "bg-stone-100 text-stone-500"
                     }`}
                   >
@@ -4378,7 +4378,7 @@ function ContextBadge({
       className={`app-status-pill inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] ${
         warned
           ? "border-amber-200 bg-amber-50 text-amber-800"
-          : "border-white/50 bg-white/40 text-stone-500 shadow-[0_8px_22px_rgba(83,69,54,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"
+          : "border-white/50 bg-white/40 text-stone-500 shadow-[0_8px_22px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"
       }`}
       title={`上下文窗口 ${formatNumber(windowTokens)} tokens${compressedTitle}；后端按实际请求体估算，最终计费以上游 usage 为准。`}
     >
@@ -4468,7 +4468,7 @@ function UsageBars({
         <p className="mb-1 text-[10px] ios-muted lg:text-[11px]">
           已用 {formatCents(usage.costUsedCents)} / {formatCents(usage.monthlyCostLimitCents)}
         </p>
-        <div className="h-1.5 overflow-hidden rounded-full border border-white/45 bg-white/45 shadow-[inset_0_1px_2px_rgba(83,69,54,0.08)] backdrop-blur-xl lg:h-2">
+        <div className="h-1.5 overflow-hidden rounded-full border border-white/45 bg-white/45 shadow-[inset_0_1px_2px_rgba(18,42,35,0.08)] backdrop-blur-xl lg:h-2">
           <div
             className="app-progress-fill h-full rounded-full bg-[color:var(--claude-accent)]"
             style={{
@@ -4616,7 +4616,7 @@ function WebSourceCards({ sources }: { sources: NonNullable<MessageView["webSour
             target="_blank"
           >
             <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--claude-accent)]">
-              <span className="grid size-4 shrink-0 place-items-center rounded-full bg-[#f3d8ca]">
+              <span className="grid size-4 shrink-0 place-items-center rounded-full bg-[color:var(--app-accent-soft)]">
                 {index + 1}
               </span>
               <span className="min-w-0 truncate">{source.displayUrl}</span>

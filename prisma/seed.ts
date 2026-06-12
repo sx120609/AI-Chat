@@ -32,6 +32,7 @@ async function main() {
     where: { email },
     update: {
       name,
+      userGroup: "VIP",
       passwordHash,
       role: "ADMIN",
       active: true,
@@ -40,6 +41,7 @@ async function main() {
     create: {
       email,
       name,
+      userGroup: "VIP",
       passwordHash,
       role: "ADMIN",
       emailVerified: true,

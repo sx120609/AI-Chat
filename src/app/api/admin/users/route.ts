@@ -4,6 +4,7 @@ import { coerceInt, jsonError, readJson, requireAdmin } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 import { getUsageSummary } from "@/lib/quota";
+import { normalizeUserGroup } from "@/lib/user-groups";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,7 @@ type CreateUserBody = {
   name?: string;
   password?: string;
   role?: "USER" | "ADMIN";
+  userGroup?: string;
   monthlyCostLimitCents?: number;
 };
 
@@ -34,8 +36,10 @@ export async function GET(request: NextRequest) {
       email: true,
       name: true,
       role: true,
+      userGroup: true,
       active: true,
       emailVerified: true,
+      aiStylePrompt: true,
       monthlyCostLimitCents: true,
       quotaResetAt: true,
       createdAt: true,
@@ -91,6 +95,7 @@ export async function POST(request: NextRequest) {
         name: name || email,
         passwordHash: await hashPassword(password),
         role: body.role === "ADMIN" ? "ADMIN" : "USER",
+        userGroup: normalizeUserGroup(body.userGroup),
         emailVerified: true,
         monthlyCostLimitCents: coerceInt(body.monthlyCostLimitCents, 5000, 1)
       },

@@ -5,6 +5,7 @@
 ## 功能
 
 - 用户登录与管理员后台
+- 个人中心：昵称、密码、个人 AI 风格和个人 API Key 管理
 - 类 ChatGPT 聊天界面，支持服务端流式输出
 - 会话与消息历史持久化
 - 模型选择：`GPT-5.5`、`GPT-5.5-1M`、`GPT-5.4`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
@@ -24,6 +25,7 @@
 - 超额前置拦截，超额后禁止继续调用
 - 可选易支付余额充值，支持支付宝/微信支付、异步回调验签和到账幂等处理
 - 管理员查看所有用户用量、调整额度、启停账号、重置额度窗口
+- 管理员可设置用户组，VIP 用户可创建自己的 Responses API Key，共享账号余额额度
 - Prisma + PostgreSQL 默认配置，并提供旧 SQLite 数据迁移脚本
 
 ## 技术栈
@@ -222,6 +224,28 @@ WEB_SEARCH_MAX_RESULTS="5"
 公开注册默认关闭。管理员可在管理后台的“用户”选项卡开启注册、设置注册默认余额，并选择是否要求邮箱验证。启用邮箱验证前，需要先在“邮件”选项卡配置 SMTP 服务。
 
 SMTP 支持 465 这类隐式 SSL/TLS，也支持 587 这类 STARTTLS。`SMTP_SECURE="true"` 表示连接一开始就使用 TLS；`SMTP_STARTTLS="true"` 表示普通 SMTP 连接后必须升级到 TLS。后台会隐藏已保存的 SMTP 密码，并提供测试邮件按钮。
+
+## 个人中心与个人 API
+
+登录后可从聊天侧边栏进入“个人中心”，修改昵称、密码和个人 AI 风格。个人 AI 风格会追加到网页聊天的系统提示词中；留空时不影响全局提示词。
+
+管理员可在“用户”选项卡把账号设置为 `VIP` 用户组。只有 VIP 用户可以在个人中心创建个人 API Key。个人 API 使用同一个账号余额与用量统计，不会单独分配额度。
+
+兼容 Responses API 的入口：
+
+```text
+https://your-site.example/api/v1/responses
+https://your-site.example/v1/responses
+```
+
+调用时使用个人中心生成的 Key：
+
+```bash
+curl https://your-site.example/api/v1/responses \
+  -H "Authorization: Bearer sk-user-..." \
+  -H "Content-Type: application/json" \
+  -d '{"model":"GPT-5.5","input":"你好","stream":false}'
+```
 
 ## 易支付充值
 

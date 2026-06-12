@@ -5,6 +5,7 @@ import { coerceInt, jsonError, readJson, requireAdmin } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 import { usageCacheKey } from "@/lib/quota";
+import { normalizeUserGroup } from "@/lib/user-groups";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,7 @@ type UpdateUserBody = {
   name?: string;
   password?: string;
   role?: "USER" | "ADMIN";
+  userGroup?: string;
   active?: boolean;
   emailVerified?: boolean;
   monthlyCostLimitCents?: number;
@@ -48,6 +50,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     name?: string;
     passwordHash?: string;
     role?: "USER" | "ADMIN";
+    userGroup?: string;
     active?: boolean;
     emailVerified?: boolean;
     monthlyCostLimitCents?: number;
@@ -67,6 +70,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   if (body.role === "ADMIN" || body.role === "USER") {
     data.role = body.role;
+  }
+
+  if (body.userGroup !== undefined) {
+    data.userGroup = normalizeUserGroup(body.userGroup);
   }
 
   if (typeof body.active === "boolean") {

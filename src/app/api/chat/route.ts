@@ -1298,7 +1298,7 @@ export async function POST(request: NextRequest) {
   );
 
   // 网关侧身份系统提示词：覆盖 Sub2API 等订阅型上游自带的 Codex CLI 身份设定
-  const systemPrompt = resolveSystemPrompt({
+  const baseSystemPrompt = resolveSystemPrompt({
     mode: aiSettings.systemPromptMode,
     customSystemPrompt: aiSettings.customSystemPrompt,
     modelSystemPrompt:
@@ -1306,6 +1306,10 @@ export async function POST(request: NextRequest) {
     modelLabel: model.label,
     promptClock
   });
+  const userStylePrompt = user.aiStylePrompt.trim();
+  const systemPrompt = [baseSystemPrompt, userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
   const webSearchStartedAt = Date.now();
   const webSearchPlan = {
     query: toolRoutePlan.query,

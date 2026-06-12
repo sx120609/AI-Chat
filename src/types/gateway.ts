@@ -1,4 +1,5 @@
 export type Role = "USER" | "ADMIN";
+export type UserGroup = "NORMAL" | "VIP";
 export type MessageRole = "USER" | "ASSISTANT" | "SYSTEM";
 export type GenerationMode = "CHAT" | "IMAGE";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
@@ -68,10 +69,21 @@ export type UserView = {
   email: string;
   name: string;
   role: Role;
+  userGroup: UserGroup;
   active: boolean;
   emailVerified: boolean;
+  aiStylePrompt: string;
   monthlyCostLimitCents: number;
   quotaResetAt: string;
+};
+
+export type UserApiKeyView = {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  active: boolean;
+  lastUsedAt?: string | null;
+  createdAt: string;
 };
 
 export type PublicAuthSettingsView = {

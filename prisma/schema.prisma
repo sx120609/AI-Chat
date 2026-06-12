@@ -29,8 +29,10 @@ model User {
   name                  String
   passwordHash          String
   role                  Role          @default(USER)
+  userGroup             String        @default("NORMAL")
   active                Boolean       @default(true)
   emailVerified         Boolean       @default(true)
+  aiStylePrompt         String        @default("")
   monthlyTokenLimit     Int           @default(200000)
   monthlyMessageLimit   Int           @default(500)
   monthlyCostLimitCents Int           @default(5000)
@@ -43,6 +45,23 @@ model User {
   attachments           Attachment[]
   emailVerificationTokens EmailVerificationToken[]
   paymentOrders        PaymentOrder[]
+  apiKeys              UserApiKey[]
+}
+
+model UserApiKey {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  keyHash     String    @unique
+  keyPrefix   String
+  active      Boolean   @default(true)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([keyPrefix])
 }
 
 model PaymentOrder {

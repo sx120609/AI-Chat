@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { normalizeUserGroup } from "@/lib/user-groups";
 
 export const SESSION_COOKIE = "team_ai_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -17,8 +18,10 @@ export type CurrentUser = {
   email: string;
   name: string;
   role: "USER" | "ADMIN";
+  userGroup: string;
   active: boolean;
   emailVerified: boolean;
+  aiStylePrompt: string;
   monthlyCostLimitCents: number;
   quotaResetAt: Date;
 };
@@ -122,8 +125,10 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       email: true,
       name: true,
       role: true,
+      userGroup: true,
       active: true,
       emailVerified: true,
+      aiStylePrompt: true,
       monthlyCostLimitCents: true,
       quotaResetAt: true
     }
@@ -144,8 +149,10 @@ export async function getUserFromRequest(request: NextRequest): Promise<CurrentU
       email: true,
       name: true,
       role: true,
+      userGroup: true,
       active: true,
       emailVerified: true,
+      aiStylePrompt: true,
       monthlyCostLimitCents: true,
       quotaResetAt: true
     }
@@ -155,6 +162,7 @@ export async function getUserFromRequest(request: NextRequest): Promise<CurrentU
 export function serializeCurrentUser(user: CurrentUser) {
   return {
     ...user,
+    userGroup: normalizeUserGroup(user.userGroup),
     quotaResetAt: user.quotaResetAt.toISOString()
   };
 }

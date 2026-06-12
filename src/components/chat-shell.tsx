@@ -31,6 +31,7 @@ import {
   Square,
   Table2,
   Trash2,
+  UserRound,
   X
 } from "lucide-react";
 import {
@@ -2806,6 +2807,15 @@ export function ChatShell({
         />
       </div>
 
+      <div className="mx-5 mb-2 mt-1 rounded-2xl border border-white/45 bg-white/36 px-3 py-2 shadow-[0_10px_30px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.68)] backdrop-blur-xl lg:hidden">
+        <UsageBars
+          compact
+          onRecharge={() => setPaymentDialogOpen(true)}
+          paymentEnabled={paymentSettings.easyPayEnabled}
+          usage={usage}
+        />
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-5 max-lg:pb-20 max-lg:pt-1">
         {groupedConversations.length === 0 ? (
           <div className="px-3 py-8 text-center text-xs leading-5 ios-muted">
@@ -2954,24 +2964,42 @@ export function ChatShell({
         ))}
       </div>
 
-      {user.role === "ADMIN" ? (
-        <>
+      <div className="m-3 hidden gap-2 lg:grid">
+        <a
+          className="app-action-button app-glass-control flex h-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-stone-700 transition"
+          href="/profile"
+        >
+          <UserRound className="size-4" />
+          个人中心
+        </a>
+        {user.role === "ADMIN" ? (
           <a
-            className="app-action-button app-glass-control m-3 hidden h-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-stone-700 transition lg:flex"
+            className="app-action-button app-glass-control flex h-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-stone-700 transition"
             href="/admin"
           >
             <Shield className="size-4" />
             管理后台
           </a>
+        ) : null}
+      </div>
+      <div className="mx-5 mb-[calc(0.75rem+env(safe-area-inset-bottom))] mt-2 grid gap-2 lg:hidden">
+        <a
+          className="app-action-button flex h-11 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-700 shadow-[0_12px_34px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99]"
+          href="/profile"
+        >
+          <UserRound className="size-4" />
+          个人中心
+        </a>
+        {user.role === "ADMIN" ? (
           <a
-            className="app-action-button mx-5 mb-[calc(0.75rem+env(safe-area-inset-bottom))] mt-2 flex h-11 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-700 shadow-[0_12px_34px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
+            className="app-action-button flex h-11 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-700 shadow-[0_12px_34px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99]"
             href="/admin"
           >
             <Shield className="size-4" />
             管理后台
           </a>
-        </>
-      ) : null}
+        ) : null}
+      </div>
     </>
   );
 
@@ -4435,14 +4463,55 @@ function ContextNotice({ lastContextStats }: { lastContextStats: ContextStats | 
 }
 
 function UsageBars({
+  compact = false,
   onRecharge,
   paymentEnabled,
   usage
 }: {
+  compact?: boolean;
   onRecharge: () => void;
   paymentEnabled: boolean;
   usage: UsageSummary;
 }) {
+  const costPercent = usagePercent(usage.costUsedCents, usage.monthlyCostLimitCents);
+
+  if (compact) {
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-stone-800">
+            <Gauge className="size-3.5 shrink-0 text-[color:var(--claude-accent)]" />
+            <span className="shrink-0">余额</span>
+            <span className="min-w-0 truncate ios-muted">
+              剩余 {formatCents(usage.remainingCostCents)}
+            </span>
+          </div>
+          {paymentEnabled ? (
+            <button
+              className="app-action-button shrink-0 rounded-lg bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-[color:var(--claude-accent)] transition hover:bg-white"
+              onClick={onRecharge}
+              type="button"
+            >
+              充值
+            </button>
+          ) : null}
+        </div>
+        <div className="h-1 overflow-hidden rounded-full border border-white/45 bg-white/45 shadow-[inset_0_1px_2px_rgba(18,42,35,0.08)] backdrop-blur-xl">
+          <div
+            className="app-progress-fill h-full rounded-full bg-[color:var(--claude-accent)]"
+            style={{ width: `${costPercent}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2 text-[10px] leading-4 ios-muted">
+          <span className="min-w-0 truncate">
+            已用 {formatCents(usage.costUsedCents)} / {formatCents(usage.monthlyCostLimitCents)}
+          </span>
+          <span className="shrink-0">{costPercent}%</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2 lg:space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -4472,7 +4541,7 @@ function UsageBars({
           <div
             className="app-progress-fill h-full rounded-full bg-[color:var(--claude-accent)]"
             style={{
-              width: `${usagePercent(usage.costUsedCents, usage.monthlyCostLimitCents)}%`
+              width: `${costPercent}%`
             }}
           />
         </div>

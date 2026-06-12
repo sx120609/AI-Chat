@@ -52,6 +52,7 @@ import type {
   ReasoningParamMode,
   Role,
   SystemPromptMode,
+  UserGroup,
   UserView
 } from "@/types/gateway";
 
@@ -64,6 +65,7 @@ type CreateForm = {
   name: string;
   password: string;
   role: Role;
+  userGroup: UserGroup;
   monthlyCostLimitCents: number;
 };
 
@@ -141,6 +143,7 @@ const emptyForm: CreateForm = {
   name: "",
   password: "",
   role: "USER",
+  userGroup: "NORMAL",
   monthlyCostLimitCents: 5000
 };
 
@@ -496,6 +499,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       body: JSON.stringify({
         name: user.name,
         role: user.role,
+        userGroup: user.userGroup,
         active: user.active,
         emailVerified: user.emailVerified,
         monthlyCostLimitCents: user.monthlyCostLimitCents
@@ -1709,6 +1713,16 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               <option value="USER">用户</option>
               <option value="ADMIN">管理员</option>
             </select>
+            <select
+              className="ios-select"
+              onChange={(event) =>
+                setForm((current) => ({ ...current, userGroup: event.target.value as UserGroup }))
+              }
+              value={form.userGroup}
+            >
+              <option value="NORMAL">普通</option>
+              <option value="VIP">VIP</option>
+            </select>
             <CostLimitInput
               className="ios-input"
               onChange={(value) =>
@@ -1742,11 +1756,12 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
           ) : (
             <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[1000px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
                 <thead className="bg-white/50 text-xs text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">用户</th>
                     <th className="px-4 py-3 font-semibold">角色</th>
+                    <th className="px-4 py-3 font-semibold">用户组</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
                     <th className="px-4 py-3 font-semibold">验证</th>
                     <th className="px-4 py-3 font-semibold">永久余额</th>
@@ -1782,6 +1797,18 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         >
                           <option value="USER">用户</option>
                           <option value="ADMIN">管理员</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          className="ios-select h-9 text-sm"
+                          onChange={(event) =>
+                            patchUser(user.id, { userGroup: event.target.value as UserGroup })
+                          }
+                          value={user.userGroup}
+                        >
+                          <option value="NORMAL">普通</option>
+                          <option value="VIP">VIP</option>
                         </select>
                       </td>
                       <td className="px-4 py-3">
@@ -1894,6 +1921,19 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       >
                         <option value="USER">用户</option>
                         <option value="ADMIN">管理员</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">用户组</span>
+                      <select
+                        className="ios-select h-9 w-full text-sm"
+                        onChange={(event) =>
+                          patchUser(user.id, { userGroup: event.target.value as UserGroup })
+                        }
+                        value={user.userGroup}
+                      >
+                        <option value="NORMAL">普通</option>
+                        <option value="VIP">VIP</option>
                       </select>
                     </label>
                     <label className="block">

@@ -15,6 +15,7 @@ const TABLES = [
   "Message",
   "Attachment",
   "UsageRecord",
+  "UserApiKey",
   "PaymentOrder",
   "AiSettings"
 ] as const;
@@ -207,14 +208,30 @@ async function main() {
         name: stringValue(row, columns.User, "name", "用户"),
         passwordHash: stringValue(row, columns.User, "passwordHash"),
         role: stringValue(row, columns.User, "role", "USER"),
+        userGroup: stringValue(row, columns.User, "userGroup", "NORMAL"),
         active: boolValue(row, columns.User, "active", true),
         emailVerified: boolValue(row, columns.User, "emailVerified", true),
+        aiStylePrompt: stringValue(row, columns.User, "aiStylePrompt", ""),
         monthlyTokenLimit: intValue(row, columns.User, "monthlyTokenLimit", 200000),
         monthlyMessageLimit: intValue(row, columns.User, "monthlyMessageLimit", 500),
         monthlyCostLimitCents: intValue(row, columns.User, "monthlyCostLimitCents", 5000),
         quotaResetAt: dateValue(row, columns.User, "quotaResetAt"),
         createdAt: dateValue(row, columns.User, "createdAt"),
         updatedAt: dateValue(row, columns.User, "updatedAt")
+      });
+    }
+
+    for (const row of rows.UserApiKey) {
+      await insertRow(client, "UserApiKey", {
+        id: stringValue(row, columns.UserApiKey, "id"),
+        userId: stringValue(row, columns.UserApiKey, "userId"),
+        name: stringValue(row, columns.UserApiKey, "name", "个人 API Key"),
+        keyHash: stringValue(row, columns.UserApiKey, "keyHash"),
+        keyPrefix: stringValue(row, columns.UserApiKey, "keyPrefix"),
+        active: boolValue(row, columns.UserApiKey, "active", true),
+        lastUsedAt: optionalDate(row, columns.UserApiKey, "lastUsedAt"),
+        createdAt: dateValue(row, columns.UserApiKey, "createdAt"),
+        updatedAt: dateValue(row, columns.UserApiKey, "updatedAt")
       });
     }
 

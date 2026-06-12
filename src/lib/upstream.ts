@@ -647,19 +647,36 @@ export async function createResponseText(
   model: string,
   messages: UpstreamMessage[],
   settings: AiRuntimeSettings,
-  options?: { signal?: AbortSignal }
+  options?: {
+    allowDisabledModel?: boolean;
+    fallbackMessages?: UpstreamMessage[];
+    signal?: AbortSignal;
+  }
 ) {
   assertUpstreamConfigured(settings);
-  const selectedModel = getChatModel(model, settings.chatModels);
+  const selectedModel = getChatModel(model, settings.chatModels, {
+    includeDisabled: options?.allowDisabledModel
+  });
   const url = `${settings.apiBaseUrl}/responses`;
   const reasoningEffort = normalizeReasoningEffort(settings.defaultReasoningEffort);
-  const bodyCandidates = responseBodyVariants({
-    messages,
-    model: selectedModel,
-    reasoningEffort,
-    settings,
-    stream: false
-  });
+  const bodyCandidates = [
+    ...responseBodyVariants({
+      messages,
+      model: selectedModel,
+      reasoningEffort,
+      settings,
+      stream: false
+    }),
+    ...(options?.fallbackMessages
+      ? responseBodyVariants({
+          messages: options.fallbackMessages,
+          model: selectedModel,
+          reasoningEffort,
+          settings,
+          stream: false
+        })
+      : [])
+  ];
   let lastUnsupportedParamError = "";
 
   for (const body of bodyCandidates) {

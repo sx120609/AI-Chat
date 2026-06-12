@@ -3,6 +3,7 @@ import {
   type AiRuntimeSettings,
   type UpstreamMessage
 } from "@/lib/upstream";
+import { LIGHTWEIGHT_TASK_MODEL_ID } from "@/lib/models";
 import { normalizePromptClock, type PromptClock } from "@/lib/system-prompt";
 import { shouldUseWebSearch } from "@/lib/web-search";
 
@@ -202,7 +203,6 @@ export async function planMessageTools(options: {
   forceSearch?: boolean;
   hasImageAttachment?: boolean;
   imageToolRequested?: boolean;
-  modelId: string;
   prompt: string;
   promptClock?: Partial<PromptClock>;
   settings: AiRuntimeSettings;
@@ -224,7 +224,7 @@ export async function planMessageTools(options: {
 
   try {
     const routerText = await createResponseText(
-      options.modelId,
+      LIGHTWEIGHT_TASK_MODEL_ID,
       buildRouterMessages({
         attachmentCount: options.attachmentCount ?? 0,
         forceSearch: Boolean(options.forceSearch),
@@ -235,7 +235,7 @@ export async function planMessageTools(options: {
         sourceImageSelected: Boolean(options.sourceImageSelected)
       }),
       options.settings,
-      { signal: options.signal }
+      { allowDisabledModel: true, signal: options.signal }
     );
 
     return normalizePlan(jsonFromRouterResponse(routerText), fallback);

@@ -40,6 +40,7 @@ export const REASONING_PARAM_MODES: Array<{
 
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
 export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "responses";
+export const LIGHTWEIGHT_TASK_MODEL_ID = "GPT-5.3-Codex-Spark";
 export const DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS = 256_000;
 export const MAX_CONTEXT_WINDOW_LIMIT_TOKENS = 1_000_000;
 export const MAX_LONG_CONTEXT_THRESHOLD_TOKENS = 950_000;
@@ -344,10 +345,18 @@ export function getEnabledChatModels(catalog: ChatModelConfig[]) {
   return enabled.length > 0 ? enabled : catalog.slice(0, 1);
 }
 
-export function getChatModel(modelId: string | undefined, catalog = CHAT_MODELS) {
-  const enabled = getEnabledChatModels(catalog);
+export function getChatModel(
+  modelId: string | undefined,
+  catalog = CHAT_MODELS,
+  options?: { includeDisabled?: boolean }
+) {
+  const enabled = options?.includeDisabled ? catalog : getEnabledChatModels(catalog);
 
-  return enabled.find((model) => model.id === modelId) ?? enabled[0] ?? CHAT_MODELS[0];
+  return (
+    enabled.find((model) => model.id === modelId || model.upstreamId === modelId) ??
+    enabled[0] ??
+    CHAT_MODELS[0]
+  );
 }
 
 export function isChatModel(modelId: string | undefined, catalog = CHAT_MODELS): modelId is string {

@@ -1,9 +1,13 @@
-import { attachmentAbsolutePath } from "@/lib/attachments";
+import {
+  attachmentAbsolutePath,
+  attachmentDataUrl
+} from "@/lib/attachments";
 import {
   runPythonInSandbox,
   type CodeInterpreterRuntimeSettings,
   type SandboxInputFile
 } from "@/lib/code-interpreter";
+import { LIGHTWEIGHT_TASK_MODEL_ID } from "@/lib/models";
 import {
   createResponseText,
   type AiRuntimeSettings,
@@ -28,6 +32,8 @@ type PlannerResponse = {
 
 const MAX_TOOL_REPORT_CHARS = 16_000;
 const MAX_PLANNER_RESPONSE_CHARS = 24_000;
+const MAX_SPARK_DIRECT_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_PREVIEW_TEXT_CHARS = 12_000;
 const CODE_ANALYSIS_PROMPT_PATTERN =
   /(代码解释器|运行代码|python|脚本|沙盒|计算|统计|数据分析|数据处理|表格分析|求和|平均|均值|中位数|排序|筛选|分组|图表|画图|可视化|回归|预测|excel|csv|zip|压缩包|解压|文件列表|目录|ocr)/i;
 
@@ -122,6 +128,81 @@ function buildPlannerMessages(options: {
   ];
 }
 
+function nonImageAttachments(attachments: AttachmentForAnalysis[]) {
+  return attachments.filter((attachment) => attachment.kind !== "IMAGE");
+}
+
+function attachmentMetadataLine(attachment: AttachmentForAnalysis, index: number) {
+  const extracted = attachment.extractedText?.trim()
+    ? `\n已提取文本备份：\n${attachment.extractedText.trim().slice(0, MAX_PREVIEW_TEXT_CHARS)}`
+    : "\n无已提取文本备份。";
+
+  return [
+    `## 附件 ${index + 1}`,
+    `文件名：${attachment.originalName}`,
+    `后端初步类型：${attachment.kind}`,
+    `MIME：${attachment.mimeType}`,
+    `大小：${attachment.sizeBytes} bytes`,
+    extracted
+  ].join("\n");
+}
+
+function buildFilePreAnalysisPrompt(options: {
+  attachments: AttachmentForAnalysis[];
+  prompt: string;
+  rawFilesIncluded: boolean;
+}) {
+  const files = options.attachments
+    .map((attachment, index) => attachmentMetadataLine(attachment, index))
+    .join("\n\n");
+
+  return [
+    `用户请求：${options.prompt}`,
+    `原始文件随本次预分析请求发送：${options.rawFilesIncluded ? "是" : "否"}`,
+    "请作为轻量附件预处理器帮助主模型判断如何处理这些附件。不要回答用户最终问题，只输出给主模型使用的中文预分析报告。",
+    "报告需要包含：每个附件的真实格式判断、能读到的关键内容、建议主模型如何分析、是否需要计算/解析/运行代码、任何不确定性或读取失败原因。不要编造没读到的数据。",
+    "附件元信息和已提取文本备份：",
+    files || "无非图片附件。"
+  ].join("\n\n---\n\n");
+}
+
+async function buildFilePreAnalysisMessages(options: {
+  attachments: AttachmentForAnalysis[];
+  includeRawFiles: boolean;
+  prompt: string;
+}): Promise<UpstreamMessage[]> {
+  const prompt = buildFilePreAnalysisPrompt({
+    attachments: options.attachments,
+    prompt: options.prompt,
+    rawFilesIncluded: options.includeRawFiles
+  });
+
+  return [
+    {
+      role: "system",
+      content:
+        "你是 GPT-5.3-Codex-Spark，负责低成本附件预分析。你只做文件类型判断、内容提取摘要和处理建议，不直接完成用户最终任务。输出必须简洁、中文、可供后续主模型引用。"
+    },
+    {
+      role: "user",
+      content: options.includeRawFiles
+        ? [
+            ...(await Promise.all(
+              options.attachments.map(async (attachment) => ({
+                type: "file" as const,
+                file: {
+                  filename: attachment.originalName,
+                  file_data: await attachmentDataUrl(attachment)
+                }
+              }))
+            )),
+            { type: "text" as const, text: prompt }
+          ]
+        : prompt
+    }
+  ];
+}
+
 function truncateReport(value: string) {
   if (value.length <= MAX_TOOL_REPORT_CHARS) {
     return value;
@@ -130,31 +211,90 @@ function truncateReport(value: string) {
   return `${value.slice(0, MAX_TOOL_REPORT_CHARS)}\n\n[工具结果过长，已截断]`;
 }
 
+async function maybeRunSparkFilePreAnalysis(options: {
+  attachments: AttachmentForAnalysis[];
+  prompt: string;
+  settings: AiRuntimeSettings;
+  signal?: AbortSignal;
+}) {
+  const attachments = nonImageAttachments(options.attachments);
+
+  if (options.settings.mockResponses || attachments.length === 0) {
+    return "";
+  }
+
+  const totalBytes = attachments.reduce((total, attachment) => total + attachment.sizeBytes, 0);
+  const includeRawFiles = totalBytes <= MAX_SPARK_DIRECT_FILE_BYTES;
+
+  try {
+    const analysisText = await createResponseText(
+      LIGHTWEIGHT_TASK_MODEL_ID,
+      await buildFilePreAnalysisMessages({
+        attachments,
+        includeRawFiles,
+        prompt: options.prompt
+      }),
+      options.settings,
+      {
+        allowDisabledModel: true,
+        fallbackMessages: includeRawFiles
+          ? await buildFilePreAnalysisMessages({
+              attachments,
+              includeRawFiles: false,
+              prompt: options.prompt
+            })
+          : undefined,
+        signal: options.signal
+      }
+    );
+    const trimmed = analysisText.trim();
+
+    return trimmed
+      ? truncateReport(`附件预分析结果（${LIGHTWEIGHT_TASK_MODEL_ID}）：\n\n${trimmed}`)
+      : "";
+  } catch (error) {
+    return truncateReport(
+      `附件预分析未完成：${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
 export async function maybeRunFileAnalysisAgent(options: {
   attachments: AttachmentForAnalysis[];
-  modelId: string;
   prompt: string;
+  signal?: AbortSignal;
   settings: CodeInterpreterRuntimeSettings & AiRuntimeSettings;
 }) {
   const { attachments, settings } = options;
+  const reports: string[] = [];
+  const preAnalysisReport = await maybeRunSparkFilePreAnalysis({
+    attachments,
+    prompt: options.prompt,
+    settings,
+    signal: options.signal
+  });
 
-  if (
-    !settings.codeInterpreterEnabled ||
-    settings.mockResponses ||
-    !shouldAnalyzeWithCode(attachments, options.prompt)
-  ) {
-    return "";
+  if (preAnalysisReport) {
+    reports.push(preAnalysisReport);
+  }
+
+  if (!settings.codeInterpreterEnabled || settings.mockResponses || !shouldAnalyzeWithCode(attachments, options.prompt)) {
+    return truncateReport(reports.join("\n\n---\n\n"));
   }
 
   try {
     const plannerText = await createResponseText(
-      options.modelId,
+      LIGHTWEIGHT_TASK_MODEL_ID,
       buildPlannerMessages({
         allowPackageInstall: settings.codeInterpreterAllowPackageInstall,
         attachments,
         prompt: options.prompt
       }),
-      settings
+      settings,
+      {
+        allowDisabledModel: true,
+        signal: options.signal
+      }
     );
     const plan = jsonFromPlannerResponse(plannerText);
     const code = typeof plan?.code === "string" ? plan.code.trim() : "";
@@ -163,7 +303,7 @@ export async function maybeRunFileAnalysisAgent(options: {
       : [];
 
     if (!code) {
-      return "";
+      return truncateReport(reports.join("\n\n---\n\n"));
     }
 
     const result = await runPythonInSandbox({
@@ -173,7 +313,7 @@ export async function maybeRunFileAnalysisAgent(options: {
       settings
     });
 
-    return truncateReport(
+    reports.push(
       [
         "文件分析工具结果：",
         `计划：${typeof plan?.plan === "string" ? plan.plan : "自动分析上传附件"}`,
@@ -189,9 +329,12 @@ export async function maybeRunFileAnalysisAgent(options: {
         .filter(Boolean)
         .join("\n\n")
     );
+
+    return truncateReport(reports.join("\n\n---\n\n"));
   } catch (error) {
-    return truncateReport(
+    reports.push(
       `文件分析工具未执行成功：${error instanceof Error ? error.message : String(error)}`
     );
+    return truncateReport(reports.join("\n\n---\n\n"));
   }
 }

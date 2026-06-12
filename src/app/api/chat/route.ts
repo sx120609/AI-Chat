@@ -408,9 +408,7 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
 }
 
 function directFileAttachmentIds(attachments: ChatAttachment[]) {
-  const fileAttachments = attachments.filter((attachment) =>
-    ["TEXT", "DOCUMENT", "SPREADSHEET"].includes(attachment.kind)
-  );
+  const fileAttachments = attachments.filter((attachment) => attachment.kind !== "IMAGE");
   const totalSize = fileAttachments.reduce((total, attachment) => total + attachment.sizeBytes, 0);
 
   if (totalSize > MAX_DIRECT_FILE_INPUT_BYTES) {
@@ -758,7 +756,7 @@ function buildToolEvents(options: {
 
   if (options.fileAnalysisReport) {
     events.push({
-      detail: "沙箱文件分析已完成",
+      detail: "轻量模型已完成附件预分析",
       finishedAt: options.fileAnalysisFinishedAt,
       id: "file-analysis",
       label: "文件分析",
@@ -933,7 +931,6 @@ export async function POST(request: NextRequest) {
     forceSearch: body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
-    modelId: model.id,
     prompt: content,
     promptClock,
     settings: aiSettings,
@@ -1349,8 +1346,8 @@ export async function POST(request: NextRequest) {
   const fileAnalysisStartedAt = Date.now();
   const fileAnalysisReport = await maybeRunFileAnalysisAgent({
     attachments: effectiveAttachments,
-    modelId: model.id,
     prompt: content,
+    signal: request.signal,
     settings: aiSettings
   });
   const fileAnalysisFinishedAt = Date.now();

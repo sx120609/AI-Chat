@@ -148,7 +148,97 @@ export function attachmentKindFromMime(mimeType: string): AttachmentKind | null 
   return KIND_BY_MIME.find((item) => item.pattern.test(mimeType))?.kind ?? null;
 }
 
-export function validateAttachment(fileName: string, mimeType: string, sizeBytes: number) {
+function startsWithBytes(buffer: Buffer, bytes: number[]) {
+  return bytes.every((byte, index) => buffer[index] === byte);
+}
+
+function hasSupportedImageSignature(mimeType: string, buffer: Buffer) {
+  const header = buffer.subarray(0, 12);
+
+  if (mimeType === "image/gif") {
+    const gifHeader = header.subarray(0, 6).toString("ascii");
+
+    return gifHeader === "GIF87a" || gifHeader === "GIF89a";
+  }
+
+  if (mimeType === "image/png") {
+    return startsWithBytes(header, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  }
+
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+    return startsWithBytes(header, [0xff, 0xd8, 0xff]);
+  }
+
+  if (mimeType === "image/webp") {
+    return header.subarray(0, 4).toString("ascii") === "RIFF" &&
+      header.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+
+  return false;
+}
+
+function isLikelyTextBuffer(buffer: Buffer) {
+  const sample = buffer.subarray(0, Math.min(buffer.byteLength, 8192));
+
+  if (sample.includes(0)) {
+    return false;
+  }
+
+  const text = sample.toString("utf8");
+  const replacementCount = text.match(/\uFFFD/g)?.length ?? 0;
+
+  if (replacementCount > Math.max(2, text.length * 0.01)) {
+    return false;
+  }
+
+  let controlCount = 0;
+  let readableCount = 0;
+
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+
+    if (code === 9 || code === 10 || code === 13) {
+      continue;
+    }
+
+    if (code < 32) {
+      controlCount += 1;
+    } else {
+      readableCount += 1;
+    }
+  }
+
+  return readableCount > 0 && controlCount / Math.max(1, readableCount + controlCount) < 0.02;
+}
+
+function detectBufferAttachmentType(mimeType: string, buffer: Buffer | undefined) {
+  if (!buffer) {
+    return null;
+  }
+
+  if (mimeType.startsWith("image/")) {
+    if (hasSupportedImageSignature(mimeType, buffer)) {
+      return null;
+    }
+
+    return isLikelyTextBuffer(buffer)
+      ? { kind: "TEXT" as const, mimeType: "text/plain" }
+      : { kind: "FILE" as const, mimeType: "application/octet-stream" };
+  }
+
+  if (mimeType === "application/octet-stream" && isLikelyTextBuffer(buffer)) {
+    return { kind: "TEXT" as const, mimeType: "text/plain" };
+  }
+
+  return null;
+}
+
+export function validateAttachment(
+  fileName: string,
+  mimeType: string,
+  sizeBytes: number,
+  buffer?: Buffer
+) {
   if (sizeBytes <= 0) {
     throw new Error("文件为空。");
   }
@@ -158,6 +248,12 @@ export function validateAttachment(fileName: string, mimeType: string, sizeBytes
   }
 
   const normalizedMime = normalizeAttachmentMime(fileName, mimeType);
+  const detectedType = detectBufferAttachmentType(normalizedMime, buffer);
+
+  if (detectedType) {
+    return detectedType;
+  }
+
   const kind = attachmentKindFromMime(normalizedMime) ?? "FILE";
 
   return { kind, mimeType: normalizedMime };

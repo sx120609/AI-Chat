@@ -3,6 +3,7 @@ import {
   type AiRuntimeSettings,
   type UpstreamMessage
 } from "@/lib/upstream";
+import { LIGHTWEIGHT_TASK_MODEL_ID } from "@/lib/models";
 import { normalizePromptClock, type PromptClock } from "@/lib/system-prompt";
 import { shouldUseWebSearch } from "@/lib/web-search";
 
@@ -140,7 +141,6 @@ function buildPlannerMessages(options: {
 export async function planWebSearchQuery(options: {
   force: boolean;
   attachmentCount?: number;
-  modelId: string;
   prompt: string;
   promptClock?: Partial<PromptClock>;
   signal?: AbortSignal;
@@ -167,7 +167,7 @@ export async function planWebSearchQuery(options: {
 
   try {
     const plannerText = await createResponseText(
-      options.modelId,
+      LIGHTWEIGHT_TASK_MODEL_ID,
       buildPlannerMessages({
         attachmentCount: options.attachmentCount ?? 0,
         force: options.force,
@@ -175,7 +175,7 @@ export async function planWebSearchQuery(options: {
         promptClock: options.promptClock
       }),
       options.settings,
-      { signal: options.signal }
+      { allowDisabledModel: true, signal: options.signal }
     );
 
     const planned = normalizePlan(jsonFromPlannerResponse(plannerText), fallback);

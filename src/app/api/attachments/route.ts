@@ -47,7 +47,12 @@ export async function POST(request: NextRequest) {
   try {
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
-      const { kind, mimeType } = validateAttachment(file.name, file.type, buffer.byteLength);
+      const { kind, mimeType } = validateAttachment(
+        file.name,
+        file.type,
+        buffer.byteLength,
+        buffer
+      );
       const storagePath = await saveAttachmentBuffer({
         buffer,
         originalName: file.name,

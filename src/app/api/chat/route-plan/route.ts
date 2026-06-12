@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
-import { getChatModel, isChatModel } from "@/lib/models";
+import { isChatModel } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { normalizePromptClock } from "@/lib/system-prompt";
 import { planMessageTools } from "@/lib/tool-router";
@@ -66,7 +66,6 @@ export async function POST(request: NextRequest) {
     return jsonError("模型不在允许列表中。", 400);
   }
 
-  const model = getChatModel(body.model, aiSettings.chatModels);
   const reusedUserMessage = body.reuseUserMessageId
     ? await prisma.message.findFirst({
         where: {
@@ -129,7 +128,6 @@ export async function POST(request: NextRequest) {
     forceSearch: body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
-    modelId: model.id,
     prompt: content,
     promptClock,
     settings: aiSettings,

@@ -4,6 +4,7 @@ import {
 } from "@/lib/context-window";
 import {
   capContextWindowTokens,
+  LIGHTWEIGHT_TASK_MODEL_ID,
   type ChatModelConfig
 } from "@/lib/models";
 import { isMessageAfter } from "@/lib/message-order";
@@ -189,7 +190,8 @@ async function createContextSummary(options: {
   ];
 
   return normalizeSummary(
-    await createResponseText(options.model.id, messages, options.settings, {
+    await createResponseText(LIGHTWEIGHT_TASK_MODEL_ID, messages, options.settings, {
+      allowDisabledModel: true,
       signal: options.signal
     })
   );

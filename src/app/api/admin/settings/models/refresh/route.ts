@@ -3,8 +3,10 @@ import { getUserFromRequest } from "@/lib/auth";
 import { normalizeRegistrationCostLimitCents } from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
 import {
+  DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
   EASYPAY_NOTIFY_PATH,
   EASYPAY_RETURN_PATH,
+  normalizeEasyPayBalanceCentsPerYuan,
   normalizeEasyPayDisplayMode,
   parseEasyPayMethods
 } from "@/lib/easypay";
@@ -110,6 +112,9 @@ async function serializeSettings() {
     easyPayAllowRefund: settings.easyPayAllowRefund,
     easyPayDisplayMode: normalizeEasyPayDisplayMode(settings.easyPayDisplayMode),
     easyPayMethods: parseEasyPayMethods(settings.easyPayMethodsJson),
+    easyPayBalanceCentsPerYuan: normalizeEasyPayBalanceCentsPerYuan(
+      settings.easyPayBalanceCentsPerYuan
+    ),
     easyPayPid: settings.easyPayPid || "",
     easyPayHasKey: Boolean(settings.easyPayKey),
     easyPayKeyPreview: maskSecret(settings.easyPayKey),
@@ -193,6 +198,7 @@ export async function POST(request: NextRequest) {
         easyPayAllowRefund: false,
         easyPayDisplayMode: "qrcode",
         easyPayMethodsJson: "[\"alipay\",\"wxpay\"]",
+        easyPayBalanceCentsPerYuan: DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
         easyPayPid: "",
         easyPayKey: null,
         easyPayApiBaseUrl: "",

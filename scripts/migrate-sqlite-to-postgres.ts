@@ -283,6 +283,27 @@ async function main() {
       });
     }
 
+    for (const row of rows.PaymentOrder) {
+      const amountCents = intValue(row, columns.PaymentOrder, "amountCents");
+
+      await insertRow(client, "PaymentOrder", {
+        id: stringValue(row, columns.PaymentOrder, "id"),
+        userId: stringValue(row, columns.PaymentOrder, "userId"),
+        provider: stringValue(row, columns.PaymentOrder, "provider", "easypay"),
+        method: stringValue(row, columns.PaymentOrder, "method", "alipay"),
+        status: stringValue(row, columns.PaymentOrder, "status", "PENDING"),
+        outTradeNo: stringValue(row, columns.PaymentOrder, "outTradeNo"),
+        providerTradeNo: optionalString(row, columns.PaymentOrder, "providerTradeNo"),
+        subject: stringValue(row, columns.PaymentOrder, "subject", "余额充值"),
+        amountCents,
+        balanceCents: intValue(row, columns.PaymentOrder, "balanceCents", amountCents),
+        metadataJson: stringValue(row, columns.PaymentOrder, "metadataJson", "{}"),
+        paidAt: optionalDate(row, columns.PaymentOrder, "paidAt"),
+        createdAt: dateValue(row, columns.PaymentOrder, "createdAt"),
+        updatedAt: dateValue(row, columns.PaymentOrder, "updatedAt")
+      });
+    }
+
     for (const row of rows.AiSettings) {
       await insertRow(client, "AiSettings", {
         id: stringValue(row, columns.AiSettings, "id", "default"),
@@ -365,6 +386,12 @@ async function main() {
           columns.AiSettings,
           "easyPayMethodsJson",
           "[\"alipay\",\"wxpay\"]"
+        ),
+        easyPayBalanceCentsPerYuan: intValue(
+          row,
+          columns.AiSettings,
+          "easyPayBalanceCentsPerYuan",
+          100
         ),
         easyPayPid: stringValue(row, columns.AiSettings, "easyPayPid", ""),
         easyPayKey: optionalString(row, columns.AiSettings, "easyPayKey"),

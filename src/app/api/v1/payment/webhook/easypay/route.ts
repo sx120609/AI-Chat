@@ -80,6 +80,8 @@ async function handleEasyPayNotify(request: NextRequest) {
     return textResponse("success");
   }
 
+  const balanceCents = order.balanceCents > 0 ? order.balanceCents : order.amountCents;
+
   await prisma.$transaction([
     prisma.paymentOrder.update({
       where: { id: order.id },
@@ -93,7 +95,7 @@ async function handleEasyPayNotify(request: NextRequest) {
       where: { id: order.userId },
       data: {
         monthlyCostLimitCents: {
-          increment: order.amountCents
+          increment: balanceCents
         }
       }
     })

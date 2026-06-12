@@ -42,6 +42,11 @@ export default async function PaymentResultPage({ searchParams }: PaymentResultP
     : null;
   const paid = order?.status === "PAID";
   const missing = !order;
+  const creditedBalanceCents = order
+    ? order.balanceCents > 0
+      ? order.balanceCents
+      : order.amountCents
+    : 0;
   const Icon = paid ? CheckCircle2 : missing ? XCircle : Clock3;
 
   return (
@@ -72,7 +77,7 @@ export default async function PaymentResultPage({ searchParams }: PaymentResultP
             </h1>
             <p className="mt-1 text-sm leading-6 ios-muted">
               {paid
-                ? `已为你的账号增加 ${formatCents(order.amountCents)} 余额。`
+                ? `已为你的账号增加 ${formatCents(creditedBalanceCents)} 余额。`
                 : missing
                   ? "请确认订单来自当前登录账号，或返回聊天页重新发起充值。"
                   : "如果已经完成付款，系统会在异步通知到达后自动入账。"}

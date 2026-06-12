@@ -83,6 +83,7 @@ export type PublicPaymentSettingsView = {
   easyPayEnabled: boolean;
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
+  easyPayBalanceCentsPerYuan: number;
 };
 
 export type SiteSettingsView = {
@@ -216,6 +217,7 @@ export type AiSettingsView = {
   easyPayAllowRefund: boolean;
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
+  easyPayBalanceCentsPerYuan: number;
   easyPayPid: string;
   easyPayHasKey: boolean;
   easyPayKeyPreview: string;

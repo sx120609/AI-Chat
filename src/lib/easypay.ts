@@ -14,6 +14,7 @@ export type EasyPaySettings = {
   easyPayAllowRefund: boolean;
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
+  easyPayBalanceCentsPerYuan: number;
   easyPayPid: string;
   easyPayKey: string | null;
   easyPayApiBaseUrl: string;
@@ -26,6 +27,7 @@ export type EasyPaySettingsSource = {
   easyPayAllowRefund?: boolean;
   easyPayDisplayMode?: string | null;
   easyPayMethodsJson?: string | null;
+  easyPayBalanceCentsPerYuan?: number | null;
   easyPayPid?: string | null;
   easyPayKey?: string | null;
   easyPayApiBaseUrl?: string | null;
@@ -39,6 +41,8 @@ type EasyPayOrderLike = {
   outTradeNo: string;
   subject: string;
 };
+
+export const DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN = 100;
 
 function md5(value: string) {
   return createHash("md5").update(value, "utf8").digest("hex");
@@ -101,12 +105,32 @@ export function normalizeEasyPayBaseUrl(value: string | null | undefined) {
   }
 }
 
+export function normalizeEasyPayBalanceCentsPerYuan(value: unknown) {
+  const rate = typeof value === "number" ? value : Number(value);
+
+  if (!Number.isFinite(rate)) {
+    return DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN;
+  }
+
+  return Math.min(1000000, Math.max(1, Math.round(rate)));
+}
+
+export function calculateEasyPayBalanceCents(paymentAmountCents: number, balanceCentsPerYuan: number) {
+  return Math.max(
+    1,
+    Math.round((Math.max(1, Math.round(paymentAmountCents)) * balanceCentsPerYuan) / 100)
+  );
+}
+
 export function normalizeEasyPaySettings(input: EasyPaySettingsSource): EasyPaySettings {
   const easyPayEnabled = Boolean(input.easyPayEnabled);
   const easyPayPid = input.easyPayPid?.trim() || "";
   const easyPayKey = input.easyPayKey?.trim() || null;
   const easyPayApiBaseUrl = normalizeEasyPayBaseUrl(input.easyPayApiBaseUrl);
   const easyPayMethods = parseEasyPayMethods(input.easyPayMethodsJson);
+  const easyPayBalanceCentsPerYuan = normalizeEasyPayBalanceCentsPerYuan(
+    input.easyPayBalanceCentsPerYuan
+  );
 
   if (easyPayEnabled) {
     if (!easyPayPid) {
@@ -127,6 +151,7 @@ export function normalizeEasyPaySettings(input: EasyPaySettingsSource): EasyPayS
     easyPayAllowRefund: Boolean(input.easyPayAllowRefund),
     easyPayDisplayMode: normalizeEasyPayDisplayMode(input.easyPayDisplayMode),
     easyPayMethods,
+    easyPayBalanceCentsPerYuan,
     easyPayPid,
     easyPayKey,
     easyPayApiBaseUrl,

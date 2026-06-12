@@ -111,6 +111,7 @@ type SettingsForm = {
   easyPayAllowRefund: boolean;
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
+  easyPayBalanceCentsPerYuan: number;
   easyPayPid: string;
   easyPayKey: string;
   clearEasyPayKey: boolean;
@@ -187,6 +188,7 @@ const emptySettings: SettingsForm = {
   easyPayAllowRefund: false,
   easyPayDisplayMode: "qrcode",
   easyPayMethods: ["alipay", "wxpay"],
+  easyPayBalanceCentsPerYuan: 100,
   easyPayPid: "",
   easyPayKey: "",
   clearEasyPayKey: false,
@@ -332,6 +334,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       easyPayAllowRefund: nextSettings.easyPayAllowRefund,
       easyPayDisplayMode: nextSettings.easyPayDisplayMode,
       easyPayMethods: nextSettings.easyPayMethods,
+      easyPayBalanceCentsPerYuan: nextSettings.easyPayBalanceCentsPerYuan,
       easyPayPid: nextSettings.easyPayPid,
       easyPayKey: "",
       clearEasyPayKey: false,
@@ -1455,6 +1458,29 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       })}
                     </div>
                   </div>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">1 元到账余额 *</span>
+                    <input
+                      className="ios-input w-full"
+                      min={0.01}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+
+                        if (Number.isFinite(value)) {
+                          setSettingsForm((current) => ({
+                            ...current,
+                            easyPayBalanceCentsPerYuan: Math.max(1, Math.round(value * 100))
+                          }));
+                        }
+                      }}
+                      step={0.01}
+                      type="number"
+                      value={settingsForm.easyPayBalanceCentsPerYuan / 100}
+                    />
+                    <p className="mt-1 text-xs ios-muted">
+                      ¥1.00 = {formatCents(settingsForm.easyPayBalanceCentsPerYuan)} 余额
+                    </p>
+                  </label>
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">PID *</span>
                     <input

@@ -3,6 +3,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import {
   buildEasyPaySubmitUrl,
   buildPublicPaymentBaseUrl,
+  calculateEasyPayBalanceCents,
   createEasyPayOutTradeNo,
   normalizeEasyPayMethod,
   normalizeEasyPaySettings
@@ -88,6 +89,10 @@ export async function POST(request: NextRequest) {
   const siteName = normalizeSiteName(settings?.siteName);
   const siteUrl = normalizeSiteUrl(settings?.siteUrl);
   const outTradeNo = createEasyPayOutTradeNo();
+  const balanceCents = calculateEasyPayBalanceCents(
+    amountCents,
+    easyPaySettings.easyPayBalanceCentsPerYuan
+  );
   const subject = `${siteName} 余额充值`;
   const order = await prisma.paymentOrder.create({
     data: {
@@ -96,7 +101,9 @@ export async function POST(request: NextRequest) {
       outTradeNo,
       subject,
       amountCents,
+      balanceCents,
       metadataJson: JSON.stringify({
+        balanceCentsPerYuan: easyPaySettings.easyPayBalanceCentsPerYuan,
         displayMode: easyPaySettings.easyPayDisplayMode
       })
     }
@@ -111,6 +118,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     order: {
       amountCents: order.amountCents,
+      balanceCents: order.balanceCents,
       method: order.method,
       outTradeNo: order.outTradeNo,
       status: order.status

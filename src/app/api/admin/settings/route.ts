@@ -7,8 +7,10 @@ import {
 import { cacheDelete } from "@/lib/cache";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
 import {
+  DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
   EASYPAY_NOTIFY_PATH,
   EASYPAY_RETURN_PATH,
+  normalizeEasyPayBalanceCentsPerYuan,
   normalizeEasyPaySettings,
   parseEasyPayMethods,
   normalizeEasyPayDisplayMode
@@ -90,6 +92,7 @@ type SettingsBody = {
   easyPayAllowRefund?: boolean;
   easyPayDisplayMode?: string;
   easyPayMethods?: string[];
+  easyPayBalanceCentsPerYuan?: number;
   easyPayPid?: string;
   easyPayKey?: string;
   clearEasyPayKey?: boolean;
@@ -149,6 +152,7 @@ function serializeSettings(settings: {
   easyPayAllowRefund: boolean;
   easyPayDisplayMode: string;
   easyPayMethodsJson: string;
+  easyPayBalanceCentsPerYuan: number;
   easyPayPid: string;
   easyPayKey: string | null;
   easyPayApiBaseUrl: string;
@@ -215,6 +219,9 @@ function serializeSettings(settings: {
     easyPayAllowRefund: settings.easyPayAllowRefund,
     easyPayDisplayMode: normalizeEasyPayDisplayMode(settings.easyPayDisplayMode),
     easyPayMethods: parseEasyPayMethods(settings.easyPayMethodsJson),
+    easyPayBalanceCentsPerYuan: normalizeEasyPayBalanceCentsPerYuan(
+      settings.easyPayBalanceCentsPerYuan
+    ),
     easyPayPid: settings.easyPayPid || "",
     easyPayHasKey: Boolean(settings.easyPayKey),
     easyPayKeyPreview: maskSecret(settings.easyPayKey),
@@ -399,6 +406,10 @@ export async function GET(request: NextRequest) {
       easyPayAllowRefund: process.env.EASYPAY_ALLOW_REFUND === "true",
       easyPayDisplayMode: process.env.EASYPAY_DISPLAY_MODE || "qrcode",
       easyPayMethodsJson: process.env.EASYPAY_METHODS_JSON || "[\"alipay\",\"wxpay\"]",
+      easyPayBalanceCentsPerYuan: normalizeEasyPayBalanceCentsPerYuan(
+        Number(process.env.EASYPAY_BALANCE_CENTS_PER_YUAN) ||
+          DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN
+      ),
       easyPayPid: process.env.EASYPAY_PID || "",
       easyPayKey: process.env.EASYPAY_KEY || null,
       easyPayApiBaseUrl: process.env.EASYPAY_API_BASE_URL || "",
@@ -499,6 +510,7 @@ export async function PATCH(request: NextRequest) {
       easyPayAllowRefund: body.easyPayAllowRefund,
       easyPayDisplayMode: body.easyPayDisplayMode,
       easyPayMethodsJson: JSON.stringify(body.easyPayMethods ?? []),
+      easyPayBalanceCentsPerYuan: body.easyPayBalanceCentsPerYuan,
       easyPayPid: body.easyPayPid,
       easyPayKey: nextEasyPayKey,
       easyPayApiBaseUrl: body.easyPayApiBaseUrl,
@@ -554,6 +566,7 @@ export async function PATCH(request: NextRequest) {
     easyPayAllowRefund: boolean;
     easyPayDisplayMode: string;
     easyPayMethodsJson: string;
+    easyPayBalanceCentsPerYuan: number;
     easyPayPid: string;
     easyPayKey?: string | null;
     easyPayApiBaseUrl: string;
@@ -604,6 +617,7 @@ export async function PATCH(request: NextRequest) {
     easyPayAllowRefund: easyPaySettings.easyPayAllowRefund,
     easyPayDisplayMode: easyPaySettings.easyPayDisplayMode,
     easyPayMethodsJson: JSON.stringify(easyPaySettings.easyPayMethods),
+    easyPayBalanceCentsPerYuan: easyPaySettings.easyPayBalanceCentsPerYuan,
     easyPayPid: easyPaySettings.easyPayPid,
     easyPayKey: easyPaySettings.easyPayKey,
     easyPayApiBaseUrl: easyPaySettings.easyPayApiBaseUrl,

@@ -115,6 +115,16 @@ const PAYMENT_METHOD_LABELS: Record<EasyPayMethod, string> = {
   wxpay: "微信支付"
 };
 
+function formatPaymentYuan(amountCents: number) {
+  return `¥${(amountCents / 100).toFixed(2)}`;
+}
+
+function calculatePaymentBalanceCents(amountCents: number, balanceCentsPerYuan: number) {
+  const rate = Number.isFinite(balanceCentsPerYuan) ? balanceCentsPerYuan : 100;
+
+  return Math.max(1, Math.round((Math.max(1, amountCents) * rate) / 100));
+}
+
 type ToolEventUpdate = Omit<ToolEventView, "finishedAt" | "startedAt"> &
   Partial<Pick<ToolEventView, "finishedAt" | "startedAt">>;
 
@@ -3473,6 +3483,10 @@ function PaymentDialog({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const balanceCents = calculatePaymentBalanceCents(
+    amountCents,
+    paymentSettings.easyPayBalanceCentsPerYuan
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -3563,11 +3577,11 @@ function PaymentDialog({
         </div>
         <div className="grid gap-3">
           <div>
-            <p className="mb-2 text-xs font-medium ios-muted">金额</p>
+            <p className="mb-2 text-xs font-medium ios-muted">付款金额</p>
             <div className="grid grid-cols-3 gap-2">
               {PAYMENT_AMOUNTS_CENTS.map((amount) => (
                 <button
-                  className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                  className={`app-action-button flex min-h-12 flex-col items-center justify-center rounded-lg border text-sm font-semibold ${
                     amountCents === amount
                       ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
                       : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
@@ -3576,13 +3590,21 @@ function PaymentDialog({
                   onClick={() => setAmountCents(amount)}
                   type="button"
                 >
-                  {formatCents(amount)}
+                  <span>{formatPaymentYuan(amount)}</span>
+                  <span className="mt-0.5 text-[11px] font-medium ios-muted">
+                    到账 {formatCents(
+                      calculatePaymentBalanceCents(
+                        amount,
+                        paymentSettings.easyPayBalanceCentsPerYuan
+                      )
+                    )}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium ios-muted">自定义金额</span>
+            <span className="mb-1 block text-xs font-medium ios-muted">自定义付款金额</span>
             <input
               className="ios-input w-full"
               min={1}
@@ -3598,6 +3620,9 @@ function PaymentDialog({
               value={amountCents / 100}
             />
           </label>
+          <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-2 text-sm text-stone-700">
+            支付 {formatPaymentYuan(amountCents)}，到账 {formatCents(balanceCents)} 余额
+          </div>
           <div>
             <p className="mb-2 text-xs font-medium ios-muted">支付方式</p>
             <div className="grid grid-cols-2 gap-2">

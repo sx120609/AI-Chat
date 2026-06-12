@@ -1,4 +1,6 @@
 import {
+  DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
+  normalizeEasyPayBalanceCentsPerYuan,
   parseEasyPayMethods,
   normalizeEasyPayDisplayMode,
   type EasyPayDisplayMode,
@@ -10,6 +12,7 @@ export type PublicPaymentSettings = {
   easyPayEnabled: boolean;
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
+  easyPayBalanceCentsPerYuan: number;
 };
 
 export async function getPublicPaymentSettings(): Promise<PublicPaymentSettings> {
@@ -19,6 +22,7 @@ export async function getPublicPaymentSettings(): Promise<PublicPaymentSettings>
       easyPayEnabled: true,
       easyPayDisplayMode: true,
       easyPayMethodsJson: true,
+      easyPayBalanceCentsPerYuan: true,
       easyPayPid: true,
       easyPayKey: true,
       easyPayApiBaseUrl: true
@@ -35,6 +39,9 @@ export async function getPublicPaymentSettings(): Promise<PublicPaymentSettings>
   return {
     easyPayEnabled: configured,
     easyPayDisplayMode: normalizeEasyPayDisplayMode(settings?.easyPayDisplayMode),
-    easyPayMethods: parseEasyPayMethods(settings?.easyPayMethodsJson)
+    easyPayMethods: parseEasyPayMethods(settings?.easyPayMethodsJson),
+    easyPayBalanceCentsPerYuan: normalizeEasyPayBalanceCentsPerYuan(
+      settings?.easyPayBalanceCentsPerYuan ?? DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN
+    )
   };
 }

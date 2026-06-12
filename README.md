@@ -139,6 +139,7 @@ EASYPAY_ENABLED="false"
 EASYPAY_ALLOW_REFUND="false"
 EASYPAY_DISPLAY_MODE="qrcode"
 EASYPAY_METHODS_JSON="[\"alipay\",\"wxpay\"]"
+EASYPAY_BALANCE_CENTS_PER_YUAN="100"
 EASYPAY_PID=""
 EASYPAY_KEY=""
 EASYPAY_API_BASE_URL=""
@@ -194,6 +195,7 @@ EASYPAY_ENABLED="false"
 EASYPAY_ALLOW_REFUND="false"
 EASYPAY_DISPLAY_MODE="qrcode"
 EASYPAY_METHODS_JSON="[\"alipay\",\"wxpay\"]"
+EASYPAY_BALANCE_CENTS_PER_YUAN="100"
 EASYPAY_PID=""
 EASYPAY_KEY=""
 EASYPAY_API_BASE_URL=""
@@ -223,7 +225,7 @@ SMTP 支持 465 这类隐式 SSL/TLS，也支持 587 这类 STARTTLS。`SMTP_SEC
 
 ## 易支付充值
 
-易支付默认关闭。管理员可在管理后台的“支付”选项卡启用，填写 PID、PKey、API 基础地址，并选择支付宝、微信支付和可选渠道 ID。后台会隐藏已保存的 PKey，只显示脱敏预览。
+易支付默认关闭。管理员可在管理后台的“支付”选项卡启用，填写 PID、PKey、API 基础地址，并选择支付宝、微信支付、可选渠道 ID 和“1 元到账余额”。默认 `EASYPAY_BALANCE_CENTS_PER_YUAN="100"`，表示用户支付 1 元时增加 `$1.00` 站内余额。后台会隐藏已保存的 PKey，只显示脱敏预览。
 
 易支付异步通知地址固定为 `/api/v1/payment/webhook/easypay`，同步跳转地址固定为 `/payment/result`。生产环境请先设置正确的 `SITE_URL`，确保易支付后台能访问完整公网回调地址。回调会校验 MD5 签名、PID、订单金额和支付状态，重复通知会直接返回 `success`，不会重复加余额。
 

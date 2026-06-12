@@ -152,6 +152,10 @@ async function main() {
         process.env.EASYPAY_METHODS_JSON ||
         existingSettings?.easyPayMethodsJson ||
         "[\"alipay\",\"wxpay\"]",
+      easyPayBalanceCentsPerYuan:
+        Number(process.env.EASYPAY_BALANCE_CENTS_PER_YUAN) ||
+        existingSettings?.easyPayBalanceCentsPerYuan ||
+        100,
       easyPayPid: process.env.EASYPAY_PID || existingSettings?.easyPayPid || "",
       easyPayKey: process.env.EASYPAY_KEY || existingSettings?.easyPayKey || null,
       easyPayApiBaseUrl:
@@ -213,6 +217,8 @@ async function main() {
       easyPayAllowRefund: process.env.EASYPAY_ALLOW_REFUND === "true",
       easyPayDisplayMode: process.env.EASYPAY_DISPLAY_MODE || "qrcode",
       easyPayMethodsJson: process.env.EASYPAY_METHODS_JSON || "[\"alipay\",\"wxpay\"]",
+      easyPayBalanceCentsPerYuan:
+        Number(process.env.EASYPAY_BALANCE_CENTS_PER_YUAN) || 100,
       easyPayPid: process.env.EASYPAY_PID || "",
       easyPayKey: process.env.EASYPAY_KEY || null,
       easyPayApiBaseUrl: process.env.EASYPAY_API_BASE_URL || "",

@@ -55,6 +55,7 @@ model PaymentOrder {
   providerTradeNo String?
   subject         String
   amountCents     Int
+  balanceCents    Int       @default(0)
   metadataJson    String    @default("{}")
   paidAt          DateTime?
   createdAt       DateTime  @default(now())
@@ -236,6 +237,7 @@ model AiSettings {
   easyPayAllowRefund  Boolean @default(false)
   easyPayDisplayMode  String  @default("qrcode")
   easyPayMethodsJson  String  @default("[\"alipay\",\"wxpay\"]")
+  easyPayBalanceCentsPerYuan Int @default(100)
   easyPayPid          String  @default("")
   easyPayKey          String?
   easyPayApiBaseUrl   String  @default("")

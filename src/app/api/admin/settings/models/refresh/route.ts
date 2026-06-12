@@ -13,6 +13,7 @@ import {
   normalizeLongContextThresholdTokens,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
+  parseModelDisplayConfig,
   parseModelMap
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
@@ -57,6 +58,7 @@ async function serializeSettings() {
     orgId: settings.orgId || "",
     mockResponses: settings.mockResponses,
     chatModelMap: parseModelMap(settings.chatModelMapJson),
+    chatModelDisplay: parseModelDisplayConfig(settings.chatModelDisplayJson),
     chatModels,
     enabledChatModelIds: getEnabledChatModels(chatModels).map((model) => model.id),
     imageModelId: settings.imageModelId,
@@ -119,6 +121,7 @@ export async function POST(request: NextRequest) {
         orgId: runtimeSettings.orgId || null,
         mockResponses: runtimeSettings.mockResponses,
         chatModelMapJson: JSON.stringify(DEFAULT_UPSTREAM_MODEL_MAP),
+        chatModelDisplayJson: "{}",
         availableModelsJson: JSON.stringify(modelIds),
         enabledChatModelsJson: "[]",
         imageModelId: runtimeSettings.imageModelId,

@@ -19,6 +19,11 @@ export type ChatModelConfig = {
   supportsReasoning: boolean;
 };
 
+export type ChatModelDisplayConfig = {
+  contextNote?: string;
+  label?: string;
+};
+
 export const REASONING_EFFORTS: Array<{
   id: ReasoningEffort;
   label: string;
@@ -139,6 +144,9 @@ export const DEFAULT_UPSTREAM_MODEL_MAP: Record<string, string> = Object.fromEnt
 
 export const DEFAULT_IMAGE_UPSTREAM_MODEL = "image2";
 
+const MAX_MODEL_LABEL_CHARS = 80;
+const MAX_MODEL_CONTEXT_NOTE_CHARS = 120;
+
 export function parseModelMap(value: string | null | undefined) {
   const next = { ...DEFAULT_UPSTREAM_MODEL_MAP };
 
@@ -154,6 +162,45 @@ export function parseModelMap(value: string | null | undefined) {
 
       if (typeof mapped === "string" && mapped.trim()) {
         next[model.id] = mapped.trim();
+      }
+    }
+  } catch {
+    return next;
+  }
+
+  return next;
+}
+
+function cleanModelDisplayText(value: unknown, maxLength: number) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+export function parseModelDisplayConfig(value: string | null | undefined) {
+  const next: Record<string, ChatModelDisplayConfig> = {};
+
+  if (!value) {
+    return next;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+
+    for (const [id, config] of Object.entries(parsed)) {
+      const modelId = id.trim();
+
+      if (!modelId || !config || typeof config !== "object") {
+        continue;
+      }
+
+      const source = config as Record<string, unknown>;
+      const label = cleanModelDisplayText(source.label, MAX_MODEL_LABEL_CHARS);
+      const contextNote = cleanModelDisplayText(source.contextNote, MAX_MODEL_CONTEXT_NOTE_CHARS);
+
+      if (label || contextNote) {
+        next[modelId] = {
+          ...(label ? { label } : {}),
+          ...(contextNote ? { contextNote } : {})
+        };
       }
     }
   } catch {
@@ -276,22 +323,27 @@ export function isLikelyChatModelId(modelId: string) {
 
 export function buildChatModelCatalog(settings?: {
   chatModelMapJson?: string | null;
+  chatModelDisplayJson?: string | null;
   availableModelsJson?: string | null;
   enabledChatModelsJson?: string | null;
 }) {
   const modelMap = parseModelMap(settings?.chatModelMapJson);
+  const modelDisplay = parseModelDisplayConfig(settings?.chatModelDisplayJson);
   const upstreamIds = uniqueModelIds(parseModelIds(settings?.availableModelsJson));
   const enabledIds = uniqueModelIds(parseModelIds(settings?.enabledChatModelsJson));
   const defaultModels = CHAT_MODELS.map((model) => {
     const upstreamId = modelMap[model.id] || model.upstreamId;
+    const display = modelDisplay[model.id] || {};
     const maxContextWindowTokens = capContextWindowTokens(
       Math.max(model.maxContextWindowTokens, inferContextWindowTokens(upstreamId))
     );
 
     return {
       ...model,
+      label: display.label || model.label,
       upstreamId,
       contextWindowTokens: Math.min(model.contextWindowTokens, maxContextWindowTokens),
+      contextNote: display.contextNote || model.contextNote,
       maxContextWindowTokens,
       supportsReasoning: inferSupportsReasoning(upstreamId)
     };
@@ -306,11 +358,12 @@ export function buildChatModelCatalog(settings?: {
   const fetchedModels = upstreamIds
     .filter((id) => !knownIds.has(id) && isLikelyChatModelId(id))
     .map<ChatModelConfig>((id) => {
+      const display = modelDisplay[id] || {};
       const maxContextWindowTokens = capContextWindowTokens(inferContextWindowTokens(id));
 
       return {
         id,
-        label: id,
+        label: display.label || id,
         upstreamId: id,
         inputCentsPerMillionTokens: DEFAULT_DYNAMIC_INPUT_CENTS_PER_MILLION,
         cachedInputCentsPerMillionTokens: DEFAULT_DYNAMIC_CACHED_INPUT_CENTS_PER_MILLION,
@@ -320,7 +373,7 @@ export function buildChatModelCatalog(settings?: {
           DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS
         ),
         maxContextWindowTokens,
-        contextNote: "上游",
+        contextNote: display.contextNote || "上游",
         source: "upstream",
         enabled: true,
         supportsReasoning: inferSupportsReasoning(id)

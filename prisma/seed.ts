@@ -64,6 +64,7 @@ async function main() {
           ? existingSettings?.mockResponses
           : process.env.AI_MOCK_RESPONSES === "true",
       chatModelMapJson: existingSettings?.chatModelMapJson || JSON.stringify(DEFAULT_UPSTREAM_MODEL_MAP),
+      chatModelDisplayJson: existingSettings?.chatModelDisplayJson || "{}",
       availableModelsJson: existingSettings?.availableModelsJson || "[]",
       enabledChatModelsJson: existingSettings?.enabledChatModelsJson || "[]",
       imageModelId: existingSettings?.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
@@ -115,6 +116,7 @@ async function main() {
       orgId: process.env.AI_ORG_ID || null,
       mockResponses: process.env.AI_MOCK_RESPONSES === "true",
       chatModelMapJson: JSON.stringify(DEFAULT_UPSTREAM_MODEL_MAP),
+      chatModelDisplayJson: "{}",
       availableModelsJson: "[]",
       enabledChatModelsJson: "[]",
       imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,

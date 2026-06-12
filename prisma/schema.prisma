@@ -165,6 +165,7 @@ model AiSettings {
   orgId                 String?
   mockResponses         Boolean  @default(false)
   chatModelMapJson      String   @default("{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.5-1M\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}")
+  chatModelDisplayJson  String   @default("{}")
   availableModelsJson   String   @default("[]")
   enabledChatModelsJson String   @default("[]")
   imageModelId          String   @default("image2")

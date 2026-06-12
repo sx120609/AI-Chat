@@ -296,6 +296,7 @@ async function main() {
           "chatModelMapJson",
           "{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.5-1M\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}"
         ),
+        chatModelDisplayJson: stringValue(row, columns.AiSettings, "chatModelDisplayJson", "{}"),
         availableModelsJson: stringValue(row, columns.AiSettings, "availableModelsJson", "[]"),
         enabledChatModelsJson: stringValue(row, columns.AiSettings, "enabledChatModelsJson", "[]"),
         imageModelId: stringValue(row, columns.AiSettings, "imageModelId", "image2"),

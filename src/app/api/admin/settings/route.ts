@@ -17,7 +17,9 @@ import {
   normalizeLongContextThresholdTokens,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
+  parseModelDisplayConfig,
   parseModelMap,
+  type ChatModelDisplayConfig,
   type ChatModelId
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
@@ -41,6 +43,7 @@ type SettingsBody = {
   orgId?: string;
   mockResponses?: boolean;
   chatModelMap?: Record<string, string>;
+  chatModelDisplay?: Record<string, ChatModelDisplayConfig>;
   enabledChatModelIds?: string[];
   imageModelId?: string;
   defaultReasoningEffort?: string;
@@ -76,6 +79,7 @@ function serializeSettings(settings: {
   orgId: string | null;
   mockResponses: boolean;
   chatModelMapJson: string;
+  chatModelDisplayJson: string;
   availableModelsJson: string;
   enabledChatModelsJson: string;
   imageModelId: string;
@@ -97,6 +101,7 @@ function serializeSettings(settings: {
   updatedAt: Date;
 }) {
   const chatModelMap = parseModelMap(settings.chatModelMapJson);
+  const chatModelDisplay = parseModelDisplayConfig(settings.chatModelDisplayJson);
   const chatModels = buildChatModelCatalog(settings);
   const enabledChatModels = getEnabledChatModels(chatModels);
 
@@ -109,6 +114,7 @@ function serializeSettings(settings: {
     orgId: settings.orgId || "",
     mockResponses: settings.mockResponses,
     chatModelMap,
+    chatModelDisplay,
     chatModels,
     enabledChatModelIds: enabledChatModels.map((model) => model.id),
     imageModelId: settings.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
@@ -146,6 +152,25 @@ function normalizeModelMap(value: Record<string, string> | undefined) {
 
     if (typeof mapped === "string" && mapped.trim()) {
       next[model.id as ChatModelId] = mapped.trim();
+    }
+  }
+
+  return next;
+}
+
+function normalizeModelDisplay(
+  value: Record<string, ChatModelDisplayConfig> | undefined,
+  chatModelMapJson: string,
+  availableModelsJson: string
+) {
+  const catalog = buildChatModelCatalog({ chatModelMapJson, availableModelsJson });
+  const validIds = new Set(catalog.map((model) => model.id));
+  const parsed = parseModelDisplayConfig(JSON.stringify(value ?? {}));
+  const next: Record<string, ChatModelDisplayConfig> = {};
+
+  for (const [id, display] of Object.entries(parsed)) {
+    if (validIds.has(id)) {
+      next[id] = display;
     }
   }
 
@@ -248,6 +273,7 @@ export async function GET(request: NextRequest) {
       orgId: process.env.AI_ORG_ID || null,
       mockResponses: process.env.AI_MOCK_RESPONSES === "true",
       chatModelMapJson: JSON.stringify(DEFAULT_UPSTREAM_MODEL_MAP),
+      chatModelDisplayJson: "{}",
       availableModelsJson: "[]",
       enabledChatModelsJson: "[]",
       imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
@@ -327,6 +353,7 @@ export async function PATCH(request: NextRequest) {
     orgId: string | null;
     mockResponses: boolean;
     chatModelMapJson: string;
+    chatModelDisplayJson: string;
     enabledChatModelsJson: string;
     imageModelId: string;
     defaultReasoningEffort: string;
@@ -351,6 +378,7 @@ export async function PATCH(request: NextRequest) {
     orgId: body.orgId?.trim() || null,
     mockResponses: Boolean(body.mockResponses),
     chatModelMapJson: JSON.stringify(normalizeModelMap(body.chatModelMap)),
+    chatModelDisplayJson: "{}",
     enabledChatModelsJson: "[]",
     imageModelId: body.imageModelId?.trim() || DEFAULT_IMAGE_UPSTREAM_MODEL,
     defaultReasoningEffort: normalizeReasoningEffort(body.defaultReasoningEffort),
@@ -376,6 +404,13 @@ export async function PATCH(request: NextRequest) {
   data.enabledChatModelsJson = JSON.stringify(
     normalizeEnabledModelIds(
       body.enabledChatModelIds,
+      data.chatModelMapJson,
+      existingSettings?.availableModelsJson || "[]"
+    )
+  );
+  data.chatModelDisplayJson = JSON.stringify(
+    normalizeModelDisplay(
+      body.chatModelDisplay,
       data.chatModelMapJson,
       existingSettings?.availableModelsJson || "[]"
     )

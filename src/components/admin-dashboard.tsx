@@ -40,6 +40,7 @@ import {
 import type {
   AdminUserView,
   AiSettingsView,
+  ChatModelDisplayConfig,
   ChatModelView,
   ReasoningEffort,
   ReasoningParamMode,
@@ -69,6 +70,7 @@ type SettingsForm = {
   mockResponses: boolean;
   clearApiKey: boolean;
   chatModelMap: Record<string, string>;
+  chatModelDisplay: Record<string, ChatModelDisplayConfig>;
   enabledChatModelIds: string[];
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
@@ -119,6 +121,7 @@ const emptySettings: SettingsForm = {
   mockResponses: false,
   clearApiKey: false,
   chatModelMap: DEFAULT_UPSTREAM_MODEL_MAP,
+  chatModelDisplay: {},
   enabledChatModelIds: [],
   imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
   defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
@@ -187,6 +190,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       mockResponses: nextSettings.mockResponses,
       clearApiKey: false,
       chatModelMap: nextSettings.chatModelMap,
+      chatModelDisplay: nextSettings.chatModelDisplay,
       enabledChatModelIds: nextSettings.enabledChatModelIds,
       imageModelId: nextSettings.imageModelId,
       defaultReasoningEffort: nextSettings.defaultReasoningEffort,
@@ -879,6 +883,71 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     value={settingsForm.imageModelId}
                   />
                 </label>
+              </div>
+            </div>
+            <div className="ios-list lg:col-span-6">
+              <div className="ios-cell px-3 py-2 text-xs font-semibold ios-muted">
+                模型展示
+              </div>
+              <div className="grid gap-3 p-3">
+                {(settings?.chatModels ?? []).map((item) => {
+                  const display = settingsForm.chatModelDisplay[item.id] || {};
+
+                  return (
+                    <div className="rounded-lg bg-white/70 p-3" key={item.id}>
+                      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-slate-700">
+                          {item.id}
+                        </span>
+                        <span className="shrink-0 text-[11px] ios-muted">
+                          {item.source === "upstream" ? "上游" : "内置"}
+                        </span>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium ios-muted">显示名称</span>
+                          <input
+                            className="ios-input w-full"
+                            onChange={(event) =>
+                              setSettingsForm((current) => ({
+                                ...current,
+                                chatModelDisplay: {
+                                  ...current.chatModelDisplay,
+                                  [item.id]: {
+                                    ...current.chatModelDisplay[item.id],
+                                    label: event.target.value
+                                  }
+                                }
+                              }))
+                            }
+                            placeholder={item.label}
+                            value={display.label || ""}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium ios-muted">描述</span>
+                          <input
+                            className="ios-input w-full"
+                            onChange={(event) =>
+                              setSettingsForm((current) => ({
+                                ...current,
+                                chatModelDisplay: {
+                                  ...current.chatModelDisplay,
+                                  [item.id]: {
+                                    ...current.chatModelDisplay[item.id],
+                                    contextNote: event.target.value
+                                  }
+                                }
+                              }))
+                            }
+                            placeholder={item.contextNote}
+                            value={display.contextNote || ""}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
             <div className="ios-list lg:col-span-6">

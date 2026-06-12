@@ -47,6 +47,11 @@ export type ChatModelView = {
   supportsReasoning: boolean;
 };
 
+export type ChatModelDisplayConfig = {
+  contextNote?: string;
+  label?: string;
+};
+
 export type UsageSummary = {
   windowStart: string;
   tokensUsed: number;
@@ -161,6 +166,7 @@ export type AiSettingsView = {
   orgId: string;
   mockResponses: boolean;
   chatModelMap: Record<string, string>;
+  chatModelDisplay: Record<string, ChatModelDisplayConfig>;
   chatModels: ChatModelView[];
   enabledChatModelIds: string[];
   imageModelId: string;

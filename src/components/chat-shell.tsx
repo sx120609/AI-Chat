@@ -3559,7 +3559,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
 
   return (
     <>
-      <div className="flex min-h-9 w-full min-w-0 flex-1 items-end gap-1.5">
+      <div className="flex min-h-9 w-full min-w-0 flex-1 items-center gap-1.5">
         <div className="relative min-w-0 flex-1">
           {fullscreenButtonVisible ? (
             <button
@@ -3572,7 +3572,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
             </button>
           ) : null}
           <textarea
-            className={`min-h-9 w-full min-w-0 resize-none bg-transparent px-2 py-2 text-base leading-5 text-stone-950 outline-none placeholder:text-stone-400 sm:text-sm ${
+            className={`min-h-9 w-full min-w-0 resize-none bg-transparent px-2 py-1.5 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:text-sm ${
               fullscreenButtonVisible ? "pr-10" : ""
             }`}
             disabled={composerDisabled}
@@ -3585,7 +3585,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
           />
         </div>
         <button
-          className="app-action-button app-glass-primary grid size-9 shrink-0 place-items-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70"
+          className="app-action-button app-glass-primary grid size-9 shrink-0 place-items-center self-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70"
           disabled={sendDisabled}
           onClick={() => void submitDraft()}
           title={loading ? "停止生成" : disabled ? "会话加载中" : "发送"}

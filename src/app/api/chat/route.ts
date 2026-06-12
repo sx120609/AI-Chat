@@ -22,7 +22,6 @@ import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
-import { maybeRunFileAnalysisAgent } from "@/lib/file-analysis-agent";
 import { MESSAGE_ORDER_DESC, messagesAfter, messagesBefore } from "@/lib/message-order";
 import {
   mergePersistedToolEvent,
@@ -107,7 +106,7 @@ type ToolEventPayload = {
   label: string;
   startedAt?: number;
   status: "done" | "running" | "skipped" | "error";
-  type: "router" | "attachments" | "web_search" | "file_analysis" | "context_compression";
+  type: "router" | "attachments" | "web_search" | "context_compression";
 };
 
 function normalizeRequestWebSearchProvider(value: string | undefined, fallback: string) {
@@ -736,9 +735,6 @@ function buildToolEvents(options: {
   attachmentFinishedAt?: number;
   attachmentStartedAt?: number;
   contextCompression?: ContextCompressionResult | null;
-  fileAnalysisReport: string;
-  fileAnalysisFinishedAt?: number;
-  fileAnalysisStartedAt?: number;
   routerFinishedAt?: number;
   routerStartedAt?: number;
   webSearchResult: Awaited<ReturnType<typeof searchWeb>>;
@@ -747,13 +743,11 @@ function buildToolEvents(options: {
 }): ToolEventPayload[] {
   const events: ToolEventPayload[] = [];
   const usedWebSearch = Boolean(options.webSearchResult);
-  const usedFileAnalysis = Boolean(options.fileAnalysisReport);
   const usedContextCompression = Boolean(options.contextCompression);
   const routeParts = [
     options.attachmentCount > 0 ? "附件上下文" : "",
     usedContextCompression ? "上下文压缩" : "",
-    usedWebSearch ? "联网搜索" : "",
-    usedFileAnalysis ? "文件分析" : ""
+    usedWebSearch ? "联网搜索" : ""
   ].filter(Boolean);
 
   events.push({
@@ -768,7 +762,7 @@ function buildToolEvents(options: {
 
   if (options.attachmentCount > 0) {
     events.push({
-      detail: `已读取 ${options.attachmentCount} 个附件并加入上下文`,
+      detail: `已将 ${options.attachmentCount} 个附件交给主模型上下文`,
       finishedAt: options.attachmentFinishedAt,
       id: "attachments",
       label: "附件",
@@ -806,18 +800,6 @@ function buildToolEvents(options: {
       startedAt: options.webSearchStartedAt,
       status: sourceCount > 0 ? "done" : "skipped",
       type: "web_search"
-    });
-  }
-
-  if (options.fileAnalysisReport) {
-    events.push({
-      detail: "轻量模型已完成附件预分析",
-      finishedAt: options.fileAnalysisFinishedAt,
-      id: "file-analysis",
-      label: "文件分析",
-      startedAt: options.fileAnalysisStartedAt,
-      status: "done",
-      type: "file_analysis"
     });
   }
 
@@ -1347,8 +1329,8 @@ export async function POST(request: NextRequest) {
   const webSearchContext = webSearchResult?.sources.length
     ? formatWebSearchContext(webSearchResult)
     : "";
-  let modelContent = webSearchContext ? `${content}\n\n---\n${webSearchContext}` : content;
-  let userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
+  const modelContent = webSearchContext ? `${content}\n\n---\n${webSearchContext}` : content;
+  const userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
   let contextSummary = existingConversation?.contextSummary || "";
   let compressedHistoryMessageCount = existingConversation?.contextSummaryMessageCount ?? 0;
   let requestPreviousContextMessages = previousContextMessages;
@@ -1373,7 +1355,7 @@ export async function POST(request: NextRequest) {
 
   requestPreviousContextMessages = compressionResult.previousMessages;
 
-  let { contextStats, promptTokensEstimate, upstreamMessages } = buildContextMessages({
+  const initialContext = buildContextMessages({
     compressedHistoryMessageCount,
     contextSummary,
     previousMessages: requestPreviousContextMessages,
@@ -1382,6 +1364,8 @@ export async function POST(request: NextRequest) {
     model,
     longContextThresholdTokens: aiSettings.longContextThresholdTokens
   });
+  const { contextStats, promptTokensEstimate } = initialContext;
+  let { upstreamMessages } = initialContext;
   upstreamMessages = buildContextMessages({
     compressedHistoryMessageCount,
     contextSummary,
@@ -1424,54 +1408,6 @@ export async function POST(request: NextRequest) {
     }
 
     throw error;
-  }
-
-  const fileAnalysisStartedAt = Date.now();
-  const fileAnalysisReport = await maybeRunFileAnalysisAgent({
-    attachments: effectiveAttachments,
-    prompt: content,
-    signal: request.signal,
-    settings: aiSettings
-  });
-  const fileAnalysisFinishedAt = Date.now();
-
-  if (fileAnalysisReport) {
-    modelContent = `${content}${webSearchContext ? `\n\n---\n${webSearchContext}` : ""}\n\n---\n${fileAnalysisReport}`;
-    userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
-    const rebuiltContext = buildContextMessages({
-      compressedHistoryMessageCount,
-      contextSummary,
-      previousMessages: requestPreviousContextMessages,
-      systemPrompt,
-      userContent,
-      model,
-      longContextThresholdTokens: aiSettings.longContextThresholdTokens
-    });
-    contextStats = rebuiltContext.contextStats;
-    promptTokensEstimate = rebuiltContext.promptTokensEstimate;
-    upstreamMessages = buildContextMessages({
-      compressedHistoryMessageCount,
-      contextSummary,
-      previousMessages: requestPreviousContextMessages,
-      systemPrompt,
-      userContent: await buildUserContentWithRawFiles(
-        modelContent,
-        effectiveAttachments,
-        rawFileUploadOptions
-      ),
-      model,
-      longContextThresholdTokens: aiSettings.longContextThresholdTokens
-    }).upstreamMessages;
-
-    try {
-      await assertQuotaAvailable(user.id, estimateChatCostForModel(model, promptTokensEstimate, 0));
-    } catch (error) {
-      if (error instanceof QuotaError) {
-        return jsonError(error.message, error.status, { usage: error.summary });
-      }
-
-      throw error;
-    }
   }
 
   const conversation =
@@ -1525,9 +1461,6 @@ export async function POST(request: NextRequest) {
     attachmentFinishedAt,
     attachmentStartedAt,
     contextCompression: compressionResult.compression,
-    fileAnalysisReport,
-    fileAnalysisFinishedAt,
-    fileAnalysisStartedAt,
     routerFinishedAt,
     routerStartedAt,
     webSearchResult,

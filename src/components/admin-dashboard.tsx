@@ -692,7 +692,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     }
                     type="checkbox"
                   />
-                  启用文件代码分析
+                  保留代码解释器配置
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium ios-muted">沙箱</span>
@@ -738,7 +738,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   />
                 </label>
                 <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600">
-                  模型生成代码只应在容器内执行。未启用时，附件只走内置文本解析，不会运行任意代码。
+                  当前聊天不会自动调用代码解释器；附件会直接交给主模型，必要时仅使用内置文本解析作为兜底。
                 </div>
               </div>
             </div>

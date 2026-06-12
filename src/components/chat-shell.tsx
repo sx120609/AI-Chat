@@ -97,6 +97,13 @@ type ContextStats = {
   compressedSummaryTokens: number;
 };
 
+type ShareNotice = {
+  description?: string;
+  title: string;
+  tone: "success" | "error";
+  url?: string;
+};
+
 type ToolEventUpdate = Omit<ToolEventView, "finishedAt" | "startedAt"> &
   Partial<Pick<ToolEventView, "finishedAt" | "startedAt">>;
 
@@ -398,6 +405,7 @@ export function ChatShell({
     useState<ConversationSummary | null>(null);
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
   const [sharingConversationId, setSharingConversationId] = useState<string | null>(null);
+  const [shareNotice, setShareNotice] = useState<ShareNotice | null>(null);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [imageToolEnabled, setImageToolEnabled] = useState(false);
@@ -759,6 +767,19 @@ export function ChatShell({
   }, [siteSettings.siteName]);
 
   useEffect(() => {
+    if (!shareNotice) {
+      return;
+    }
+
+    const handle = window.setTimeout(
+      () => setShareNotice(null),
+      shareNotice.tone === "success" ? 8000 : 12000
+    );
+
+    return () => window.clearTimeout(handle);
+  }, [shareNotice]);
+
+  useEffect(() => {
     if (!processStartedAt || processFinishedAt) {
       return;
     }
@@ -922,6 +943,7 @@ export function ChatShell({
     setSharingConversationId(conversation.id);
     setError("");
     setOpenConversationMenuId(null);
+    setShareNotice(null);
 
     try {
       const response = await fetch(`/api/conversations/${conversation.id}/share`, {
@@ -933,22 +955,70 @@ export function ChatShell({
       const shareUrl = payload?.share?.url;
 
       if (!response.ok || !shareUrl) {
-        setError(payload?.error || "生成分享链接失败。");
+        const message = payload?.error || "生成分享链接失败。";
+        setError(message);
+        setShareNotice({
+          description: message,
+          title: "分享失败",
+          tone: "error"
+        });
         return;
       }
 
       try {
         await navigator.clipboard.writeText(shareUrl);
         setStreamStatus("分享链接已复制，可直接发给别人查看。");
+        setShareNotice({
+          description: "链接已复制到剪贴板，可以直接发给别人查看。",
+          title: "分享链接已复制",
+          tone: "success",
+          url: shareUrl
+        });
       } catch {
-        setError(`分享链接已生成，但复制失败：${shareUrl}`);
+        const message = "分享链接已生成，但自动复制失败。";
+        setError(`${message} ${shareUrl}`);
+        setShareNotice({
+          description: "可以点“复制链接”再试一次，或直接打开链接。",
+          title: message,
+          tone: "error",
+          url: shareUrl
+        });
       }
     } catch (shareError) {
-      setError(
-        shareError instanceof Error ? `生成分享链接失败：${shareError.message}` : "生成分享链接失败。"
-      );
+      const message =
+        shareError instanceof Error ? `生成分享链接失败：${shareError.message}` : "生成分享链接失败。";
+      setError(message);
+      setShareNotice({
+        description: message,
+        title: "分享失败",
+        tone: "error"
+      });
     } finally {
       setSharingConversationId(null);
+    }
+  }
+
+  async function copyShareNoticeUrl() {
+    if (!shareNotice?.url) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareNotice.url);
+      setStreamStatus("分享链接已复制，可直接发给别人查看。");
+      setShareNotice({
+        description: "链接已复制到剪贴板，可以直接发给别人查看。",
+        title: "分享链接已复制",
+        tone: "success",
+        url: shareNotice.url
+      });
+    } catch {
+      setShareNotice({
+        description: "浏览器阻止了剪贴板写入，可以打开链接后从地址栏复制。",
+        title: "复制失败",
+        tone: "error",
+        url: shareNotice.url
+      });
     }
   }
 
@@ -2732,8 +2802,17 @@ export function ChatShell({
                 </div>
               </div>
 
-              <div className="flex min-w-0 flex-col items-center gap-1 justify-self-center lg:block lg:shrink-0 lg:justify-self-auto">
-                <div className="w-[min(12.25rem,54vw)] lg:w-auto">
+              <div className="flex min-w-0 items-center gap-1.5 justify-self-center lg:block lg:shrink-0 lg:justify-self-auto">
+                {activeModel ? (
+                  <div className="hidden shrink-0 justify-center max-lg:flex">
+                    <ContextBadge
+                      compact
+                      contextStats={lastContextStats}
+                      contextWindowTokens={activeModel.contextWindowTokens}
+                    />
+                  </div>
+                ) : null}
+                <div className="w-[min(11.25rem,46vw)] lg:w-auto">
                   <ModelReasoningPicker
                     activeModel={activeModel}
                     activeReasoningEffort={activeReasoningEffort}
@@ -2746,15 +2825,6 @@ export function ChatShell({
                     reasoningValue={reasoningEffort}
                   />
                 </div>
-                {activeModel ? (
-                  <div className="flex max-w-[12.25rem] justify-center lg:hidden">
-                    <ContextBadge
-                      compact
-                      contextStats={lastContextStats}
-                      contextWindowTokens={activeModel.contextWindowTokens}
-                    />
-                  </div>
-                ) : null}
               </div>
 
               <button
@@ -3014,7 +3084,93 @@ export function ChatShell({
         title="删除会话"
         tone="danger"
       />
+      <ShareNoticeToast
+        notice={shareNotice}
+        onCopy={() => void copyShareNoticeUrl()}
+        onDismiss={() => setShareNotice(null)}
+      />
     </main>
+  );
+}
+
+function ShareNoticeToast({
+  notice,
+  onCopy,
+  onDismiss
+}: {
+  notice: ShareNotice | null;
+  onCopy: () => void;
+  onDismiss: () => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || !notice) {
+    return null;
+  }
+
+  const success = notice.tone === "success";
+
+  return createPortal(
+    <div className="pointer-events-none fixed inset-x-3 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-[75] sm:bottom-auto sm:left-auto sm:right-6 sm:top-6 sm:w-[24rem]">
+      <section
+        className={`app-reveal pointer-events-auto overflow-hidden rounded-2xl border bg-white/82 p-3 text-stone-900 shadow-[0_20px_70px_rgba(83,69,54,0.22),inset_0_1px_0_rgba(255,255,255,0.78)] backdrop-blur-2xl ${
+          success ? "border-emerald-200" : "border-red-200"
+        }`}
+        role="status"
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-full ${
+              success ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"
+            }`}
+          >
+            {success ? <Check className="size-4" /> : <X className="size-4" />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-semibold leading-5">{notice.title}</p>
+              <button
+                className="app-action-button grid size-7 shrink-0 place-items-center rounded-full text-stone-400 transition hover:bg-white/70 hover:text-stone-900"
+                onClick={onDismiss}
+                title="关闭"
+                type="button"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+            {notice.description ? (
+              <p className="mt-1 text-xs leading-5 text-stone-600">{notice.description}</p>
+            ) : null}
+            {notice.url ? (
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  className="app-action-button flex h-9 flex-1 items-center justify-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/55 px-3 text-xs font-semibold text-stone-700 transition hover:bg-white/85"
+                  onClick={onCopy}
+                  type="button"
+                >
+                  <Copy className="size-3.5" />
+                  复制链接
+                </button>
+                <a
+                  className="app-action-button flex h-9 flex-1 items-center justify-center gap-2 rounded-full bg-[color:var(--claude-accent)] px-3 text-xs font-semibold text-white transition hover:bg-[color:var(--claude-accent-dark)]"
+                  href={notice.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <ExternalLink className="size-3.5" />
+                  打开链接
+                </a>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </div>,
+    document.body
   );
 }
 

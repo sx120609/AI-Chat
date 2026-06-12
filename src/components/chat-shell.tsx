@@ -2313,9 +2313,9 @@ export function ChatShell({
                 ref={fileInputRef}
                 type="file"
               />
-              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0">
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0 sm:rounded-full sm:border sm:border-[color:var(--ios-separator)] sm:bg-white/70 sm:p-1 sm:shadow-sm">
                 <button
-                  className="app-action-button grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50 sm:border-transparent sm:bg-transparent sm:hover:bg-stone-100/80"
+                  className="app-action-button grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50"
                   disabled={loading || quotaBlocked || uploadingAttachments}
                   onClick={() => fileInputRef.current?.click()}
                   title="上传文件或图片"

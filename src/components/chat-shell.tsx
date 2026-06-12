@@ -2442,12 +2442,15 @@ export function ChatShell({
             <div className="space-y-1">
               {group.conversations.map((conversation) => {
                 const active = conversation.id === activeConversationId;
+                const menuOpen = openConversationMenuId === conversation.id;
                 const running = runningGenerationKeySet.has(conversation.id);
                 const renaming = renamingConversationId === conversation.id;
 
                 return (
                   <div
                     className={`app-list-row group relative flex items-center gap-2 rounded-lg px-2 py-2 transition ${
+                      menuOpen ? "z-30" : "z-0"
+                    } ${
                       active
                         ? "bg-stone-200/60 text-stone-950"
                         : "text-stone-700 hover:bg-white/60"
@@ -2504,7 +2507,9 @@ export function ChatShell({
 
                     {!renaming ? (
                       <button
-                        className="app-action-button grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 hover:bg-white hover:text-stone-800 lg:size-7 lg:opacity-0 lg:group-hover:opacity-100"
+                        className={`app-action-button relative z-20 grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 hover:bg-white hover:text-stone-800 lg:size-7 ${
+                          menuOpen ? "bg-white text-stone-800 opacity-100" : "lg:opacity-0 lg:group-hover:opacity-100"
+                        }`}
                         onClick={() =>
                           setOpenConversationMenuId((current) =>
                             current === conversation.id ? null : conversation.id
@@ -2517,8 +2522,8 @@ export function ChatShell({
                       </button>
                     ) : null}
 
-                    {openConversationMenuId === conversation.id ? (
-                      <div className="app-menu-enter absolute right-2 top-10 z-30 w-36 overflow-hidden rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 text-xs shadow-[0_16px_38px_rgba(83,69,54,0.16)]">
+                    {menuOpen ? (
+                      <div className="app-menu-enter absolute right-10 top-1 z-40 w-36 overflow-hidden rounded-lg border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-1 text-xs shadow-[0_16px_38px_rgba(83,69,54,0.16)] lg:right-9">
                         <button
                           className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
                           onClick={() => void togglePinConversation(conversation)}

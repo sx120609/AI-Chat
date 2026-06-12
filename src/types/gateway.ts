@@ -4,6 +4,8 @@ export type GenerationMode = "CHAT" | "IMAGE";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 export type SystemPromptMode = "default" | "append" | "custom" | "off";
+export type EasyPayMethod = "alipay" | "wxpay";
+export type EasyPayDisplayMode = "qrcode" | "popup";
 export type AttachmentKind = "TEXT" | "DOCUMENT" | "SPREADSHEET" | "IMAGE" | "ARCHIVE" | "FILE";
 export type MessageGenerationStatus = "running" | "done" | "error" | "stopped";
 
@@ -75,6 +77,12 @@ export type UserView = {
 export type PublicAuthSettingsView = {
   registrationEnabled: boolean;
   registrationRequireEmailVerification: boolean;
+};
+
+export type PublicPaymentSettingsView = {
+  easyPayEnabled: boolean;
+  easyPayDisplayMode: EasyPayDisplayMode;
+  easyPayMethods: EasyPayMethod[];
 };
 
 export type SiteSettingsView = {
@@ -204,5 +212,17 @@ export type AiSettingsView = {
   smtpFromName: string;
   smtpSecure: boolean;
   smtpStartTls: boolean;
+  easyPayEnabled: boolean;
+  easyPayAllowRefund: boolean;
+  easyPayDisplayMode: EasyPayDisplayMode;
+  easyPayMethods: EasyPayMethod[];
+  easyPayPid: string;
+  easyPayHasKey: boolean;
+  easyPayKeyPreview: string;
+  easyPayApiBaseUrl: string;
+  easyPayAlipayChannelId: string;
+  easyPayWxpayChannelId: string;
+  easyPayNotifyPath: string;
+  easyPayReturnPath: string;
   updatedAt: string;
 };

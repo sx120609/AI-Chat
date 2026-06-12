@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { normalizeRegistrationCostLimitCents } from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
+import {
+  EASYPAY_NOTIFY_PATH,
+  EASYPAY_RETURN_PATH,
+  normalizeEasyPayDisplayMode,
+  parseEasyPayMethods
+} from "@/lib/easypay";
 import { jsonError, requireAdmin } from "@/lib/http";
 import {
   buildChatModelCatalog,
@@ -100,6 +106,18 @@ async function serializeSettings() {
     smtpFromName: settings.smtpFromName || "",
     smtpSecure: settings.smtpSecure,
     smtpStartTls: settings.smtpStartTls,
+    easyPayEnabled: settings.easyPayEnabled,
+    easyPayAllowRefund: settings.easyPayAllowRefund,
+    easyPayDisplayMode: normalizeEasyPayDisplayMode(settings.easyPayDisplayMode),
+    easyPayMethods: parseEasyPayMethods(settings.easyPayMethodsJson),
+    easyPayPid: settings.easyPayPid || "",
+    easyPayHasKey: Boolean(settings.easyPayKey),
+    easyPayKeyPreview: maskSecret(settings.easyPayKey),
+    easyPayApiBaseUrl: settings.easyPayApiBaseUrl || "",
+    easyPayAlipayChannelId: settings.easyPayAlipayChannelId || "",
+    easyPayWxpayChannelId: settings.easyPayWxpayChannelId || "",
+    easyPayNotifyPath: EASYPAY_NOTIFY_PATH,
+    easyPayReturnPath: EASYPAY_RETURN_PATH,
     updatedAt: settings.updatedAt.toISOString()
   };
 }
@@ -170,7 +188,16 @@ export async function POST(request: NextRequest) {
         smtpFromEmail: "",
         smtpFromName: "",
         smtpSecure: false,
-        smtpStartTls: true
+        smtpStartTls: true,
+        easyPayEnabled: false,
+        easyPayAllowRefund: false,
+        easyPayDisplayMode: "qrcode",
+        easyPayMethodsJson: "[\"alipay\",\"wxpay\"]",
+        easyPayPid: "",
+        easyPayKey: null,
+        easyPayApiBaseUrl: "",
+        easyPayAlipayChannelId: "",
+        easyPayWxpayChannelId: ""
       }
     });
 

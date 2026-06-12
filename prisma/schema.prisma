@@ -42,6 +42,27 @@ model User {
   usageRecords          UsageRecord[]
   attachments           Attachment[]
   emailVerificationTokens EmailVerificationToken[]
+  paymentOrders        PaymentOrder[]
+}
+
+model PaymentOrder {
+  id              String    @id @default(cuid())
+  userId          String
+  provider        String    @default("easypay")
+  method          String
+  status          String    @default("PENDING")
+  outTradeNo      String    @unique
+  providerTradeNo String?
+  subject         String
+  amountCents     Int
+  metadataJson    String    @default("{}")
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
 
 model EmailVerificationToken {
@@ -211,5 +232,14 @@ model AiSettings {
   smtpFromName        String  @default("")
   smtpSecure          Boolean @default(false)
   smtpStartTls        Boolean @default(true)
+  easyPayEnabled      Boolean @default(false)
+  easyPayAllowRefund  Boolean @default(false)
+  easyPayDisplayMode  String  @default("qrcode")
+  easyPayMethodsJson  String  @default("[\"alipay\",\"wxpay\"]")
+  easyPayPid          String  @default("")
+  easyPayKey          String?
+  easyPayApiBaseUrl   String  @default("")
+  easyPayAlipayChannelId String @default("")
+  easyPayWxpayChannelId String @default("")
   updatedAt             DateTime @updatedAt
 }

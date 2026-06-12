@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Check,
   Code2,
+  CreditCard,
   Globe2,
   KeyRound,
   Loader2,
@@ -45,6 +46,8 @@ import type {
   AiSettingsView,
   ChatModelDisplayConfig,
   ChatModelView,
+  EasyPayDisplayMode,
+  EasyPayMethod,
   ReasoningEffort,
   ReasoningParamMode,
   Role,
@@ -104,9 +107,19 @@ type SettingsForm = {
   smtpFromName: string;
   smtpSecure: boolean;
   smtpStartTls: boolean;
+  easyPayEnabled: boolean;
+  easyPayAllowRefund: boolean;
+  easyPayDisplayMode: EasyPayDisplayMode;
+  easyPayMethods: EasyPayMethod[];
+  easyPayPid: string;
+  easyPayKey: string;
+  clearEasyPayKey: boolean;
+  easyPayApiBaseUrl: string;
+  easyPayAlipayChannelId: string;
+  easyPayWxpayChannelId: string;
 };
 
-type AdminTab = "access" | "models" | "prompts" | "tools" | "mail" | "users";
+type AdminTab = "access" | "models" | "prompts" | "tools" | "mail" | "payment" | "users";
 
 type DiagnosticCheck = {
   name: string;
@@ -169,7 +182,17 @@ const emptySettings: SettingsForm = {
   smtpFromEmail: "",
   smtpFromName: "",
   smtpSecure: false,
-  smtpStartTls: true
+  smtpStartTls: true,
+  easyPayEnabled: false,
+  easyPayAllowRefund: false,
+  easyPayDisplayMode: "qrcode",
+  easyPayMethods: ["alipay", "wxpay"],
+  easyPayPid: "",
+  easyPayKey: "",
+  clearEasyPayKey: false,
+  easyPayApiBaseUrl: "",
+  easyPayAlipayChannelId: "",
+  easyPayWxpayChannelId: ""
 };
 
 const adminTabs: Array<{
@@ -207,6 +230,12 @@ const adminTabs: Array<{
     label: "邮件",
     description: "SMTP、STARTTLS 与测试",
     icon: Mail
+  },
+  {
+    id: "payment",
+    label: "支付",
+    description: "易支付与充值",
+    icon: CreditCard
   },
   {
     id: "users",
@@ -298,7 +327,17 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       smtpFromEmail: nextSettings.smtpFromEmail,
       smtpFromName: nextSettings.smtpFromName,
       smtpSecure: nextSettings.smtpSecure,
-      smtpStartTls: nextSettings.smtpStartTls
+      smtpStartTls: nextSettings.smtpStartTls,
+      easyPayEnabled: nextSettings.easyPayEnabled,
+      easyPayAllowRefund: nextSettings.easyPayAllowRefund,
+      easyPayDisplayMode: nextSettings.easyPayDisplayMode,
+      easyPayMethods: nextSettings.easyPayMethods,
+      easyPayPid: nextSettings.easyPayPid,
+      easyPayKey: "",
+      clearEasyPayKey: false,
+      easyPayApiBaseUrl: nextSettings.easyPayApiBaseUrl,
+      easyPayAlipayChannelId: nextSettings.easyPayAlipayChannelId,
+      easyPayWxpayChannelId: nextSettings.easyPayWxpayChannelId
     });
   }
 
@@ -532,7 +571,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         {notice ? <Banner tone="success">{notice}</Banner> : null}
         {diagnostics ? <DiagnosticsPanel result={diagnostics} /> : null}
 
-        <nav className="ios-panel motion-lift mb-5 grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-6">
+        <nav className="ios-panel motion-lift mb-5 grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-7">
           {adminTabs.map((tab) => {
             const TabIcon = tab.icon;
             const selected = activeTab === tab.id;
@@ -1314,6 +1353,210 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       type="checkbox"
                     />
                     清空 SMTP 密码
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {activeTab === "payment" ? (
+              <div className="ios-list lg:col-span-6">
+                <div className="ios-cell px-3 py-2">
+                  <p className="text-xs font-semibold ios-muted">
+                    PKey：{settings?.easyPayHasKey ? settings.easyPayKeyPreview : "未设置"}
+                  </p>
+                </div>
+                <div className="grid gap-3 p-3 lg:grid-cols-6">
+                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <input
+                      checked={settingsForm.easyPayEnabled}
+                      className="size-4 accent-[color:var(--claude-accent)]"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          easyPayEnabled: event.target.checked
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    启用
+                  </label>
+                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <input
+                      checked={settingsForm.easyPayAllowRefund}
+                      className="size-4 accent-[color:var(--claude-accent)]"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          easyPayAllowRefund: event.target.checked
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    允许退款
+                  </label>
+                  <div className="lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">支付模式</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        ["qrcode", "二维码"],
+                        ["popup", "弹窗"]
+                      ].map(([value, label]) => (
+                        <button
+                          className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                            settingsForm.easyPayDisplayMode === value
+                              ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                              : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                          }`}
+                          key={value}
+                          onClick={() =>
+                            setSettingsForm((current) => ({
+                              ...current,
+                              easyPayDisplayMode: value as EasyPayDisplayMode
+                            }))
+                          }
+                          type="button"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">支持的支付方式</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        ["alipay", "支付宝"],
+                        ["wxpay", "微信支付"]
+                      ].map(([value, label]) => {
+                        const method = value as EasyPayMethod;
+                        const checked = settingsForm.easyPayMethods.includes(method);
+
+                        return (
+                          <button
+                            className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                              checked
+                                ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                                : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                            }`}
+                            key={value}
+                            onClick={() =>
+                              setSettingsForm((current) => ({
+                                ...current,
+                                easyPayMethods: checked
+                                  ? current.easyPayMethods.filter((item) => item !== method)
+                                  : [...new Set([...current.easyPayMethods, method])]
+                              }))
+                            }
+                            type="button"
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">PID *</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, easyPayPid: event.target.value }))
+                      }
+                      value={settingsForm.easyPayPid}
+                    />
+                  </label>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">PKey *</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          easyPayKey: event.target.value,
+                          clearEasyPayKey: false
+                        }))
+                      }
+                      placeholder={settings?.easyPayHasKey ? "输入新 PKey 后替换" : "输入 PKey"}
+                      type="password"
+                      value={settingsForm.easyPayKey}
+                    />
+                  </label>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">API 基础地址 *</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          easyPayApiBaseUrl: event.target.value
+                        }))
+                      }
+                      placeholder="https://pay.example.com"
+                      value={settingsForm.easyPayApiBaseUrl}
+                    />
+                  </label>
+                  <label className="block lg:col-span-3">
+                    <span className="mb-1 block text-xs font-medium ios-muted">支付宝渠道 ID（可选）</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          easyPayAlipayChannelId: event.target.value
+                        }))
+                      }
+                      value={settingsForm.easyPayAlipayChannelId}
+                    />
+                  </label>
+                  <label className="block lg:col-span-3">
+                    <span className="mb-1 block text-xs font-medium ios-muted">微信渠道 ID（可选）</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          easyPayWxpayChannelId: event.target.value
+                        }))
+                      }
+                      value={settingsForm.easyPayWxpayChannelId}
+                    />
+                  </label>
+                  <label className="block lg:col-span-3">
+                    <span className="mb-1 block text-xs font-medium ios-muted">异步通知地址 *</span>
+                    <div className="flex overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-white/60">
+                      <span className="min-w-0 flex-1 truncate px-3 py-2 text-sm text-stone-500">
+                        {settingsForm.siteUrl || "https://your-site.example"}
+                      </span>
+                      <span className="shrink-0 border-l border-[color:var(--ios-separator)] px-3 py-2 text-sm font-semibold text-stone-600">
+                        {settings?.easyPayNotifyPath || "/api/v1/payment/webhook/easypay"}
+                      </span>
+                    </div>
+                  </label>
+                  <label className="block lg:col-span-3">
+                    <span className="mb-1 block text-xs font-medium ios-muted">同步跳转地址 *</span>
+                    <div className="flex overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-white/60">
+                      <span className="min-w-0 flex-1 truncate px-3 py-2 text-sm text-stone-500">
+                        {settingsForm.siteUrl || "https://your-site.example"}
+                      </span>
+                      <span className="shrink-0 border-l border-[color:var(--ios-separator)] px-3 py-2 text-sm font-semibold text-stone-600">
+                        {settings?.easyPayReturnPath || "/payment/result"}
+                      </span>
+                    </div>
+                  </label>
+                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <input
+                      checked={settingsForm.clearEasyPayKey}
+                      className="size-4 accent-red-500"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          clearEasyPayKey: event.target.checked,
+                          easyPayKey: event.target.checked ? "" : current.easyPayKey
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    清空 PKey
                   </label>
                 </div>
               </div>

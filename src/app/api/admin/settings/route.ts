@@ -7,6 +7,13 @@ import {
 import { cacheDelete } from "@/lib/cache";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
 import {
+  EASYPAY_NOTIFY_PATH,
+  EASYPAY_RETURN_PATH,
+  normalizeEasyPaySettings,
+  parseEasyPayMethods,
+  normalizeEasyPayDisplayMode
+} from "@/lib/easypay";
+import {
   buildChatModelCatalog,
   CHAT_MODELS,
   DEFAULT_CONTEXT_COMPRESSION_ENABLED,
@@ -79,6 +86,16 @@ type SettingsBody = {
   smtpFromName?: string;
   smtpSecure?: boolean;
   smtpStartTls?: boolean;
+  easyPayEnabled?: boolean;
+  easyPayAllowRefund?: boolean;
+  easyPayDisplayMode?: string;
+  easyPayMethods?: string[];
+  easyPayPid?: string;
+  easyPayKey?: string;
+  clearEasyPayKey?: boolean;
+  easyPayApiBaseUrl?: string;
+  easyPayAlipayChannelId?: string;
+  easyPayWxpayChannelId?: string;
 };
 
 function maskKey(key: string | null | undefined) {
@@ -128,6 +145,15 @@ function serializeSettings(settings: {
   smtpFromName: string;
   smtpSecure: boolean;
   smtpStartTls: boolean;
+  easyPayEnabled: boolean;
+  easyPayAllowRefund: boolean;
+  easyPayDisplayMode: string;
+  easyPayMethodsJson: string;
+  easyPayPid: string;
+  easyPayKey: string | null;
+  easyPayApiBaseUrl: string;
+  easyPayAlipayChannelId: string;
+  easyPayWxpayChannelId: string;
   updatedAt: Date;
 }) {
   const chatModelMap = parseModelMap(settings.chatModelMapJson);
@@ -185,6 +211,18 @@ function serializeSettings(settings: {
     smtpFromName: settings.smtpFromName || "",
     smtpSecure: settings.smtpSecure,
     smtpStartTls: settings.smtpStartTls,
+    easyPayEnabled: settings.easyPayEnabled,
+    easyPayAllowRefund: settings.easyPayAllowRefund,
+    easyPayDisplayMode: normalizeEasyPayDisplayMode(settings.easyPayDisplayMode),
+    easyPayMethods: parseEasyPayMethods(settings.easyPayMethodsJson),
+    easyPayPid: settings.easyPayPid || "",
+    easyPayHasKey: Boolean(settings.easyPayKey),
+    easyPayKeyPreview: maskSecret(settings.easyPayKey),
+    easyPayApiBaseUrl: settings.easyPayApiBaseUrl || "",
+    easyPayAlipayChannelId: settings.easyPayAlipayChannelId || "",
+    easyPayWxpayChannelId: settings.easyPayWxpayChannelId || "",
+    easyPayNotifyPath: EASYPAY_NOTIFY_PATH,
+    easyPayReturnPath: EASYPAY_RETURN_PATH,
     updatedAt: settings.updatedAt.toISOString()
   };
 }
@@ -356,7 +394,16 @@ export async function GET(request: NextRequest) {
       smtpFromEmail: process.env.SMTP_FROM_EMAIL || "",
       smtpFromName: process.env.SMTP_FROM_NAME || "",
       smtpSecure: process.env.SMTP_SECURE === "true",
-      smtpStartTls: process.env.SMTP_STARTTLS !== "false"
+      smtpStartTls: process.env.SMTP_STARTTLS !== "false",
+      easyPayEnabled: process.env.EASYPAY_ENABLED === "true",
+      easyPayAllowRefund: process.env.EASYPAY_ALLOW_REFUND === "true",
+      easyPayDisplayMode: process.env.EASYPAY_DISPLAY_MODE || "qrcode",
+      easyPayMethodsJson: process.env.EASYPAY_METHODS_JSON || "[\"alipay\",\"wxpay\"]",
+      easyPayPid: process.env.EASYPAY_PID || "",
+      easyPayKey: process.env.EASYPAY_KEY || null,
+      easyPayApiBaseUrl: process.env.EASYPAY_API_BASE_URL || "",
+      easyPayAlipayChannelId: process.env.EASYPAY_ALIPAY_CHANNEL_ID || "",
+      easyPayWxpayChannelId: process.env.EASYPAY_WXPAY_CHANNEL_ID || ""
     }
   });
 
@@ -410,6 +457,11 @@ export async function PATCH(request: NextRequest) {
     : typeof body.smtpPassword === "string" && body.smtpPassword.trim()
       ? body.smtpPassword.trim()
       : existingSettings?.smtpPassword || null;
+  const nextEasyPayKey = body.clearEasyPayKey
+    ? null
+    : typeof body.easyPayKey === "string" && body.easyPayKey.trim()
+      ? body.easyPayKey.trim()
+      : existingSettings?.easyPayKey || null;
   const registrationEnabled = Boolean(body.registrationEnabled);
   const registrationRequireEmailVerification = Boolean(
     body.registrationRequireEmailVerification
@@ -437,6 +489,27 @@ export async function PATCH(request: NextRequest) {
 
   if (registrationEnabled && registrationRequireEmailVerification && !smtpSettings.smtpEnabled) {
     return jsonError("启用注册邮件验证前，请先启用并配置邮件服务。", 400);
+  }
+
+  let easyPaySettings: ReturnType<typeof normalizeEasyPaySettings>;
+
+  try {
+    easyPaySettings = normalizeEasyPaySettings({
+      easyPayEnabled: body.easyPayEnabled,
+      easyPayAllowRefund: body.easyPayAllowRefund,
+      easyPayDisplayMode: body.easyPayDisplayMode,
+      easyPayMethodsJson: JSON.stringify(body.easyPayMethods ?? []),
+      easyPayPid: body.easyPayPid,
+      easyPayKey: nextEasyPayKey,
+      easyPayApiBaseUrl: body.easyPayApiBaseUrl,
+      easyPayAlipayChannelId: body.easyPayAlipayChannelId,
+      easyPayWxpayChannelId: body.easyPayWxpayChannelId
+    });
+  } catch (easyPayError) {
+    return jsonError(
+      easyPayError instanceof Error ? easyPayError.message : "易支付设置无效。",
+      400
+    );
   }
 
   const data: {
@@ -477,6 +550,15 @@ export async function PATCH(request: NextRequest) {
     smtpFromName: string;
     smtpSecure: boolean;
     smtpStartTls: boolean;
+    easyPayEnabled: boolean;
+    easyPayAllowRefund: boolean;
+    easyPayDisplayMode: string;
+    easyPayMethodsJson: string;
+    easyPayPid: string;
+    easyPayKey?: string | null;
+    easyPayApiBaseUrl: string;
+    easyPayAlipayChannelId: string;
+    easyPayWxpayChannelId: string;
   } = {
     siteName: normalizeSiteName(body.siteName),
     siteUrl,
@@ -517,7 +599,16 @@ export async function PATCH(request: NextRequest) {
     smtpFromEmail: smtpSettings.smtpFromEmail,
     smtpFromName: smtpSettings.smtpFromName,
     smtpSecure: smtpSettings.smtpSecure,
-    smtpStartTls: smtpSettings.smtpStartTls
+    smtpStartTls: smtpSettings.smtpStartTls,
+    easyPayEnabled: easyPaySettings.easyPayEnabled,
+    easyPayAllowRefund: easyPaySettings.easyPayAllowRefund,
+    easyPayDisplayMode: easyPaySettings.easyPayDisplayMode,
+    easyPayMethodsJson: JSON.stringify(easyPaySettings.easyPayMethods),
+    easyPayPid: easyPaySettings.easyPayPid,
+    easyPayKey: easyPaySettings.easyPayKey,
+    easyPayApiBaseUrl: easyPaySettings.easyPayApiBaseUrl,
+    easyPayAlipayChannelId: easyPaySettings.easyPayAlipayChannelId,
+    easyPayWxpayChannelId: easyPaySettings.easyPayWxpayChannelId
   };
   data.enabledChatModelsJson = JSON.stringify(
     normalizeEnabledModelIds(

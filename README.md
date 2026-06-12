@@ -22,6 +22,7 @@
 - 管理后台可设置站点名称、站点地址、API Base URL、API Key、Org ID 和 Mock 模式
 - 用户级月度费用额度，费用按模型输入/输出 token 单价估算
 - 超额前置拦截，超额后禁止继续调用
+- 可选易支付余额充值，支持支付宝/微信支付、异步回调验签和到账幂等处理
 - 管理员查看所有用户用量、调整额度、启停账号、重置额度窗口
 - Prisma + PostgreSQL 默认配置，并提供旧 SQLite 数据迁移脚本
 
@@ -134,6 +135,15 @@ SMTP_FROM_EMAIL=""
 SMTP_FROM_NAME=""
 SMTP_SECURE="false"
 SMTP_STARTTLS="true"
+EASYPAY_ENABLED="false"
+EASYPAY_ALLOW_REFUND="false"
+EASYPAY_DISPLAY_MODE="qrcode"
+EASYPAY_METHODS_JSON="[\"alipay\",\"wxpay\"]"
+EASYPAY_PID=""
+EASYPAY_KEY=""
+EASYPAY_API_BASE_URL=""
+EASYPAY_ALIPAY_CHANNEL_ID=""
+EASYPAY_WXPAY_CHANNEL_ID=""
 ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
 ADMIN_NAME="管理员"
@@ -180,6 +190,15 @@ SMTP_FROM_EMAIL=""
 SMTP_FROM_NAME=""
 SMTP_SECURE="false"
 SMTP_STARTTLS="true"
+EASYPAY_ENABLED="false"
+EASYPAY_ALLOW_REFUND="false"
+EASYPAY_DISPLAY_MODE="qrcode"
+EASYPAY_METHODS_JSON="[\"alipay\",\"wxpay\"]"
+EASYPAY_PID=""
+EASYPAY_KEY=""
+EASYPAY_API_BASE_URL=""
+EASYPAY_ALIPAY_CHANNEL_ID=""
+EASYPAY_WXPAY_CHANNEL_ID=""
 ```
 
 这些 `CODE_INTERPRETER_*` 变量目前只是保留配置，不会被聊天请求自动调用。以后如果重新接入代码执行工具，仍应只允许 Docker 沙箱运行，且默认 `--network none`。
@@ -201,6 +220,12 @@ WEB_SEARCH_MAX_RESULTS="5"
 公开注册默认关闭。管理员可在管理后台的“用户”选项卡开启注册、设置注册默认余额，并选择是否要求邮箱验证。启用邮箱验证前，需要先在“邮件”选项卡配置 SMTP 服务。
 
 SMTP 支持 465 这类隐式 SSL/TLS，也支持 587 这类 STARTTLS。`SMTP_SECURE="true"` 表示连接一开始就使用 TLS；`SMTP_STARTTLS="true"` 表示普通 SMTP 连接后必须升级到 TLS。后台会隐藏已保存的 SMTP 密码，并提供测试邮件按钮。
+
+## 易支付充值
+
+易支付默认关闭。管理员可在管理后台的“支付”选项卡启用，填写 PID、PKey、API 基础地址，并选择支付宝、微信支付和可选渠道 ID。后台会隐藏已保存的 PKey，只显示脱敏预览。
+
+易支付异步通知地址固定为 `/api/v1/payment/webhook/easypay`，同步跳转地址固定为 `/payment/result`。生产环境请先设置正确的 `SITE_URL`，确保易支付后台能访问完整公网回调地址。回调会校验 MD5 签名、PID、订单金额和支付状态，重复通知会直接返回 `success`，不会重复加余额。
 
 ## 数据库
 

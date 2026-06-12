@@ -137,7 +137,33 @@ async function main() {
       smtpStartTls:
         process.env.SMTP_STARTTLS === undefined
           ? existingSettings?.smtpStartTls ?? true
-          : process.env.SMTP_STARTTLS !== "false"
+          : process.env.SMTP_STARTTLS !== "false",
+      easyPayEnabled:
+        process.env.EASYPAY_ENABLED === undefined
+          ? existingSettings?.easyPayEnabled || false
+          : process.env.EASYPAY_ENABLED === "true",
+      easyPayAllowRefund:
+        process.env.EASYPAY_ALLOW_REFUND === undefined
+          ? existingSettings?.easyPayAllowRefund || false
+          : process.env.EASYPAY_ALLOW_REFUND === "true",
+      easyPayDisplayMode:
+        process.env.EASYPAY_DISPLAY_MODE || existingSettings?.easyPayDisplayMode || "qrcode",
+      easyPayMethodsJson:
+        process.env.EASYPAY_METHODS_JSON ||
+        existingSettings?.easyPayMethodsJson ||
+        "[\"alipay\",\"wxpay\"]",
+      easyPayPid: process.env.EASYPAY_PID || existingSettings?.easyPayPid || "",
+      easyPayKey: process.env.EASYPAY_KEY || existingSettings?.easyPayKey || null,
+      easyPayApiBaseUrl:
+        process.env.EASYPAY_API_BASE_URL || existingSettings?.easyPayApiBaseUrl || "",
+      easyPayAlipayChannelId:
+        process.env.EASYPAY_ALIPAY_CHANNEL_ID ||
+        existingSettings?.easyPayAlipayChannelId ||
+        "",
+      easyPayWxpayChannelId:
+        process.env.EASYPAY_WXPAY_CHANNEL_ID ||
+        existingSettings?.easyPayWxpayChannelId ||
+        ""
     },
     create: {
       id: "default",
@@ -182,7 +208,16 @@ async function main() {
       smtpFromEmail: process.env.SMTP_FROM_EMAIL || "",
       smtpFromName: process.env.SMTP_FROM_NAME || "",
       smtpSecure: process.env.SMTP_SECURE === "true",
-      smtpStartTls: process.env.SMTP_STARTTLS !== "false"
+      smtpStartTls: process.env.SMTP_STARTTLS !== "false",
+      easyPayEnabled: process.env.EASYPAY_ENABLED === "true",
+      easyPayAllowRefund: process.env.EASYPAY_ALLOW_REFUND === "true",
+      easyPayDisplayMode: process.env.EASYPAY_DISPLAY_MODE || "qrcode",
+      easyPayMethodsJson: process.env.EASYPAY_METHODS_JSON || "[\"alipay\",\"wxpay\"]",
+      easyPayPid: process.env.EASYPAY_PID || "",
+      easyPayKey: process.env.EASYPAY_KEY || null,
+      easyPayApiBaseUrl: process.env.EASYPAY_API_BASE_URL || "",
+      easyPayAlipayChannelId: process.env.EASYPAY_ALIPAY_CHANNEL_ID || "",
+      easyPayWxpayChannelId: process.env.EASYPAY_WXPAY_CHANNEL_ID || ""
     }
   });
 

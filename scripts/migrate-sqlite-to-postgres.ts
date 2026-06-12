@@ -15,6 +15,7 @@ const TABLES = [
   "Message",
   "Attachment",
   "UsageRecord",
+  "PaymentOrder",
   "AiSettings"
 ] as const;
 
@@ -356,6 +357,30 @@ async function main() {
         smtpFromName: stringValue(row, columns.AiSettings, "smtpFromName", ""),
         smtpSecure: boolValue(row, columns.AiSettings, "smtpSecure", false),
         smtpStartTls: boolValue(row, columns.AiSettings, "smtpStartTls", true),
+        easyPayEnabled: boolValue(row, columns.AiSettings, "easyPayEnabled", false),
+        easyPayAllowRefund: boolValue(row, columns.AiSettings, "easyPayAllowRefund", false),
+        easyPayDisplayMode: stringValue(row, columns.AiSettings, "easyPayDisplayMode", "qrcode"),
+        easyPayMethodsJson: stringValue(
+          row,
+          columns.AiSettings,
+          "easyPayMethodsJson",
+          "[\"alipay\",\"wxpay\"]"
+        ),
+        easyPayPid: stringValue(row, columns.AiSettings, "easyPayPid", ""),
+        easyPayKey: optionalString(row, columns.AiSettings, "easyPayKey"),
+        easyPayApiBaseUrl: stringValue(row, columns.AiSettings, "easyPayApiBaseUrl", ""),
+        easyPayAlipayChannelId: stringValue(
+          row,
+          columns.AiSettings,
+          "easyPayAlipayChannelId",
+          ""
+        ),
+        easyPayWxpayChannelId: stringValue(
+          row,
+          columns.AiSettings,
+          "easyPayWxpayChannelId",
+          ""
+        ),
         updatedAt: dateValue(row, columns.AiSettings, "updatedAt")
       });
     }

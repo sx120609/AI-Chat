@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ChatShell } from "@/components/chat-shell";
 import { getCurrentUser, serializeCurrentUser } from "@/lib/auth";
 import { getEnabledChatModels } from "@/lib/models";
+import { getPublicPaymentSettings } from "@/lib/payment-settings";
 import { getUsageSummary } from "@/lib/quota";
 import { getSiteSettings } from "@/lib/site-settings";
 import { getAiRuntimeSettings } from "@/lib/upstream";
@@ -24,6 +25,7 @@ export default async function ChatPage() {
 
   const usage = await getUsageSummary(user.id);
   const aiSettings = await getAiRuntimeSettings();
+  const paymentSettings = await getPublicPaymentSettings();
   const siteSettings = await getSiteSettings();
 
   return (
@@ -33,6 +35,7 @@ export default async function ChatPage() {
       initialSiteSettings={siteSettings}
       initialUsage={usage}
       initialUser={serializeCurrentUser(user)}
+      initialPaymentSettings={paymentSettings}
       initialWebSearchEnabled={aiSettings.webSearchEnabled}
     />
   );

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  CreditCard,
   ExternalLink,
   File as FileIcon,
   FileArchive,
@@ -68,7 +69,9 @@ import type {
   SiteSettingsView,
   ToolEventView,
   UsageSummary,
-  UserView
+  UserView,
+  EasyPayMethod,
+  PublicPaymentSettingsView
 } from "@/types/gateway";
 
 type ChatShellProps = {
@@ -77,6 +80,7 @@ type ChatShellProps = {
   initialUsage: UsageSummary;
   initialModels: ChatModelView[];
   initialDefaultReasoningEffort: ReasoningEffort;
+  initialPaymentSettings: PublicPaymentSettingsView;
   initialWebSearchEnabled: boolean;
 };
 
@@ -103,6 +107,12 @@ type ShareNotice = {
   title: string;
   tone: "success" | "error";
   url?: string;
+};
+
+const PAYMENT_AMOUNTS_CENTS = [100, 500, 1000, 2000, 5000];
+const PAYMENT_METHOD_LABELS: Record<EasyPayMethod, string> = {
+  alipay: "支付宝",
+  wxpay: "微信支付"
 };
 
 type ToolEventUpdate = Omit<ToolEventView, "finishedAt" | "startedAt"> &
@@ -411,6 +421,7 @@ function useEventCallback<Args extends unknown[], Result>(callback: (...args: Ar
 export function ChatShell({
   initialDefaultReasoningEffort,
   initialModels,
+  initialPaymentSettings,
   initialSiteSettings,
   initialUser,
   initialUsage,
@@ -419,6 +430,7 @@ export function ChatShell({
   const [user] = useState(initialUser);
   const [siteSettings, setSiteSettings] = useState(initialSiteSettings);
   const [usage, setUsage] = useState(initialUsage);
+  const [paymentSettings, setPaymentSettings] = useState(initialPaymentSettings);
   const [chatModels, setChatModels] = useState(initialModels);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -451,6 +463,7 @@ export function ChatShell({
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentView[]>([]);
   const [editingMessage, setEditingMessage] = useState<MessageView | null>(null);
   const [error, setError] = useState("");
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [runningGenerationKeys, setRunningGenerationKeys] = useState<string[]>([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
@@ -616,6 +629,7 @@ export function ChatShell({
         siteSettings?: SiteSettingsView;
         chatModels?: ChatModelView[];
         defaultReasoningEffort?: ReasoningEffort;
+        paymentSettings?: PublicPaymentSettingsView;
         webSearchEnabled?: boolean;
       };
       setUsage(payload.usage);
@@ -637,6 +651,10 @@ export function ChatShell({
         setReasoningEffort(
           (current) => current || payload.defaultReasoningEffort || DEFAULT_REASONING_EFFORT
         );
+      }
+
+      if (payload.paymentSettings) {
+        setPaymentSettings(payload.paymentSettings);
       }
 
       if (typeof payload.webSearchEnabled === "boolean") {
@@ -2771,7 +2789,11 @@ export function ChatShell({
       </div>
 
       <div className="hidden border-b border-white/40 p-2.5 lg:block lg:p-4">
-        <UsageBars usage={usage} />
+        <UsageBars
+          onRecharge={() => setPaymentDialogOpen(true)}
+          paymentEnabled={paymentSettings.easyPayEnabled}
+          usage={usage}
+        />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-5 max-lg:pb-20 max-lg:pt-1">
@@ -3340,6 +3362,11 @@ export function ChatShell({
         title="删除会话"
         tone="danger"
       />
+      <PaymentDialog
+        onClose={() => setPaymentDialogOpen(false)}
+        open={paymentDialogOpen}
+        paymentSettings={paymentSettings}
+      />
       <ShareNoticeToast
         notice={shareNotice}
         onCopy={() => void copyShareNoticeUrl()}
@@ -3423,6 +3450,187 @@ function ShareNoticeToast({
               </div>
             ) : null}
           </div>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function PaymentDialog({
+  onClose,
+  open,
+  paymentSettings
+}: {
+  onClose: () => void;
+  open: boolean;
+  paymentSettings: PublicPaymentSettingsView;
+}) {
+  const [amountCents, setAmountCents] = useState(1000);
+  const [method, setMethod] = useState<EasyPayMethod>(
+    paymentSettings.easyPayMethods[0] ?? "alipay"
+  );
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!paymentSettings.easyPayMethods.includes(method)) {
+      setMethod(paymentSettings.easyPayMethods[0] ?? "alipay");
+    }
+  }, [method, paymentSettings.easyPayMethods]);
+
+  if (!mounted || !open) {
+    return null;
+  }
+
+  async function startPayment() {
+    setLoading(true);
+    setError("");
+
+    const popupWindow =
+      paymentSettings.easyPayDisplayMode === "popup"
+        ? window.open("about:blank", "easypay", "width=520,height=760")
+        : null;
+
+    if (popupWindow) {
+      popupWindow.opener = null;
+    }
+
+    let response: Response;
+
+    try {
+      response = await fetch("/api/payments/easypay/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          amountCents,
+          method
+        })
+      });
+    } catch {
+      setError("网络异常，创建支付订单失败。");
+      setLoading(false);
+      popupWindow?.close();
+      return;
+    }
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; paymentUrl?: string }
+      | null;
+
+    if (!response.ok || !payload?.paymentUrl) {
+      setError(payload?.error || "创建支付订单失败。");
+      setLoading(false);
+      popupWindow?.close();
+      return;
+    }
+
+    if (popupWindow) {
+      popupWindow.location.href = payload.paymentUrl;
+      setLoading(false);
+      return;
+    }
+
+    window.location.href = payload.paymentUrl;
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90] grid place-items-center bg-stone-950/28 px-4 backdrop-blur-sm">
+      <section className="app-reveal w-full max-w-md overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-4 text-stone-950 shadow-[0_24px_90px_rgba(83,69,54,0.28)]">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
+              <CreditCard className="size-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">充值余额</h2>
+              <p className="mt-0.5 text-xs ios-muted">支付完成后异步通知到账</p>
+            </div>
+          </div>
+          <button
+            className="app-action-button grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 transition hover:bg-white/70 hover:text-stone-900"
+            onClick={onClose}
+            title="关闭"
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="grid gap-3">
+          <div>
+            <p className="mb-2 text-xs font-medium ios-muted">金额</p>
+            <div className="grid grid-cols-3 gap-2">
+              {PAYMENT_AMOUNTS_CENTS.map((amount) => (
+                <button
+                  className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                    amountCents === amount
+                      ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                      : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                  }`}
+                  key={amount}
+                  onClick={() => setAmountCents(amount)}
+                  type="button"
+                >
+                  {formatCents(amount)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">自定义金额</span>
+            <input
+              className="ios-input w-full"
+              min={1}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+
+                if (Number.isFinite(value)) {
+                  setAmountCents(Math.max(100, Math.round(value * 100)));
+                }
+              }}
+              step={0.01}
+              type="number"
+              value={amountCents / 100}
+            />
+          </label>
+          <div>
+            <p className="mb-2 text-xs font-medium ios-muted">支付方式</p>
+            <div className="grid grid-cols-2 gap-2">
+              {paymentSettings.easyPayMethods.map((item) => (
+                <button
+                  className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                    method === item
+                      ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                      : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                  }`}
+                  key={item}
+                  onClick={() => setMethod(item)}
+                  type="button"
+                >
+                  {PAYMENT_METHOD_LABELS[item]}
+                </button>
+              ))}
+            </div>
+          </div>
+          {error ? (
+            <div className="app-inline-alert rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          ) : null}
+          <button
+            className="ios-button-primary app-action-button flex h-11 items-center justify-center gap-2 px-4 disabled:opacity-60"
+            disabled={loading || !paymentSettings.easyPayEnabled}
+            onClick={startPayment}
+            type="button"
+          >
+            {loading ? <Loader2 className="size-4 animate-spin" /> : <ExternalLink className="size-4" />}
+            {paymentSettings.easyPayDisplayMode === "popup" ? "打开支付窗口" : "去支付"}
+          </button>
         </div>
       </section>
     </div>,
@@ -4201,12 +4409,31 @@ function ContextNotice({ lastContextStats }: { lastContextStats: ContextStats | 
   );
 }
 
-function UsageBars({ usage }: { usage: UsageSummary }) {
+function UsageBars({
+  onRecharge,
+  paymentEnabled,
+  usage
+}: {
+  onRecharge: () => void;
+  paymentEnabled: boolean;
+  usage: UsageSummary;
+}) {
   return (
     <div className="space-y-2 lg:space-y-3">
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800 lg:gap-2 lg:text-sm">
-        <Gauge className="size-3.5 text-[color:var(--claude-accent)] lg:size-4" />
-        永久余额
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800 lg:gap-2 lg:text-sm">
+          <Gauge className="size-3.5 text-[color:var(--claude-accent)] lg:size-4" />
+          永久余额
+        </div>
+        {paymentEnabled ? (
+          <button
+            className="app-action-button rounded-lg bg-white/70 px-2 py-1 text-[11px] font-semibold text-[color:var(--claude-accent)] transition hover:bg-white"
+            onClick={onRecharge}
+            type="button"
+          >
+            充值
+          </button>
+        ) : null}
       </div>
       <div>
         <div className="mb-0.5 flex items-center justify-between gap-2 text-[11px] ios-muted lg:mb-1 lg:text-xs">

@@ -81,6 +81,13 @@ type SseEvent = {
   data: Record<string, unknown>;
 };
 
+type ToolRoutePlanView = {
+  query: string;
+  reason: string;
+  shouldSearch: boolean;
+  tool: "chat" | "image";
+};
+
 type ContextStats = {
   promptTokensEstimate: number;
   historyMessageCount: number;
@@ -209,8 +216,6 @@ function mergeToolEvent(
   );
 }
 const STREAM_RENDER_INTERVAL_MS = 48;
-const IMAGE_REQUEST_PATTERN =
-  /(生图|生成图片|生成一张|画一张|画个|画幅|出图|绘制|设计.{0,12}(图|图片|海报|头像|logo|壁纸|封面|插画|表情包)|做.{0,12}(图|图片|海报|头像|logo|壁纸|封面|插画|表情包)|draw|generate an image|create an image|make an image|illustration|poster|logo|wallpaper)/i;
 
 function emptyMessage(
   role: "USER" | "ASSISTANT",
@@ -239,10 +244,6 @@ function emptyMessage(
     attachments,
     pending: true
   };
-}
-
-function shouldSendAsImageRequest(prompt: string) {
-  return IMAGE_REQUEST_PATTERN.test(prompt);
 }
 
 function formatBytes(bytes: number) {
@@ -2133,6 +2134,45 @@ export function ChatShell({
     }
   }
 
+  async function planOutgoingMessageTool(
+    prompt: string,
+    attachments: AttachmentView[],
+    options: {
+      imageToolRequested?: boolean;
+      reuseUserMessage?: MessageView;
+      sourceImageMessage?: MessageView | null;
+      useWebSearch?: boolean;
+    } = {}
+  ) {
+    const promptClock = formatPromptClock();
+    const response = await fetch("/api/chat/route-plan", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        attachmentIds: attachments.map((attachment) => attachment.id),
+        clientDate: promptClock.date,
+        clientTime: promptClock.time,
+        clientTimeZone: promptClock.timeZone,
+        content: prompt,
+        imageToolRequested: Boolean(options.imageToolRequested),
+        model,
+        reuseUserMessageId: options.reuseUserMessage?.id,
+        sourceImageMessageId: options.sourceImageMessage?.id,
+        useWebSearch: Boolean(options.useWebSearch),
+      })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; plan?: ToolRoutePlanView }
+      | null;
+
+    if (!response.ok || !payload?.plan) {
+      setError(payload?.error || "工具路由失败。");
+      return null;
+    }
+
+    return payload.plan;
+  }
+
   async function send(draftText: string) {
     const attachments = pendingAttachments;
     const sourceImage = sourceImageMessage;
@@ -2170,12 +2210,21 @@ export function ChatShell({
         return;
       }
 
-      const imageToolRequested =
-        imageToolEnabled || Boolean(sourceImage) || shouldSendAsImageRequest(prompt);
+      const imageToolRequested = imageToolEnabled || Boolean(sourceImage);
       setImageToolEnabled(false);
       setWebSearchEnabledForMessage(false);
 
-      if (imageToolRequested) {
+      const toolRoutePlan = await planOutgoingMessageTool(prompt, attachments, {
+        imageToolRequested,
+        sourceImageMessage: sourceImage,
+        useWebSearch
+      });
+
+      if (!toolRoutePlan) {
+        return;
+      }
+
+      if (toolRoutePlan.tool === "image") {
         await sendImage(prompt, attachments, {
           sourceImageMessage: sourceImage
         });
@@ -2184,7 +2233,7 @@ export function ChatShell({
 
       await sendChat(prompt, attachments, {
         sourceImageMessage: sourceImage,
-        useWebSearch
+        useWebSearch: useWebSearch || toolRoutePlan.shouldSearch
       });
     } finally {
       void refreshMe();
@@ -2448,7 +2497,7 @@ export function ChatShell({
       ) : null}
 
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="app-header-enter relative shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur sm:px-4 sm:py-3">
+        <header className="app-header-enter relative z-30 shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur sm:px-4 sm:py-3">
           {!desktopSidebarOpen ? (
             <button
               aria-expanded={desktopSidebarOpen}

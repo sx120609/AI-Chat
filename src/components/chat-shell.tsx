@@ -176,6 +176,7 @@ function usagePercent(used: number, limit: number) {
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
 const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
+const COMPOSER_TEXTAREA_DESKTOP_MIN_HEIGHT = 36;
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 152;
 const COMPOSER_FULLSCREEN_THRESHOLD = 92;
 const GENERATION_THINKING_LABEL = "思考中";
@@ -183,6 +184,14 @@ const GENERATION_THINKING_DETAIL = "正在思考并组织回答";
 const GENERATION_THINKING_STATUS = "思考中，正在组织回答...";
 const GENERATION_STREAMING_DETAIL = "正在组织回答并输出内容";
 const GENERATION_STREAMING_STATUS = "正在组织回答...";
+
+function composerTextareaMinHeight() {
+  if (typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches) {
+    return COMPOSER_TEXTAREA_DESKTOP_MIN_HEIGHT;
+  }
+
+  return COMPOSER_TEXTAREA_MIN_HEIGHT;
+}
 
 function formatElapsedDuration(milliseconds: number) {
   if (milliseconds > 0 && milliseconds < 1000) {
@@ -3002,7 +3011,7 @@ export function ChatShell({
             }`}
             ref={headerControlsRef}
           >
-            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
+            <div className="grid grid-cols-[2.5rem_auto_minmax(0,1fr)_2.5rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
               <button
                 aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
                 className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[#4f4338] shadow-[0_12px_34px_rgba(83,69,54,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
@@ -3012,6 +3021,16 @@ export function ChatShell({
               >
                 <Menu className="size-5" />
               </button>
+
+              {activeModel ? (
+                <div className="min-w-[4.75rem] justify-self-start lg:hidden">
+                  <ContextBadge
+                    compact
+                    contextStats={lastContextStats}
+                    contextWindowTokens={activeModel.contextWindowTokens}
+                  />
+                </div>
+              ) : null}
 
               <div className="hidden min-w-0 flex-1 lg:block">
                 <div className="flex min-w-0 items-center gap-1.5">
@@ -3030,17 +3049,8 @@ export function ChatShell({
                 </div>
               </div>
 
-              <div className="flex min-w-0 items-center gap-1.5 justify-self-center lg:block lg:shrink-0 lg:justify-self-auto">
-                {activeModel ? (
-                  <div className="hidden shrink-0 justify-center max-lg:flex">
-                    <ContextBadge
-                      compact
-                      contextStats={lastContextStats}
-                      contextWindowTokens={activeModel.contextWindowTokens}
-                    />
-                  </div>
-                ) : null}
-                <div className="w-[min(11.25rem,46vw)] lg:w-auto">
+              <div className="min-w-0 justify-self-stretch lg:block lg:shrink-0 lg:justify-self-auto">
+                <div className="w-full lg:w-auto">
                   <ModelReasoningPicker
                     activeModel={activeModel}
                     activeReasoningEffort={activeReasoningEffort}
@@ -3474,11 +3484,12 @@ const ComposerInputArea = memo(function ComposerInputArea({
       return;
     }
 
-    textarea.style.height = `${COMPOSER_TEXTAREA_MIN_HEIGHT}px`;
+    const minHeight = composerTextareaMinHeight();
+    textarea.style.height = `${minHeight}px`;
     const contentHeight = textarea.scrollHeight;
     const nextHeight = Math.min(
       COMPOSER_TEXTAREA_MAX_HEIGHT,
-      Math.max(COMPOSER_TEXTAREA_MIN_HEIGHT, contentHeight)
+      Math.max(minHeight, contentHeight)
     );
 
     textarea.style.height = `${nextHeight}px`;
@@ -3498,6 +3509,11 @@ const ComposerInputArea = memo(function ComposerInputArea({
   useEffect(() => {
     resizeTextarea();
   }, [draft, resizeTextarea]);
+
+  useEffect(() => {
+    window.addEventListener("resize", resizeTextarea);
+    return () => window.removeEventListener("resize", resizeTextarea);
+  }, [resizeTextarea]);
 
   useEffect(() => {
     if (fullscreenOpen) {
@@ -3556,7 +3572,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
             </button>
           ) : null}
           <textarea
-            className={`min-h-10 w-full min-w-0 resize-none bg-transparent px-2 py-2 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:min-h-9 sm:py-1.5 sm:text-sm ${
+            className={`min-h-10 w-full min-w-0 resize-none bg-transparent px-2 py-2.5 text-base leading-5 text-stone-950 outline-none placeholder:text-stone-400 sm:min-h-9 sm:py-2 sm:text-sm ${
               fullscreenButtonVisible ? "pr-10" : ""
             }`}
             disabled={composerDisabled}
@@ -4126,7 +4142,7 @@ function ContextBadge({
 
   return (
     <span
-      className={`app-status-pill inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${
+      className={`app-status-pill inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] ${
         warned
           ? "border-amber-200 bg-amber-50 text-amber-800"
           : "border-white/50 bg-white/40 text-stone-500 shadow-[0_8px_22px_rgba(83,69,54,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"

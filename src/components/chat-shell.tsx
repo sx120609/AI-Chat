@@ -451,6 +451,7 @@ export function ChatShell({
   const [streamStatus, setStreamStatus] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEventView[]>([]);
   const [processTimelineExpanded, setProcessTimelineExpanded] = useState(true);
+  const [processMessageId, setProcessMessageId] = useState<string | null>(null);
   const [processStartedAt, setProcessStartedAt] = useState<number | null>(null);
   const [processFinishedAt, setProcessFinishedAt] = useState<number | null>(null);
   const [processNow, setProcessNow] = useState(() => Date.now());
@@ -507,22 +508,12 @@ export function ChatShell({
   const webSearchProviderLabel = "DuckDuckGo";
   const groupedConversations = useMemo(() => groupConversations(conversations), [conversations]);
   const inlineProcessMessageId = useMemo(() => {
-    if (!processStartedAt) {
+    if (!processStartedAt || !processMessageId) {
       return null;
     }
 
-    const processMessage = latestMessageProcess(messages);
-
-    if (processMessage) {
-      return processMessage.id;
-    }
-
-    return (
-      [...messages]
-        .reverse()
-        .find((message) => message.role === "ASSISTANT" && message.pending)?.id ?? null
-    );
-  }, [messages, processStartedAt]);
+    return messages.some((message) => message.id === processMessageId) ? processMessageId : null;
+  }, [messages, processMessageId, processStartedAt]);
   const sidebarHeaderButtonClass =
     "app-action-button app-glass-control min-h-9 min-w-9 shrink-0 place-items-center rounded-xl text-[#4f4338] transition hover:text-[color:var(--claude-ink)] active:scale-95";
   const setComposerText = useCallback((text: string, focus = false) => {
@@ -555,6 +546,7 @@ export function ChatShell({
     setLastContextStats(inFlightChat.contextStats);
     setStreamStatus(inFlightChat.streamStatus);
     setToolEvents(inFlightChat.toolEvents);
+    setProcessMessageId(inFlightChat.assistantMessage.id);
     setProcessStartedAt(inFlightChat.processStartedAt);
     setProcessFinishedAt(inFlightChat.processFinishedAt);
     setProcessNow(Date.now());
@@ -716,12 +708,14 @@ export function ChatShell({
       } else if (restoredProcessMessage) {
         setStreamStatus(messageProcessStatus(restoredProcessMessage));
         setToolEvents(restoredProcessMessage.toolEvents ?? []);
+        setProcessMessageId(restoredProcessMessage.id);
         setProcessStartedAt(restoredProcessMessage.processStartedAt ?? null);
         setProcessFinishedAt(restoredProcessMessage.processFinishedAt ?? null);
         setProcessNow(restoredProcessMessage.processFinishedAt ?? Date.now());
       } else {
         setStreamStatus("");
         setToolEvents([]);
+        setProcessMessageId(null);
         setProcessStartedAt(null);
         setProcessFinishedAt(null);
       }
@@ -917,6 +911,7 @@ export function ChatShell({
     setLastContextStats(null);
     setStreamStatus("");
     setToolEvents([]);
+    setProcessMessageId(null);
     setProcessStartedAt(null);
     setProcessFinishedAt(null);
     setImageToolEnabled(false);
@@ -1130,6 +1125,7 @@ export function ChatShell({
     setLastContextStats(null);
     setStreamStatus("正在加载会话...");
     setToolEvents([]);
+    setProcessMessageId(null);
     setProcessStartedAt(null);
     setProcessFinishedAt(null);
     setImageToolEnabled(false);
@@ -1369,6 +1365,7 @@ export function ChatShell({
     });
     if (isViewingConversationKey(conversationKey)) {
       autoScrollRef.current = true;
+      setProcessMessageId(localAssistant.id);
       setProcessStartedAt(processStart);
       setProcessFinishedAt(null);
       setProcessNow(processStart);
@@ -1664,6 +1661,7 @@ export function ChatShell({
           }
 
           if (isViewingInFlightChat()) {
+            setProcessMessageId(assistantDraft.id);
             setMessages((current) =>
               current.map((message) =>
                 message.id === previousAssistantId || message.id === assistantDraft.id
@@ -1929,9 +1927,12 @@ export function ChatShell({
           if (processMessage) {
             setStreamStatus(messageProcessStatus(processMessage));
             setToolEvents(processMessage.toolEvents ?? []);
+            setProcessMessageId(processMessage.id);
             setProcessStartedAt(processMessage.processStartedAt ?? null);
             setProcessFinishedAt(processMessage.processFinishedAt ?? null);
             setProcessNow(processMessage.processFinishedAt ?? Date.now());
+          } else {
+            setProcessMessageId(null);
           }
         }
 
@@ -2118,13 +2119,50 @@ export function ChatShell({
     const reuseUserMessage = options.reuseUserMessage;
     const reuseUserMessageId = reuseUserMessage?.id;
     const sourceImageMessageId = options.sourceImageMessage?.id;
+    let startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
+
+    if (!startingConversationId && !reuseUserMessage) {
+      const response = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mode: "IMAGE",
+          model: "image2",
+          title: prompt.trim().slice(0, 48) || "New image"
+        })
+      }).catch(() => null);
+      const payload = response?.ok
+        ? ((await response.json().catch(() => null)) as
+            | { conversation?: ConversationSummary }
+            | null)
+        : null;
+
+      if (payload?.conversation?.id) {
+        startingConversationId = payload.conversation.id;
+        activeConversationIdRef.current = payload.conversation.id;
+        activeConversationKeyRef.current = payload.conversation.id;
+        setActiveConversationId(payload.conversation.id);
+        setConversations((current) => [
+          payload.conversation as ConversationSummary,
+          ...current.filter((conversation) => conversation.id !== payload.conversation?.id)
+        ]);
+      }
+    }
+
     const localUser = reuseUserMessage
       ? { ...reuseUserMessage, attachments, content: prompt, mode: "IMAGE" as const, model: "image2" }
-      : { ...emptyMessage("USER", prompt, "IMAGE", attachments), model: "image2" };
-    const localAssistant = { ...emptyMessage("ASSISTANT", "生成中...", "IMAGE"), model: "image2" };
+      : {
+          ...emptyMessage("USER", prompt, "IMAGE", attachments),
+          conversationId: startingConversationId ?? "local",
+          model: "image2"
+        };
+    const localAssistant = {
+      ...emptyMessage("ASSISTANT", "生成中...", "IMAGE"),
+      conversationId: startingConversationId ?? "local",
+      model: "image2"
+    };
     const controller = new AbortController();
     const processStart = Date.now();
-    const startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
     let conversationKey = startingConversationId ?? activeConversationKeyRef.current;
     const initialToolEvents = [
       createToolEvent(
@@ -2156,6 +2194,7 @@ export function ChatShell({
 
     if (isViewingConversationKey(conversationKey)) {
       autoScrollRef.current = true;
+      setProcessMessageId(localAssistant.id);
       setProcessStartedAt(processStart);
       setProcessFinishedAt(null);
       setProcessNow(processStart);
@@ -2200,47 +2239,20 @@ export function ChatShell({
 
       return { finishedAt: now, toolEvents: nextToolEvents };
     };
-
-    try {
-      const response = await fetch("/api/images", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          attachmentIds: attachments.map((attachment) => attachment.id),
-          conversationId: startingConversationId,
-          model: "image2",
-          prompt,
-          reuseUserMessageId,
-          sourceImageMessageId
-        }),
-        signal: controller.signal
-      });
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            assistantMessage?: MessageView;
-            conversationId?: string;
-            error?: string;
-            usage?: UsageSummary;
-            userMessage?: MessageView;
-          }
-        | null;
-
-      if (!response.ok || !payload?.assistantMessage || !payload.conversationId) {
-        const message = payload?.error || "生图失败。";
-        finish("error", message);
-
-        if (isViewingConversationKey(conversationKey)) {
-          setMessages((current) =>
-            current.map((item) =>
-              item.id === localAssistant.id
-                ? { ...localAssistant, content: message, pending: false }
-                : item.id === localUser.id && payload?.userMessage
-                  ? payload.userMessage
-                  : item
-            )
-          );
-        }
-        return;
+    const cleanupImageInFlight = () => {
+      markGenerationFinished(conversationKey);
+      abortControllersRef.current.delete(conversationKey);
+      deleteInFlightChat(conversationKey);
+    };
+    const applyPersistedImagePayload = async (payload: {
+      assistantMessage?: MessageView;
+      conversationId?: string;
+      error?: string;
+      usage?: UsageSummary;
+      userMessage?: MessageView;
+    }) => {
+      if (!payload.assistantMessage || !payload.conversationId) {
+        return false;
       }
 
       conversationKey = resolveInFlightConversationKey(conversationKey, payload.conversationId);
@@ -2248,6 +2260,7 @@ export function ChatShell({
       const userMessage = payload.userMessage;
 
       if (isViewingConversationKey(conversationKey)) {
+        setProcessMessageId(assistantMessage.id);
         setMessages((current) =>
           current.map((item) => {
             if (item.id === localAssistant.id || item.id === assistantMessage.id) {
@@ -2267,8 +2280,149 @@ export function ChatShell({
         setUsage(payload.usage);
       }
 
-      finish("done", "图片已生成");
+      const imageStatus =
+        assistantMessage.generationStatus === "error"
+          ? "error"
+          : assistantMessage.generationStatus === "stopped"
+            ? "skipped"
+            : "done";
+
+      finish(
+        imageStatus,
+        imageStatus === "done" ? "图片已生成" : payload.error || assistantMessage.content || "生图失败。"
+      );
       await refreshConversations();
+      return true;
+    };
+    const waitForImageRecovery = async (targetConversationId?: string | null) => {
+      const resolvedConversationId =
+        targetConversationId ?? (conversationKey.startsWith("local-") ? null : conversationKey);
+
+      if (!resolvedConversationId) {
+        return false;
+      }
+
+      const wait = (delayMs: number) =>
+        new Promise((resolve) => window.setTimeout(resolve, delayMs));
+
+      for (const delayMs of [1200, 2400, 4000, 7000, 11000, 16000, 22000, 30000]) {
+        await wait(delayMs);
+
+        if (controller.signal.aborted) {
+          return false;
+        }
+
+        const response = await fetch(`/api/conversations/${resolvedConversationId}?context=0`).catch(
+          () => null
+        );
+
+        if (!response?.ok) {
+          continue;
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { conversation?: ConversationSummary & { messages: MessageView[] }; context?: ContextStats }
+          | null;
+        const persistedMessages = payload?.conversation?.messages;
+
+        if (!payload?.conversation || !persistedMessages) {
+          continue;
+        }
+
+        conversationKey = resolveInFlightConversationKey(
+          conversationKey,
+          payload.conversation.id
+        );
+
+        const recoveredImageMessage = [...persistedMessages].reverse().find(
+          (message) =>
+            message.role === "ASSISTANT" &&
+            Boolean(message.processStartedAt) &&
+            (message.mode === "IMAGE" || message.model === "image2" || Boolean(message.imageUrl)) &&
+            (message.processStartedAt ?? 0) >= processStart - 15_000
+        );
+        const processMessage = recoveredImageMessage ?? latestMessageProcess(persistedMessages);
+
+        if (isViewingConversationKey(payload.conversation.id)) {
+          setMessages(persistedMessages);
+          setLastContextStats(payload.context ?? null);
+
+          if (processMessage) {
+            setStreamStatus(messageProcessStatus(processMessage));
+            setToolEvents(processMessage.toolEvents ?? []);
+            setProcessMessageId(processMessage.id);
+            setProcessStartedAt(processMessage.processStartedAt ?? null);
+            setProcessFinishedAt(processMessage.processFinishedAt ?? null);
+            setProcessNow(processMessage.processFinishedAt ?? Date.now());
+          }
+        }
+
+        if (
+          recoveredImageMessage?.generationStatus &&
+          recoveredImageMessage.generationStatus !== "running"
+        ) {
+          cleanupImageInFlight();
+          await refreshConversations();
+          void refreshMe();
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    try {
+      const response = await fetch("/api/images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          attachmentIds: attachments.map((attachment) => attachment.id),
+          conversationId: startingConversationId,
+          model: "image2",
+          prompt,
+          reuseUserMessageId,
+          sourceImageMessageId
+        }),
+        signal: controller.signal
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+          assistantMessage?: MessageView;
+          conversationId?: string;
+          error?: string;
+          usage?: UsageSummary;
+          userMessage?: MessageView;
+          }
+        | null;
+
+      if (await applyPersistedImagePayload(payload ?? {})) {
+        return;
+      }
+
+      if (!response.ok || !payload?.assistantMessage || !payload.conversationId) {
+        const recovered = await waitForImageRecovery(payload?.conversationId ?? startingConversationId);
+
+        if (recovered) {
+          return;
+        }
+
+        const message = payload?.error || "生图失败。";
+        finish("error", message);
+
+        if (isViewingConversationKey(conversationKey)) {
+          setMessages((current) =>
+            current.map((item) =>
+              item.id === localAssistant.id
+                ? { ...localAssistant, content: message, pending: false }
+                : item.id === localUser.id && payload?.userMessage
+                  ? payload.userMessage
+                  : item
+            )
+          );
+        }
+        return;
+      }
+
     } catch (error) {
       if (controller.signal.aborted) {
         finish("skipped", "已停止");
@@ -2276,6 +2430,12 @@ export function ChatShell({
       }
 
       const message = error instanceof Error ? `生图失败：${error.message}` : "生图失败。";
+      const recovered = await waitForImageRecovery(startingConversationId);
+
+      if (recovered) {
+        return;
+      }
+
       finish("error", message);
 
       if (isViewingConversationKey(conversationKey)) {
@@ -2491,6 +2651,7 @@ export function ChatShell({
     setError("");
     setStreamStatus("");
     setToolEvents([]);
+    setProcessMessageId(null);
     setProcessStartedAt(null);
     setProcessFinishedAt(null);
 

@@ -12,6 +12,12 @@ import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { messagesAfter } from "@/lib/message-order";
+import {
+  mergePersistedToolEvent,
+  messageProcessForClient,
+  stringifyToolEvents,
+  type PersistedToolEvent
+} from "@/lib/message-process";
 import { estimateImageCostCents } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
@@ -30,6 +36,27 @@ type ImageBody = {
   reuseUserMessageId?: string;
   sourceImageMessageId?: string;
 };
+
+function messageForClient<
+  T extends {
+    createdAt: Date;
+    toolEventsJson?: string | null;
+    upstreamUsageJson?: string | null;
+    webSourcesJson?: string | null;
+  }
+>(message: T) {
+  const view = { ...message };
+
+  delete view.toolEventsJson;
+  delete view.upstreamUsageJson;
+  delete view.webSourcesJson;
+
+  return {
+    ...view,
+    ...messageProcessForClient(message),
+    createdAt: message.createdAt.toISOString()
+  };
+}
 
 function uniqueAttachmentIds(value: unknown) {
   if (!Array.isArray(value)) {
@@ -366,6 +393,36 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const imageStartedAt = Date.now();
+  let imageEvents: PersistedToolEvent[] = [
+    {
+      detail:
+        sourceImageMessage?.imageUrl || effectiveAttachments.some((attachment) => attachment.kind === "IMAGE")
+          ? "正在基于图片生成或编辑"
+          : "正在根据文字生成图片",
+      id: "image",
+      label: "image2",
+      startedAt: imageStartedAt,
+      status: "running",
+      type: "image"
+    }
+  ];
+  const imageStreamStatus = "正在使用 image2 生成图片...";
+  const assistantDraft = await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      role: "ASSISTANT",
+      content: "生成中...",
+      createdAt: new Date(Math.max(Date.now(), userMessage.createdAt.getTime() + 1)),
+      generationStatus: "running",
+      model: "image2",
+      mode: "IMAGE",
+      processStartedAt: new Date(imageStartedAt),
+      streamStatus: imageStreamStatus,
+      toolEventsJson: stringifyToolEvents(imageEvents)
+    }
+  });
+
   try {
     const sourceImages = await Promise.all(
       [
@@ -384,17 +441,27 @@ export async function POST(request: NextRequest) {
     const imageUrl = await generateImage(promptWithAttachmentContext, body.size || "1024x1024", {
       sourceImages
     });
-    const assistantMessage = await prisma.message.create({
+    const finishedAt = Date.now();
+    imageEvents = mergePersistedToolEvent(imageEvents, {
+      detail: "图片已生成",
+      finishedAt,
+      id: "image",
+      label: "image2",
+      status: "done",
+      type: "image"
+    }, finishedAt);
+    const assistantMessage = await prisma.message.update({
+      where: { id: assistantDraft.id },
       data: {
-        conversationId: conversation.id,
-        role: "ASSISTANT",
         content: "Image generated",
+        estimatedCostCents,
+        generationStatus: "done",
         imageUrl,
-        model: "image2",
-        mode: "IMAGE",
+        processFinishedAt: new Date(finishedAt),
         promptTokens,
-        totalTokens: promptTokens,
-        estimatedCostCents
+        streamStatus: "生图完成。",
+        toolEventsJson: stringifyToolEvents(imageEvents),
+        totalTokens: promptTokens
       }
     });
 
@@ -429,13 +496,39 @@ export async function POST(request: NextRequest) {
         attachments: effectiveAttachments.map(attachmentToView),
         createdAt: userMessage.createdAt.toISOString()
       },
-      assistantMessage: {
-        ...assistantMessage,
-        createdAt: assistantMessage.createdAt.toISOString()
-      },
+      assistantMessage: messageForClient(assistantMessage),
       usage
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "上游生图失败。", 502);
+    const finishedAt = Date.now();
+    const message = error instanceof Error ? error.message : "上游生图失败。";
+    imageEvents = mergePersistedToolEvent(imageEvents, {
+      detail: message,
+      finishedAt,
+      id: "image",
+      label: "image2",
+      status: "error",
+      type: "image"
+    }, finishedAt);
+    const assistantMessage = await prisma.message.update({
+      where: { id: assistantDraft.id },
+      data: {
+        content: message,
+        generationStatus: "error",
+        processFinishedAt: new Date(finishedAt),
+        streamStatus: "生图失败。",
+        toolEventsJson: stringifyToolEvents(imageEvents)
+      }
+    });
+
+    return jsonError(message, 502, {
+      conversationId: conversation.id,
+      userMessage: {
+        ...userMessage,
+        attachments: effectiveAttachments.map(attachmentToView),
+        createdAt: userMessage.createdAt.toISOString()
+      },
+      assistantMessage: messageForClient(assistantMessage)
+    });
   }
 }

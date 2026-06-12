@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+import { GlobalImageViewer } from "@/components/global-image-viewer";
 import { getSiteSettings } from "@/lib/site-settings";
 
 const appDescription = "Small-team AI API gateway with quotas and admin controls";
@@ -53,7 +54,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        {children}
+        <GlobalImageViewer />
+      </body>
     </html>
   );
 }

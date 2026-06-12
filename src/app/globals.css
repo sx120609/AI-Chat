@@ -647,6 +647,12 @@ button:disabled {
   padding: 0.25rem 0;
 }
 
+.app-message img:not([aria-hidden="true"]):not([data-image-viewer-ignore]),
+.claude-markdown img:not([aria-hidden="true"]):not([data-image-viewer-ignore]),
+main article img:not([aria-hidden="true"]):not([data-image-viewer-ignore]) {
+  cursor: zoom-in;
+}
+
 .claude-code-block {
   overflow: hidden;
   border: 1px solid rgba(83, 69, 54, 0.18);

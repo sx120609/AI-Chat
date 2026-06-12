@@ -854,23 +854,42 @@ export function ChatShell({
   }, [messages, loading, scrollMessagesToBottom]);
 
   useEffect(() => {
-    function closeMenus(event: MouseEvent) {
+    function closeFloatingPanels(event: PointerEvent) {
       const target = event.target;
+      const targetElement = target instanceof Element ? target : null;
 
-      if (target instanceof Node && headerControlsRef.current?.contains(target)) {
+      const insideModelPicker =
+        (target instanceof Node && headerControlsRef.current?.contains(target)) ||
+        Boolean(targetElement?.closest("[data-model-picker-panel]"));
+      const insideConversationMenu = Boolean(
+        targetElement?.closest("[data-conversation-menu]")
+      );
+
+      if (!insideModelPicker) {
+        setModelPickerOpen(false);
+      }
+
+      if (!insideConversationMenu) {
+        setOpenConversationMenuId(null);
+      }
+    }
+
+    function closeOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Escape") {
         return;
       }
 
-      if (target instanceof Element && target.closest("[data-model-picker-panel]")) {
-        return;
-      }
-
+      setOpenConversationMenuId(null);
       setModelPickerOpen(false);
     }
 
-    document.addEventListener("mousedown", closeMenus);
+    document.addEventListener("pointerdown", closeFloatingPanels);
+    document.addEventListener("keydown", closeOnEscape);
 
-    return () => document.removeEventListener("mousedown", closeMenus);
+    return () => {
+      document.removeEventListener("pointerdown", closeFloatingPanels);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
   }, []);
 
   async function logout() {
@@ -2661,6 +2680,7 @@ export function ChatShell({
 
                     {!renaming ? (
                       <button
+                        data-conversation-menu
                         className={`app-action-button relative z-20 grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 hover:bg-white/65 hover:text-stone-800 lg:size-7 ${
                           menuOpen ? "app-glass-control text-stone-800 opacity-100" : "lg:opacity-0 lg:group-hover:opacity-100"
                         }`}
@@ -2677,7 +2697,10 @@ export function ChatShell({
                     ) : null}
 
                     {menuOpen ? (
-                      <div className="app-menu-enter app-glass-panel absolute right-10 top-1 z-40 w-36 overflow-hidden rounded-xl p-1 text-xs lg:right-9">
+                      <div
+                        className="app-menu-enter app-glass-panel absolute right-10 top-1 z-40 w-36 overflow-hidden rounded-xl p-1 text-xs lg:right-9"
+                        data-conversation-menu
+                      >
                         <button
                           className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf]"
                           onClick={() => void togglePinConversation(conversation)}
@@ -3701,6 +3724,7 @@ function sortProcessTimelineEvents(events: ToolEventView[]) {
 }
 
 function ProcessTimelinePanel({
+  className = "",
   events,
   expanded,
   finishedAt,
@@ -3710,6 +3734,7 @@ function ProcessTimelinePanel({
   startedAt,
   status
 }: {
+  className?: string;
   events: ToolEventView[];
   expanded: boolean;
   finishedAt: number | null;
@@ -3726,7 +3751,9 @@ function ProcessTimelinePanel({
   const displayStatus = processTimelineStatus(status, latestRunningEvent);
 
   return (
-    <div className="app-reveal app-glass-control mb-2 rounded-2xl px-3 py-2 text-xs text-stone-700 sm:mb-3 sm:rounded-xl">
+    <div
+      className={`app-reveal app-glass-control mb-2 rounded-2xl px-3 py-2 text-xs text-stone-700 sm:mb-3 sm:rounded-xl ${className}`}
+    >
       <button
         aria-expanded={expanded}
         className="flex w-full items-center justify-between gap-3 text-left"
@@ -4258,6 +4285,19 @@ const MessageBubble = memo(function MessageBubble({
         {message.attachments?.length ? (
           <MessageAttachments attachments={message.attachments} isUser={isUser} />
         ) : null}
+        {!isUser && inlineProcess ? (
+          <ProcessTimelinePanel
+            className={message.imageUrl ? "max-w-lg" : ""}
+            events={inlineProcess.events}
+            expanded={inlineProcess.expanded}
+            finishedAt={inlineProcess.finishedAt}
+            now={inlineProcess.now}
+            onExpandedChange={inlineProcess.onExpandedChange}
+            reasoning={displayReasoning}
+            startedAt={inlineProcess.startedAt}
+            status={inlineProcess.status}
+          />
+        ) : null}
         {message.imageUrl ? (
           <img
             alt={message.content}
@@ -4291,18 +4331,6 @@ const MessageBubble = memo(function MessageBubble({
             )}
           </>
         )}
-        {!isUser && inlineProcess ? (
-          <ProcessTimelinePanel
-            events={inlineProcess.events}
-            expanded={inlineProcess.expanded}
-            finishedAt={inlineProcess.finishedAt}
-            now={inlineProcess.now}
-            onExpandedChange={inlineProcess.onExpandedChange}
-            reasoning={displayReasoning}
-            startedAt={inlineProcess.startedAt}
-            status={inlineProcess.status}
-          />
-        ) : null}
         {!isUser && message.webSources?.length ? (
           <WebSourceCards sources={message.webSources} />
         ) : null}

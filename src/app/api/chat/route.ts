@@ -43,7 +43,7 @@ import { planMessageTools } from "@/lib/tool-router";
 import { compactTitle, estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
-  createChatCompletionStream,
+  createResponseStream,
   generateImage,
   getAiRuntimeSettings,
   type UpstreamUsage
@@ -146,7 +146,28 @@ type StreamChoice = {
 };
 
 function parseDelta(payload: unknown) {
-  const json = payload as { choices?: StreamChoice[] };
+  const json = payload as {
+    choices?: StreamChoice[];
+    delta?: unknown;
+    output_text?: unknown;
+    text?: unknown;
+    type?: unknown;
+  };
+  const type = typeof json.type === "string" ? json.type : "";
+
+  if (type === "response.output_text.delta" && typeof json.delta === "string") {
+    return json.delta;
+  }
+
+  if (!type) {
+    if (typeof json.output_text === "string") {
+      return json.output_text;
+    }
+
+    if (typeof json.text === "string") {
+      return json.text;
+    }
+  }
 
   return (
     json.choices
@@ -157,7 +178,23 @@ function parseDelta(payload: unknown) {
 
 // Sub2API / New API 等网关会把思考过程放在 delta.reasoning_content（或 delta.reasoning）里
 function parseReasoningDelta(payload: unknown) {
-  const json = payload as { choices?: StreamChoice[] };
+  const json = payload as {
+    choices?: StreamChoice[];
+    delta?: unknown;
+    text?: unknown;
+    type?: unknown;
+  };
+  const type = typeof json.type === "string" ? json.type : "";
+
+  if (type.includes("reasoning") && type.endsWith(".delta")) {
+    if (typeof json.delta === "string") {
+      return json.delta;
+    }
+
+    if (typeof json.text === "string") {
+      return json.text;
+    }
+  }
 
   return (
     json.choices
@@ -183,9 +220,12 @@ function parseReasoningDelta(payload: unknown) {
 }
 
 function parseUsage(payload: unknown): UpstreamUsage | undefined {
-  const json = payload as { usage?: UpstreamUsage | null };
+  const json = payload as {
+    response?: { usage?: UpstreamUsage | null } | null;
+    usage?: UpstreamUsage | null;
+  };
 
-  return json.usage ?? undefined;
+  return json.usage ?? json.response?.usage ?? undefined;
 }
 
 function numberFromUsage(value: unknown) {
@@ -391,10 +431,18 @@ function contentWithDirectFileContext(
 
   const directFileBlocks = attachments
     .filter((attachment) => directFileIds.has(attachment.id))
-    .map(
-      (attachment) =>
-        `[原始文件附件: ${attachment.originalName} (${attachment.mimeType})]\n已作为原始文件随本次请求发送给模型。`
-    );
+    .map((attachment) => {
+      const extractedText = attachment.extractedText?.trim();
+      const directFileNote =
+        `[原始文件附件: ${attachment.originalName} (${attachment.mimeType})]\n` +
+        "已作为原始文件随本次请求发送给模型。";
+
+      if (!extractedText) {
+        return directFileNote;
+      }
+
+      return `${directFileNote}\n同时提供后端已提取文本备份：\n${extractedText}`;
+    });
   const fallbackAttachmentContext = attachmentContextBlock(
     attachments.filter((attachment) => !directFileIds.has(attachment.id))
   );
@@ -465,9 +513,20 @@ async function buildUserContentWithRawFiles(content: string, attachments: ChatAt
 }
 
 function parseStreamError(payload: unknown) {
-  const errorField = (payload as { error?: { message?: string } | string }).error;
+  const json = payload as {
+    error?: { message?: string } | string;
+    message?: unknown;
+    response?: { error?: { message?: string } | string | null } | null;
+    type?: unknown;
+  };
+  const type = typeof json.type === "string" ? json.type : "";
+  const errorField = json.error ?? json.response?.error;
 
   if (!errorField) {
+    if (type === "error" && typeof json.message === "string") {
+      return json.message;
+    }
+
     return "";
   }
 
@@ -1629,7 +1688,7 @@ export async function POST(request: NextRequest) {
             sse(controller, "delta", { delta });
           }, streamAbortController.signal);
         } else {
-          const upstreamBody = await createChatCompletionStream(
+          const upstreamBody = await createResponseStream(
             model.id,
             upstreamMessages,
             aiSettings,

@@ -9,9 +9,9 @@ import {
 import { isMessageAfter } from "@/lib/message-order";
 import { prisma } from "@/lib/prisma";
 import {
-  createChatCompletionText,
+  createResponseText,
   type AiRuntimeSettings,
-  type UpstreamChatMessage
+  type UpstreamMessage
 } from "@/lib/upstream";
 import {
   estimateMessagesTokens,
@@ -170,7 +170,7 @@ async function createContextSummary(options: {
       .map(formatMessageForCompression)
       .join("\n\n")
   );
-  const messages: UpstreamChatMessage[] = [
+  const messages: UpstreamMessage[] = [
     {
       role: "system",
       content:
@@ -189,7 +189,7 @@ async function createContextSummary(options: {
   ];
 
   return normalizeSummary(
-    await createChatCompletionText(options.model.id, messages, options.settings, {
+    await createResponseText(options.model.id, messages, options.settings, {
       signal: options.signal
     })
   );

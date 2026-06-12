@@ -34,13 +34,12 @@ export const REASONING_PARAM_MODES: Array<{
   id: ReasoningParamMode;
   label: string;
 }> = [
-  { id: "chat", label: "Chat Completions: reasoning_effort" },
-  { id: "responses", label: "Responses 风格: reasoning.effort" },
+  { id: "responses", label: "Responses API: reasoning.effort" },
   { id: "disabled", label: "关闭：永不透传推理参数" }
 ];
 
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
-export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "chat";
+export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "responses";
 export const DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS = 256_000;
 export const MAX_CONTEXT_WINDOW_LIMIT_TOKENS = 1_000_000;
 export const MAX_LONG_CONTEXT_THRESHOLD_TOKENS = 950_000;
@@ -374,6 +373,10 @@ export function normalizeReasoningEffort(value: unknown): ReasoningEffort {
 }
 
 export function normalizeReasoningParamMode(value: unknown): ReasoningParamMode {
+  if (value === "chat") {
+    return "responses";
+  }
+
   return REASONING_PARAM_MODES.some((item) => item.id === value)
     ? (value as ReasoningParamMode)
     : DEFAULT_REASONING_PARAM_MODE;

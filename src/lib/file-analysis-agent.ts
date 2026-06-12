@@ -5,9 +5,9 @@ import {
   type SandboxInputFile
 } from "@/lib/code-interpreter";
 import {
-  createChatCompletionText,
+  createResponseText,
   type AiRuntimeSettings,
-  type UpstreamChatMessage
+  type UpstreamMessage
 } from "@/lib/upstream";
 
 type AttachmentForAnalysis = {
@@ -94,7 +94,7 @@ function buildPlannerMessages(options: {
   attachments: AttachmentForAnalysis[];
   allowPackageInstall: boolean;
   prompt: string;
-}): UpstreamChatMessage[] {
+}): UpstreamMessage[] {
   const files = options.attachments
     .map((attachment, index) => {
       const extracted = attachment.extractedText?.trim()
@@ -147,7 +147,7 @@ export async function maybeRunFileAnalysisAgent(options: {
   }
 
   try {
-    const plannerText = await createChatCompletionText(
+    const plannerText = await createResponseText(
       options.modelId,
       buildPlannerMessages({
         allowPackageInstall: settings.codeInterpreterAllowPackageInstall,

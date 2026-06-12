@@ -24,9 +24,9 @@ import {
 } from "@/lib/system-prompt";
 import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { prisma } from "@/lib/prisma";
-import type { ChatMessageContent } from "@/lib/tokens";
+import type { ChatContentPart, ChatMessageContent } from "@/lib/tokens";
 
-export type UpstreamChatMessage = {
+export type UpstreamMessage = {
   role: "system" | "user" | "assistant";
   content: ChatMessageContent;
 };
@@ -187,10 +187,54 @@ function openAiSseFromText(text: string) {
   });
 }
 
+function textFromResponseContent(content: unknown) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => {
+      const candidate = part as {
+        refusal?: unknown;
+        text?: unknown;
+        type?: unknown;
+      };
+
+      if (typeof candidate.text === "string") {
+        return candidate.text;
+      }
+
+      if (typeof candidate.refusal === "string") {
+        return candidate.refusal;
+      }
+
+      return "";
+    })
+    .join("");
+}
+
+function textFromResponseOutput(output: unknown) {
+  if (!Array.isArray(output)) {
+    return "";
+  }
+
+  return output
+    .map((item) => {
+      const content = (item as { content?: unknown }).content;
+      return textFromResponseContent(content);
+    })
+    .join("");
+}
+
 function normalizeNonStreamingPayload(payload: unknown) {
   const json = payload as {
     choices?: unknown;
     content?: unknown;
+    output?: unknown;
     output_text?: unknown;
     response?: unknown;
     text?: unknown;
@@ -201,24 +245,38 @@ function normalizeNonStreamingPayload(payload: unknown) {
     return payload;
   }
 
-  const content =
+  const responsePayload =
+    json.response && typeof json.response === "object"
+      ? (json.response as {
+          content?: unknown;
+          output?: unknown;
+          output_text?: unknown;
+          text?: unknown;
+          usage?: unknown;
+        })
+      : null;
+  const outputText =
     typeof json.output_text === "string"
       ? json.output_text
-      : typeof json.content === "string"
-        ? json.content
-        : typeof json.response === "string"
-          ? json.response
-          : typeof json.text === "string"
-            ? json.text
-            : "";
+      : textFromResponseOutput(json.output) ||
+        (typeof responsePayload?.output_text === "string"
+          ? responsePayload.output_text
+          : textFromResponseOutput(responsePayload?.output));
+  const content =
+    outputText ||
+    textFromResponseContent(json.content) ||
+    (typeof json.response === "string" ? json.response : "") ||
+    textFromResponseContent(responsePayload?.content) ||
+    (typeof json.text === "string" ? json.text : "") ||
+    (typeof responsePayload?.text === "string" ? responsePayload.text : "");
 
   return {
     choices: [{ message: { content } }],
-    usage: json.usage
+    usage: json.usage ?? responsePayload?.usage
   };
 }
 
-function textFromChatCompletionPayload(payload: unknown) {
+function textFromResponsePayload(payload: unknown) {
   const json = normalizeNonStreamingPayload(payload) as {
     choices?: Array<{
       message?: { content?: unknown };
@@ -420,64 +478,106 @@ async function upstreamErrorMessage(response: Response) {
   return cleanText ? `${prefix}：${cleanText.slice(0, 300)}` : `${prefix}。`;
 }
 
-// Sub2API / One API 等网关的旧版本可能不认识 stream_options 或 reasoning 参数，
-// 遇到这类 400 报错时逐步降级，尽量保留 include_usage。
+function responseInputPart(part: ChatContentPart) {
+  if (part.type === "text") {
+    return {
+      type: "input_text",
+      text: part.text
+    };
+  }
+
+  if (part.type === "image_url") {
+    return {
+      type: "input_image",
+      image_url: part.image_url.url
+    };
+  }
+
+  const filePart: Record<string, unknown> = {
+    type: "input_file",
+    filename: part.file.filename
+  };
+
+  if (part.file.file_data) {
+    filePart.file_data = part.file.file_data;
+  }
+
+  if (part.file.file_id) {
+    filePart.file_id = part.file.file_id;
+  }
+
+  return filePart;
+}
+
+function messagesToResponseInput(messages: UpstreamMessage[]) {
+  return messages.map((message) => ({
+    role: message.role,
+    content:
+      typeof message.content === "string"
+        ? message.content
+        : message.content.map(responseInputPart)
+  }));
+}
+
+function responseBodyVariants(options: {
+  messages: UpstreamMessage[];
+  model: ChatModelConfig;
+  reasoningEffort: ReasoningEffort;
+  settings: AiRuntimeSettings;
+  stream: boolean;
+}) {
+  const baseBody: Record<string, unknown> = {
+    model: options.model.upstreamId,
+    input: messagesToResponseInput(options.messages),
+    stream: options.stream
+  };
+  const fullBody: Record<string, unknown> = {
+    ...baseBody,
+    store: false
+  };
+
+  if (options.model.supportsReasoning && options.settings.reasoningParamMode !== "disabled") {
+    fullBody.reasoning = { effort: options.reasoningEffort };
+  }
+
+  const variants = [fullBody];
+
+  if (fullBody.reasoning) {
+    variants.push({
+      ...baseBody,
+      store: false
+    });
+  }
+
+  variants.push(baseBody);
+
+  return variants;
+}
+
+// Sub2API / One API 等网关的旧版本可能不认识 Responses 的 store、reasoning 或 input_file，
+// 遇到这类报错时逐步降级，保留可用的文本上下文 fallback。
 function looksLikeUnsupportedParamError(message: string) {
-  return /stream_options|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|unsupported\s+file|file\s+type|supported\s+format|messages.*content.*file|too\s+large|entity\s+too\s+large|payload|request\s+body|combined\s+limit|under\s+50\s*mb|timeout|timed\s*out|no\s+response|connection|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数|请求体过大|文件过大|没有响应|无法连接|连接/i.test(
+  return /store|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|unsupported\s+file|file\s+type|supported\s+format|messages.*content.*file|too\s+large|entity\s+too\s+large|payload|request\s+body|combined\s+limit|under\s+50\s*mb|timeout|timed\s*out|no\s+response|connection|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数|请求体过大|文件过大|没有响应|无法连接|连接/i.test(
     message
   );
 }
 
-export async function createChatCompletionStream(
+export async function createResponseStream(
   model: string,
-  messages: UpstreamChatMessage[],
+  messages: UpstreamMessage[],
   settings: AiRuntimeSettings,
   options?: {
-    fallbackMessages?: UpstreamChatMessage[];
+    fallbackMessages?: UpstreamMessage[];
     reasoningEffort?: ReasoningEffort;
     signal?: AbortSignal;
   }
 ) {
   assertUpstreamConfigured(settings);
   const selectedModel = getChatModel(model, settings.chatModels);
-  const url = `${settings.apiBaseUrl}/chat/completions`;
+  const url = `${settings.apiBaseUrl}/responses`;
   const reasoningEffort = normalizeReasoningEffort(
     options?.reasoningEffort || settings.defaultReasoningEffort
   );
-
-  const bodyVariants = (messageList: UpstreamChatMessage[]) => {
-    const baseBody: Record<string, unknown> = {
-      model: selectedModel.upstreamId,
-      messages: messageList,
-      stream: true
-    };
-    const fullBody: Record<string, unknown> = {
-      ...baseBody,
-      // 请求上游在流末尾返回 usage，确保 token 统计准确（OpenAI 兼容网关基本都支持）
-      stream_options: { include_usage: true }
-    };
-
-    if (selectedModel.supportsReasoning && settings.reasoningParamMode !== "disabled") {
-      if (settings.reasoningParamMode === "responses") {
-        fullBody.reasoning = { effort: reasoningEffort };
-      } else {
-        fullBody.reasoning_effort = reasoningEffort;
-      }
-    }
-
-    const variants = [fullBody];
-
-    if (fullBody.reasoning || fullBody.reasoning_effort) {
-      variants.push({
-        ...baseBody,
-        stream_options: { include_usage: true }
-      });
-    }
-
-    variants.push(baseBody);
-
-    return variants;
-  };
 
   const requestInit = (body: Record<string, unknown>): RequestInit => ({
     method: "POST",
@@ -487,8 +587,22 @@ export async function createChatCompletionStream(
   });
 
   const bodyCandidates = [
-    ...bodyVariants(messages),
-    ...(options?.fallbackMessages ? bodyVariants(options.fallbackMessages) : [])
+    ...responseBodyVariants({
+      messages,
+      model: selectedModel,
+      reasoningEffort,
+      settings,
+      stream: true
+    }),
+    ...(options?.fallbackMessages
+      ? responseBodyVariants({
+          messages: options.fallbackMessages,
+          model: selectedModel,
+          reasoningEffort,
+          settings,
+          stream: true
+        })
+      : [])
   ];
 
   let lastUnsupportedParamError = "";
@@ -529,26 +643,83 @@ export async function createChatCompletionStream(
   throw new Error(lastUnsupportedParamError || "上游 API 不支持当前请求参数。");
 }
 
-export async function createChatCompletionText(
+export async function createResponseText(
   model: string,
-  messages: UpstreamChatMessage[],
+  messages: UpstreamMessage[],
   settings: AiRuntimeSettings,
   options?: { signal?: AbortSignal }
 ) {
   assertUpstreamConfigured(settings);
   const selectedModel = getChatModel(model, settings.chatModels);
-  const url = `${settings.apiBaseUrl}/chat/completions`;
-  const body = {
-    model: selectedModel.upstreamId,
+  const url = `${settings.apiBaseUrl}/responses`;
+  const reasoningEffort = normalizeReasoningEffort(settings.defaultReasoningEffort);
+  const bodyCandidates = responseBodyVariants({
     messages,
+    model: selectedModel,
+    reasoningEffort,
+    settings,
     stream: false
-  };
+  });
+  let lastUnsupportedParamError = "";
+
+  for (const body of bodyCandidates) {
+    const response = await fetchWithHeadersTimeout(
+      url,
+      {
+        method: "POST",
+        headers: upstreamHeaders(settings),
+        body: JSON.stringify(body),
+        signal: options?.signal
+      },
+      CHAT_HEADERS_TIMEOUT_MS
+    );
+
+    if (response.ok) {
+      const payload = (await response.json().catch(() => null)) as unknown;
+
+      return payload ? textFromResponsePayload(payload) : "";
+    }
+
+    const message = await upstreamErrorMessage(response);
+
+    if (!looksLikeUnsupportedParamError(message)) {
+      throw new Error(message);
+    }
+
+    lastUnsupportedParamError = message;
+  }
+
+  throw new Error(lastUnsupportedParamError || "上游 API 不支持当前请求参数。");
+}
+
+export async function uploadResponseFile(
+  file: {
+    buffer: Buffer;
+    filename: string;
+    mimeType: string;
+  },
+  settings: AiRuntimeSettings,
+  options?: { signal?: AbortSignal }
+) {
+  assertUpstreamConfigured(settings);
+
+  const formData = new FormData();
+  const uploadBytes = new Uint8Array(file.buffer.byteLength);
+  uploadBytes.set(file.buffer);
+
+  formData.append("purpose", "user_data");
+  formData.append(
+    "file",
+    new Blob([uploadBytes], { type: file.mimeType || "application/octet-stream" }),
+    file.filename
+  );
+
   const response = await fetchWithHeadersTimeout(
-    url,
+    `${settings.apiBaseUrl}/files`,
     {
       method: "POST",
-      headers: upstreamHeaders(settings),
-      body: JSON.stringify(body),
+      headers: upstreamAuthHeaders(settings),
+      body: formData,
       signal: options?.signal
     },
     CHAT_HEADERS_TIMEOUT_MS
@@ -558,13 +729,14 @@ export async function createChatCompletionText(
     throw new Error(await upstreamErrorMessage(response));
   }
 
-  const payload = (await response.json().catch(() => null)) as unknown;
+  const payload = (await response.json().catch(() => null)) as { id?: unknown } | null;
+  const fileId = typeof payload?.id === "string" ? payload.id : "";
 
-  if (!payload) {
-    return "";
+  if (!fileId) {
+    throw new Error("上游 /files 没有返回文件 ID。");
   }
 
-  return textFromChatCompletionPayload(payload);
+  return fileId;
 }
 
 function collectModelIds(payload: unknown) {

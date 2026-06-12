@@ -1,7 +1,7 @@
 import {
-  createChatCompletionText,
+  createResponseText,
   type AiRuntimeSettings,
-  type UpstreamChatMessage
+  type UpstreamMessage
 } from "@/lib/upstream";
 import { normalizePromptClock, type PromptClock } from "@/lib/system-prompt";
 import { shouldUseWebSearch } from "@/lib/web-search";
@@ -121,7 +121,7 @@ function buildPlannerMessages(options: {
   force: boolean;
   prompt: string;
   promptClock?: Partial<PromptClock>;
-}): UpstreamChatMessage[] {
+}): UpstreamMessage[] {
   const promptClock = normalizePromptClock(options.promptClock);
 
   return [
@@ -166,7 +166,7 @@ export async function planWebSearchQuery(options: {
   }
 
   try {
-    const plannerText = await createChatCompletionText(
+    const plannerText = await createResponseText(
       options.modelId,
       buildPlannerMessages({
         attachmentCount: options.attachmentCount ?? 0,

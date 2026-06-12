@@ -11,7 +11,7 @@
 - 管理员可从上游 `/models` 自动刷新模型，并启用/停用聊天模型
 - 聊天页支持推理强度选择：低、中、高、超高
 - 支持全局和模型专属系统提示词，用于修正 Sub2API 后端透出的 Codex CLI 等身份设定
-- 支持流式输出状态提示，并兼容部分上游把非 SSE JSON 返回给 `/chat/completions` 的情况
+- 支持 Responses API 流式输出状态提示，并兼容部分上游把非 SSE JSON 返回给 `/responses` 的情况
 - 默认不向用户展示上游原始 `reasoning_content`，避免泄漏订阅后端的内部身份或推理噪声
 - 后端按实际请求体估算上下文窗口，聊天页以轻量状态显示；接近长上下文或裁剪历史时再提示用户新开会话
 - 支持 Markdown/GFM 消息渲染
@@ -99,9 +99,9 @@ http://your-sub2api-host:8080/v1
 
 点击“测试连接”会在后端检查 API 地址格式、`/v1` 路径、Key 是否已保存，以及 `/models` 是否可访问。诊断结果只返回状态和模型样例，不会把完整 Key 发给前端。
 
-“默认推理强度”只提供 Codex 风格的 `低`、`中`、`高`、`超高` 四档，后端会按“推理参数格式”透传为 `low`、`medium`、`high`、`xhigh`。OpenAI 文档推荐在 Responses API 上使用 `reasoning.effort`，但本项目为了兼容 Sub2API 的 `/chat/completions`，默认使用 `reasoning_effort`；如果你的上游不支持，可在后台改为关闭。
+“默认推理强度”只提供 Codex 风格的 `低`、`中`、`高`、`超高` 四档。聊天、工具路由、搜索规划、上下文压缩等文本请求统一调用 Responses API，并按 `reasoning.effort` 透传为 `low`、`medium`、`high`、`xhigh`；如果你的上游不支持推理参数，可在后台关闭。
 
-聊天请求会先尝试带上 `stream_options: { "include_usage": true }` 和推理参数；如果上游返回“不支持/无效参数”类兼容错误，会先保留 `stream_options` 去掉推理参数重试，最后才降级为最小 OpenAI-compatible 请求体。生图消息会保留在普通聊天会话中，不需要切换到单独的生图模式。
+聊天请求会优先使用 Responses API 的 `stream: true`、`store: false`、`input` 和 `reasoning.effort`。如果上游返回“不支持/无效参数”类兼容错误，会依次去掉推理参数、去掉 `store`，带原始文件的请求还会退回到纯文本附件上下文。生图消息会保留在普通聊天会话中，不需要切换到单独的生图模式。
 
 “身份与系统提示词”用于修正订阅转发类上游可能携带的默认身份设定。默认模板会让模型在网页聊天场景下按当前选择的模型名回答身份问题；也可以设置全局自定义提示词，或为某个模型单独覆盖。提示词支持 `{model}`、`{date}`、`{time}` 和 `{timezone}` 占位符；聊天请求会优先使用用户浏览器传来的本地日期、时间和时区。
 

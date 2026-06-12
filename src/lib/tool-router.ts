@@ -1,7 +1,7 @@
 import {
-  createChatCompletionText,
+  createResponseText,
   type AiRuntimeSettings,
-  type UpstreamChatMessage
+  type UpstreamMessage
 } from "@/lib/upstream";
 import { normalizePromptClock, type PromptClock } from "@/lib/system-prompt";
 import { shouldUseWebSearch } from "@/lib/web-search";
@@ -181,7 +181,7 @@ function buildRouterMessages(options: {
   prompt: string;
   promptClock?: Partial<PromptClock>;
   sourceImageSelected: boolean;
-}): UpstreamChatMessage[] {
+}): UpstreamMessage[] {
   const promptClock = normalizePromptClock(options.promptClock);
 
   return [
@@ -223,7 +223,7 @@ export async function planMessageTools(options: {
   }
 
   try {
-    const routerText = await createChatCompletionText(
+    const routerText = await createResponseText(
       options.modelId,
       buildRouterMessages({
         attachmentCount: options.attachmentCount ?? 0,

@@ -175,7 +175,7 @@ function usagePercent(used: number, limit: number) {
 }
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
-const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
+const COMPOSER_TEXTAREA_MIN_HEIGHT = 36;
 const COMPOSER_TEXTAREA_DESKTOP_MIN_HEIGHT = 36;
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 152;
 const COMPOSER_FULLSCREEN_THRESHOLD = 92;
@@ -3232,7 +3232,7 @@ export function ChatShell({
                 ))}
               </div>
             ) : null}
-            <div className="ios-panel app-glass-panel claude-composer app-composer flex min-h-12 items-center gap-1.5 px-1.5 py-1 sm:gap-2 sm:px-2 sm:py-1.5">
+            <div className="ios-panel app-glass-panel claude-composer app-composer flex min-h-11 items-center gap-1.5 px-1.5 py-0.5 sm:gap-2 sm:px-2">
               <input
                 className="hidden"
                 multiple
@@ -3242,7 +3242,7 @@ export function ChatShell({
               />
               <div className="flex shrink-0 items-center gap-1">
                 <button
-                  className="app-action-button app-glass-control grid size-10 shrink-0 place-items-center rounded-full text-stone-600 transition disabled:opacity-50 sm:size-9"
+                  className="app-action-button app-glass-control grid size-9 shrink-0 place-items-center rounded-full text-stone-600 transition disabled:opacity-50"
                   disabled={loading || quotaBlocked || uploadingAttachments || conversationSwitching}
                   onClick={() => fileInputRef.current?.click()}
                   title="上传文件或图片"
@@ -3255,7 +3255,7 @@ export function ChatShell({
                   )}
                 </button>
                 <button
-                  className={`app-action-button grid size-10 shrink-0 place-items-center rounded-full transition sm:size-9 sm:border ${
+                  className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
                     imageToolEnabled
                       ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                       : "app-glass-control text-stone-600 sm:text-stone-600"
@@ -3282,7 +3282,7 @@ export function ChatShell({
                   <div className="relative flex min-w-0 shrink-0 items-center">
                     <button
                       aria-pressed={webSearchEnabledForMessage}
-                      className={`app-action-button grid size-10 place-items-center rounded-full transition sm:size-9 sm:border ${
+                      className={`app-action-button grid size-9 place-items-center rounded-full border transition ${
                         webSearchEnabledForMessage
                           ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                           : "app-glass-control text-stone-600 sm:text-stone-600"
@@ -3559,7 +3559,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
 
   return (
     <>
-      <div className="flex min-h-10 w-full min-w-0 flex-1 items-end gap-1.5 sm:min-h-9">
+      <div className="flex min-h-9 w-full min-w-0 flex-1 items-end gap-1.5">
         <div className="relative min-w-0 flex-1">
           {fullscreenButtonVisible ? (
             <button
@@ -3572,7 +3572,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
             </button>
           ) : null}
           <textarea
-            className={`min-h-10 w-full min-w-0 resize-none bg-transparent px-2 py-2.5 text-base leading-5 text-stone-950 outline-none placeholder:text-stone-400 sm:min-h-9 sm:py-2 sm:text-sm ${
+            className={`min-h-9 w-full min-w-0 resize-none bg-transparent px-2 py-2 text-base leading-5 text-stone-950 outline-none placeholder:text-stone-400 sm:text-sm ${
               fullscreenButtonVisible ? "pr-10" : ""
             }`}
             disabled={composerDisabled}
@@ -3585,7 +3585,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
           />
         </div>
         <button
-          className="app-action-button app-glass-primary grid size-10 shrink-0 place-items-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70 sm:size-9"
+          className="app-action-button app-glass-primary grid size-9 shrink-0 place-items-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70"
           disabled={sendDisabled}
           onClick={() => void submitDraft()}
           title={loading ? "停止生成" : disabled ? "会话加载中" : "发送"}

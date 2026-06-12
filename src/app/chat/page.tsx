@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ChatPage() {
   const user = await getCurrentUser();
 
-  if (!user || !user.active) {
+  if (!user || !user.active || !user.emailVerified) {
     redirect("/login");
   }
 

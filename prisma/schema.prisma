@@ -30,6 +30,7 @@ model User {
   passwordHash          String
   role                  Role          @default(USER)
   active                Boolean       @default(true)
+  emailVerified         Boolean       @default(true)
   monthlyTokenLimit     Int           @default(200000)
   monthlyMessageLimit   Int           @default(500)
   monthlyCostLimitCents Int           @default(5000)
@@ -40,6 +41,20 @@ model User {
   conversationShares    ConversationShare[]
   usageRecords          UsageRecord[]
   attachments           Attachment[]
+  emailVerificationTokens EmailVerificationToken[]
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model Conversation {
@@ -184,5 +199,17 @@ model AiSettings {
   webSearchEnabled    Boolean @default(false)
   webSearchProvider   String  @default("duckduckgo")
   webSearchMaxResults Int     @default(5)
+  registrationEnabled Boolean @default(false)
+  registrationRequireEmailVerification Boolean @default(false)
+  registrationDefaultCostLimitCents Int @default(5000)
+  smtpEnabled         Boolean @default(false)
+  smtpHost            String  @default("")
+  smtpPort            Int     @default(587)
+  smtpUsername        String  @default("")
+  smtpPassword        String?
+  smtpFromEmail       String  @default("")
+  smtpFromName        String  @default("")
+  smtpSecure          Boolean @default(false)
+  smtpStartTls        Boolean @default(true)
   updatedAt             DateTime @updatedAt
 }

@@ -39,6 +39,10 @@ export async function POST(request: NextRequest) {
     return jsonError("账号已停用。", 403);
   }
 
+  if (!user.emailVerified) {
+    return jsonError("请先完成邮箱验证。", 403, { code: "EMAIL_UNVERIFIED" });
+  }
+
   const response = NextResponse.json({
     user: {
       id: user.id,

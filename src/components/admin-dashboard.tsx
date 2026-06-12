@@ -9,9 +9,14 @@ import {
   Globe2,
   KeyRound,
   Loader2,
+  Mail,
+  MessageSquareText,
   Plus,
   RefreshCw,
   Save,
+  Settings2,
+  SlidersHorizontal,
+  UserCog,
   UserRound,
   X
 } from "lucide-react";
@@ -21,13 +26,11 @@ import {
   CHAT_MODELS,
   DEFAULT_CONTEXT_COMPRESSION_ENABLED,
   DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
-  DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
   DEFAULT_IMAGE_UPSTREAM_MODEL,
   DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_PARAM_MODE,
   DEFAULT_UPSTREAM_MODEL_MAP,
-  MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
   MAX_LONG_CONTEXT_THRESHOLD_TOKENS,
   REASONING_EFFORTS,
   REASONING_PARAM_MODES
@@ -88,7 +91,22 @@ type SettingsForm = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  registrationEnabled: boolean;
+  registrationRequireEmailVerification: boolean;
+  registrationDefaultCostLimitCents: number;
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUsername: string;
+  smtpPassword: string;
+  clearSmtpPassword: boolean;
+  smtpFromEmail: string;
+  smtpFromName: string;
+  smtpSecure: boolean;
+  smtpStartTls: boolean;
 };
+
+type AdminTab = "access" | "models" | "prompts" | "tools" | "mail" | "users";
 
 type DiagnosticCheck = {
   name: string;
@@ -138,19 +156,79 @@ const emptySettings: SettingsForm = {
   codeInterpreterPipIndexUrl: "https://pypi.org/simple",
   webSearchEnabled: false,
   webSearchProvider: "duckduckgo",
-  webSearchMaxResults: 5
+  webSearchMaxResults: 5,
+  registrationEnabled: false,
+  registrationRequireEmailVerification: false,
+  registrationDefaultCostLimitCents: 5000,
+  smtpEnabled: false,
+  smtpHost: "",
+  smtpPort: 587,
+  smtpUsername: "",
+  smtpPassword: "",
+  clearSmtpPassword: false,
+  smtpFromEmail: "",
+  smtpFromName: "",
+  smtpSecure: false,
+  smtpStartTls: true
 };
+
+const adminTabs: Array<{
+  id: AdminTab;
+  label: string;
+  description: string;
+  icon: typeof Settings2;
+}> = [
+  {
+    id: "access",
+    label: "接入",
+    description: "站点、API、推理与上下文",
+    icon: Globe2
+  },
+  {
+    id: "models",
+    label: "模型",
+    description: "映射、展示与启用",
+    icon: SlidersHorizontal
+  },
+  {
+    id: "prompts",
+    label: "提示词",
+    description: "全局和模型专属身份",
+    icon: MessageSquareText
+  },
+  {
+    id: "tools",
+    label: "工具",
+    description: "代码配置与联网搜索",
+    icon: Code2
+  },
+  {
+    id: "mail",
+    label: "邮件",
+    description: "SMTP、STARTTLS 与测试",
+    icon: Mail
+  },
+  {
+    id: "users",
+    label: "用户",
+    description: "注册、余额与账号",
+    icon: UserCog
+  }
+];
 
 export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [users, setUsers] = useState<AdminUserView[]>([]);
   const [settings, setSettings] = useState<AiSettingsView | null>(null);
   const [settingsForm, setSettingsForm] = useState<SettingsForm>(emptySettings);
   const [form, setForm] = useState<CreateForm>(emptyForm);
+  const [activeTab, setActiveTab] = useState<AdminTab>("access");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [testingSettings, setTestingSettings] = useState(false);
+  const [testingSmtp, setTestingSmtp] = useState(false);
+  const [testEmail, setTestEmail] = useState(currentUser.email);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResult | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -207,7 +285,20 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       codeInterpreterPipIndexUrl: nextSettings.codeInterpreterPipIndexUrl,
       webSearchEnabled: nextSettings.webSearchEnabled,
       webSearchProvider: nextSettings.webSearchProvider,
-      webSearchMaxResults: nextSettings.webSearchMaxResults
+      webSearchMaxResults: nextSettings.webSearchMaxResults,
+      registrationEnabled: nextSettings.registrationEnabled,
+      registrationRequireEmailVerification: nextSettings.registrationRequireEmailVerification,
+      registrationDefaultCostLimitCents: nextSettings.registrationDefaultCostLimitCents,
+      smtpEnabled: nextSettings.smtpEnabled,
+      smtpHost: nextSettings.smtpHost,
+      smtpPort: nextSettings.smtpPort,
+      smtpUsername: nextSettings.smtpUsername,
+      smtpPassword: "",
+      clearSmtpPassword: false,
+      smtpFromEmail: nextSettings.smtpFromEmail,
+      smtpFromName: nextSettings.smtpFromName,
+      smtpSecure: nextSettings.smtpSecure,
+      smtpStartTls: nextSettings.smtpStartTls
     });
   }
 
@@ -307,6 +398,29 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     setRefreshingModels(false);
   }
 
+  async function testSmtp() {
+    setTestingSmtp(true);
+    setError("");
+    setNotice("");
+
+    const response = await fetch("/api/admin/settings/smtp/test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to: testEmail })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; message?: string }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "发送测试邮件失败。");
+    } else {
+      setNotice(payload?.message || "测试邮件已发送。");
+    }
+
+    setTestingSmtp(false);
+  }
+
   async function createUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -341,6 +455,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         name: user.name,
         role: user.role,
         active: user.active,
+        emailVerified: user.emailVerified,
         monthlyCostLimitCents: user.monthlyCostLimitCents
       })
     });
@@ -389,6 +504,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     promptPreviewModel?.label || "GPT-5.5"
   );
+  const activeTabMeta = adminTabs.find((tab) => tab.id === activeTab) ?? adminTabs[0];
+  const ActiveTabIcon = activeTabMeta.icon;
 
   return (
     <main className="ios-page app-shell app-route-enter flex flex-col text-stone-950">
@@ -415,33 +532,99 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         {notice ? <Banner tone="success">{notice}</Banner> : null}
         {diagnostics ? <DiagnosticsPanel result={diagnostics} /> : null}
 
+        <nav className="ios-panel motion-lift mb-5 grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-6">
+          {adminTabs.map((tab) => {
+            const TabIcon = tab.icon;
+            const selected = activeTab === tab.id;
+
+            return (
+              <button
+                className={`app-action-button flex min-h-14 items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
+                  selected
+                    ? "bg-white text-stone-950 shadow-sm"
+                    : "text-stone-600 hover:bg-white/60"
+                }`}
+                data-testid={`admin-tab-${tab.id}`}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                type="button"
+              >
+                <span
+                  className={`grid size-8 shrink-0 place-items-center rounded-lg ${
+                    selected ? "bg-[color:var(--claude-accent)] text-white" : "bg-white/70"
+                  }`}
+                >
+                  <TabIcon className="size-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{tab.label}</span>
+                  <span className="block truncate text-[11px] ios-muted">{tab.description}</span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {activeTab !== "users" ? (
         <section className="ios-panel motion-lift mb-5 p-4">
           <div className="mb-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
-                <Globe2 className="size-4" />
+                <ActiveTabIcon className="size-4" />
               </div>
               <div>
-                <h2 className="text-base font-semibold">站点与 API 设置</h2>
+                <h2 className="text-base font-semibold">{activeTabMeta.label}</h2>
                 <p className="text-xs ios-muted">
-                  Key 已隐藏保存：{settings?.hasApiKey ? settings.apiKeyPreview : "未设置"}
+                  {activeTabMeta.description}
                 </p>
               </div>
             </div>
             <div className="flex w-full gap-2 sm:w-auto">
-              <button
-                className="ios-button-secondary app-action-button flex h-9 flex-1 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50 sm:flex-none"
-                disabled={testingSettings}
-                onClick={testConnection}
-                type="button"
-              >
-                {testingSettings ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Activity className="size-4" />
-                )}
-                测试连接
-              </button>
+              {activeTab === "access" ? (
+                <button
+                  className="ios-button-secondary app-action-button flex h-9 flex-1 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50 sm:flex-none"
+                  disabled={testingSettings}
+                  onClick={testConnection}
+                  type="button"
+                >
+                  {testingSettings ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Activity className="size-4" />
+                  )}
+                  测试连接
+                </button>
+              ) : null}
+              {activeTab === "models" ? (
+                <button
+                  className="ios-button-secondary app-action-button flex h-9 flex-1 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50 sm:flex-none"
+                  disabled={refreshingModels}
+                  onClick={refreshUpstreamModels}
+                  type="button"
+                >
+                  {refreshingModels ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  刷新模型
+                </button>
+              ) : null}
+              {activeTab === "mail" ? (
+                <button
+                  className="ios-button-secondary app-action-button flex h-9 flex-1 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50 sm:flex-none"
+                  disabled={testingSmtp}
+                  onClick={testSmtp}
+                  type="button"
+                >
+                  {testingSmtp ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Mail className="size-4" />
+                  )}
+                  测试邮件
+                </button>
+              ) : null}
               <button className="ios-icon-button app-action-button shrink-0" onClick={loadAll} title="刷新" type="button">
                 <RefreshCw className="size-4" />
               </button>
@@ -449,528 +632,769 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
           </div>
 
           <form className="grid gap-3 lg:grid-cols-6" onSubmit={saveSettings}>
-            <label className="block lg:col-span-2">
-              <span className="mb-1 block text-xs font-medium ios-muted">站点名称</span>
-              <input
-                className="ios-input w-full"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({ ...current, siteName: event.target.value }))
-                }
-                placeholder="Team AI Gateway"
-                value={settingsForm.siteName}
-              />
-            </label>
-            <label className="block lg:col-span-4">
-              <span className="mb-1 block text-xs font-medium ios-muted">站点地址</span>
-              <input
-                className="ios-input w-full"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({ ...current, siteUrl: event.target.value }))
-                }
-                placeholder="https://chat.example.com"
-                value={settingsForm.siteUrl}
-              />
-            </label>
-            <label className="block lg:col-span-3">
-              <span className="mb-1 block text-xs font-medium ios-muted">API 地址</span>
-              <input
-                className="ios-input w-full"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({ ...current, apiBaseUrl: event.target.value }))
-                }
-                placeholder="https://api.openai.com/v1"
-                value={settingsForm.apiBaseUrl}
-              />
-            </label>
-            <label className="block lg:col-span-2">
-              <span className="mb-1 block text-xs font-medium ios-muted">API Key</span>
-              <input
-                className="ios-input w-full"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({
-                    ...current,
-                    apiKey: event.target.value,
-                    clearApiKey: false
-                  }))
-                }
-                placeholder={settings?.hasApiKey ? "输入新 Key 后替换" : "输入 API Key"}
-                type="password"
-                value={settingsForm.apiKey}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium ios-muted">Org ID</span>
-              <input
-                className="ios-input w-full"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({ ...current, orgId: event.target.value }))
-                }
-                placeholder="可选"
-                value={settingsForm.orgId}
-              />
-            </label>
-            <label className="block lg:col-span-2">
-              <span className="mb-1 block text-xs font-medium ios-muted">默认推理强度</span>
-              <select
-                className="ios-select w-full"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({
-                    ...current,
-                    defaultReasoningEffort: event.target.value as ReasoningEffort
-                  }))
-                }
-                value={settingsForm.defaultReasoningEffort}
-              >
-                {REASONING_EFFORTS.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block lg:col-span-3">
-              <span className="mb-1 block text-xs font-medium ios-muted">推理参数格式</span>
-              <select
-                className="ios-select w-full"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({
-                    ...current,
-                    reasoningParamMode: event.target.value as ReasoningParamMode
-                  }))
-                }
-                value={settingsForm.reasoningParamMode}
-              >
-                {REASONING_PARAM_MODES.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium ios-muted">长上下文阈值</span>
-              <input
-                className="ios-input w-full"
-                max={MAX_LONG_CONTEXT_THRESHOLD_TOKENS}
-                min={8000}
-                onChange={(event) =>
-                  setSettingsForm((current) => ({
-                    ...current,
-                    longContextThresholdTokens: Number(event.target.value)
-                  }))
-                }
-                type="number"
-                value={settingsForm.longContextThresholdTokens}
-              />
-              <span className="mt-1 block text-[11px] ios-muted">
-                默认模型按 {formatNumber(DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens 节省成本；启用 GPT-5.5-1M 后可使用 {formatNumber(MAX_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens。
-              </span>
-            </label>
-            <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
-              <input
-                checked={settingsForm.contextCompressionEnabled}
-                className="size-4 accent-[color:var(--claude-accent)]"
-                onChange={(event) =>
-                  setSettingsForm((current) => ({
-                    ...current,
-                    contextCompressionEnabled: event.target.checked
-                  }))
-                }
-                type="checkbox"
-              />
-              自动压缩旧上下文
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium ios-muted">压缩触发比例</span>
-              <input
-                className="ios-input w-full"
-                max={95}
-                min={50}
-                onChange={(event) =>
-                  setSettingsForm((current) => ({
-                    ...current,
-                    contextCompressionThresholdPercent: Number(event.target.value)
-                  }))
-                }
-                type="number"
-                value={settingsForm.contextCompressionThresholdPercent}
-              />
-            </label>
-
-            <div className="ios-list lg:col-span-6">
-              <div className="ios-cell px-3 py-2">
-                <p className="text-xs font-semibold ios-muted">身份与系统提示词</p>
-              </div>
-              <div className="grid gap-3 p-3">
-                <div className="grid gap-3 lg:grid-cols-3">
-                  <label className="block">
-                    <span className="mb-1 block text-xs font-medium ios-muted">注入模式</span>
-                    <select
-                      className="ios-select w-full"
-                      onChange={(event) =>
-                        setSettingsForm((current) => ({
-                          ...current,
-                          systemPromptMode: event.target.value as SystemPromptMode
-                        }))
-                      }
-                      value={settingsForm.systemPromptMode}
-                    >
-                      {SYSTEM_PROMPT_MODES.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-2">
-                    {SYSTEM_PROMPT_MODES.find((item) => item.id === settingsForm.systemPromptMode)
-                      ?.description || ""}
+            {activeTab === "access" ? (
+              <>
+                <div className="ios-list lg:col-span-6">
+                  <div className="ios-cell px-3 py-2">
+                    <p className="text-xs font-semibold ios-muted">
+                      Key 已隐藏保存：{settings?.hasApiKey ? settings.apiKeyPreview : "未设置"}
+                    </p>
+                  </div>
+                  <div className="grid gap-3 p-3 lg:grid-cols-6">
+                    <label className="block lg:col-span-2">
+                      <span className="mb-1 block text-xs font-medium ios-muted">站点名称</span>
+                      <input
+                        className="ios-input w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, siteName: event.target.value }))
+                        }
+                        placeholder="Team AI Gateway"
+                        value={settingsForm.siteName}
+                      />
+                    </label>
+                    <label className="block lg:col-span-4">
+                      <span className="mb-1 block text-xs font-medium ios-muted">站点地址</span>
+                      <input
+                        className="ios-input w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, siteUrl: event.target.value }))
+                        }
+                        placeholder="https://chat.example.com"
+                        value={settingsForm.siteUrl}
+                      />
+                    </label>
+                    <label className="block lg:col-span-3">
+                      <span className="mb-1 block text-xs font-medium ios-muted">API 地址</span>
+                      <input
+                        className="ios-input w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, apiBaseUrl: event.target.value }))
+                        }
+                        placeholder="https://api.openai.com/v1"
+                        value={settingsForm.apiBaseUrl}
+                      />
+                    </label>
+                    <label className="block lg:col-span-2">
+                      <span className="mb-1 block text-xs font-medium ios-muted">API Key</span>
+                      <input
+                        className="ios-input w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            apiKey: event.target.value,
+                            clearApiKey: false
+                          }))
+                        }
+                        placeholder={settings?.hasApiKey ? "输入新 Key 后替换" : "输入 API Key"}
+                        type="password"
+                        value={settingsForm.apiKey}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">Org ID</span>
+                      <input
+                        className="ios-input w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, orgId: event.target.value }))
+                        }
+                        placeholder="可选"
+                        value={settingsForm.orgId}
+                      />
+                    </label>
+                    <label className="block lg:col-span-2">
+                      <span className="mb-1 block text-xs font-medium ios-muted">默认推理强度</span>
+                      <select
+                        className="ios-select w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            defaultReasoningEffort: event.target.value as ReasoningEffort
+                          }))
+                        }
+                        value={settingsForm.defaultReasoningEffort}
+                      >
+                        {REASONING_EFFORTS.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block lg:col-span-2">
+                      <span className="mb-1 block text-xs font-medium ios-muted">推理参数格式</span>
+                      <select
+                        className="ios-select w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            reasoningParamMode: event.target.value as ReasoningParamMode
+                          }))
+                        }
+                        value={settingsForm.reasoningParamMode}
+                      >
+                        {REASONING_PARAM_MODES.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block lg:col-span-2">
+                      <span className="mb-1 block text-xs font-medium ios-muted">长上下文阈值</span>
+                      <input
+                        className="ios-input w-full"
+                        max={MAX_LONG_CONTEXT_THRESHOLD_TOKENS}
+                        min={8000}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            longContextThresholdTokens: Number(event.target.value)
+                          }))
+                        }
+                        type="number"
+                        value={settingsForm.longContextThresholdTokens}
+                      />
+                    </label>
+                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                      <input
+                        checked={settingsForm.contextCompressionEnabled}
+                        className="size-4 accent-[color:var(--claude-accent)]"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            contextCompressionEnabled: event.target.checked
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                      自动压缩旧上下文
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">压缩触发比例</span>
+                      <input
+                        className="ios-input w-full"
+                        max={95}
+                        min={50}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            contextCompressionThresholdPercent: Number(event.target.value)
+                          }))
+                        }
+                        type="number"
+                        value={settingsForm.contextCompressionThresholdPercent}
+                      />
+                    </label>
+                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                      <input
+                        checked={settingsForm.mockResponses}
+                        className="size-4 accent-[color:var(--claude-accent)]"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            mockResponses: event.target.checked
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                      Mock 模式
+                    </label>
+                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                      <input
+                        checked={settingsForm.clearApiKey}
+                        className="size-4 accent-red-500"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            clearApiKey: event.target.checked,
+                            apiKey: event.target.checked ? "" : current.apiKey
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                      清空 Key
+                    </label>
                   </div>
                 </div>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium ios-muted">全局追加/自定义系统提示词</span>
-                  <textarea
-                    className="ios-input min-h-28 w-full resize-y py-2 text-sm leading-6"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        customSystemPrompt: event.target.value
-                      }))
-                    }
-                    placeholder="支持 {model}、{date}、{time} 和 {timezone}。默认 + 追加模式下会保留内置模板。"
-                    value={settingsForm.customSystemPrompt}
-                  />
-                </label>
-                <details className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2">
-                  <summary className="cursor-pointer select-none text-xs font-semibold text-stone-700">
-                    查看内置默认提示词
-                  </summary>
-                  <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-stone-900 p-3 text-xs leading-5 text-stone-50">
-                    {defaultPromptPreview}
-                  </pre>
-                </details>
-                <div>
-                  <p className="mb-2 text-xs font-medium ios-muted">模型专属系统提示词</p>
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    {(settings?.chatModels ?? []).map((item) => (
+              </>
+            ) : null}
+
+            {activeTab === "models" ? (
+              <>
+                <div className="ios-list lg:col-span-6">
+                  <div className="ios-cell flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                    <span className="text-xs font-semibold ios-muted">模型映射</span>
+                    <button
+                      className="ios-button-secondary app-action-button flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-50"
+                      disabled={refreshingModels}
+                      onClick={refreshUpstreamModels}
+                      type="button"
+                    >
+                      {refreshingModels ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="size-3.5" />
+                      )}
+                      刷新上游模型
+                    </button>
+                  </div>
+                  <div className="grid gap-3 p-3 md:grid-cols-2">
+                    {CHAT_MODELS.map((item) => (
                       <label className="block" key={item.id}>
-                        <span className="mb-1 block truncate text-xs font-medium ios-muted">
-                          {item.label}
+                        <span className="mb-1 block text-xs font-medium ios-muted">
+                          {item.label} 发给上游的模型 ID
                         </span>
-                        <textarea
-                          className="ios-input min-h-24 w-full resize-y py-2 text-sm leading-6"
+                        <input
+                          className="ios-input w-full"
                           onChange={(event) =>
                             setSettingsForm((current) => ({
                               ...current,
-                              modelSystemPrompts: {
-                                ...current.modelSystemPrompts,
+                              chatModelMap: {
+                                ...current.chatModelMap,
                                 [item.id]: event.target.value
                               }
                             }))
                           }
-                          placeholder="留空则使用全局设置。支持 {model}、{date}、{time} 和 {timezone}。"
-                          value={settingsForm.modelSystemPrompts[item.id] || ""}
+                          placeholder={DEFAULT_UPSTREAM_MODEL_MAP[item.id]}
+                          value={settingsForm.chatModelMap[item.id] || ""}
                         />
                       </label>
                     ))}
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">
+                        image2 发给上游的模型 ID
+                      </span>
+                      <input
+                        className="ios-input w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            imageModelId: event.target.value
+                          }))
+                        }
+                        placeholder={DEFAULT_IMAGE_UPSTREAM_MODEL}
+                        value={settingsForm.imageModelId}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="ios-list lg:col-span-6">
+                  <div className="ios-cell px-3 py-2 text-xs font-semibold ios-muted">
+                    模型展示
+                  </div>
+                  <div className="grid gap-3 p-3">
+                    {(settings?.chatModels ?? []).map((item) => {
+                      const display = settingsForm.chatModelDisplay[item.id] || {};
+
+                      return (
+                        <div className="rounded-lg bg-white/70 p-3" key={item.id}>
+                          <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+                            <span className="truncate text-xs font-semibold text-slate-700">
+                              {item.id}
+                            </span>
+                            <span className="shrink-0 text-[11px] ios-muted">
+                              {item.source === "upstream" ? "上游" : "内置"}
+                            </span>
+                          </div>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium ios-muted">显示名称</span>
+                              <input
+                                className="ios-input w-full"
+                                onChange={(event) =>
+                                  setSettingsForm((current) => ({
+                                    ...current,
+                                    chatModelDisplay: {
+                                      ...current.chatModelDisplay,
+                                      [item.id]: {
+                                        ...current.chatModelDisplay[item.id],
+                                        label: event.target.value
+                                      }
+                                    }
+                                  }))
+                                }
+                                placeholder={item.label}
+                                value={display.label || ""}
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium ios-muted">描述</span>
+                              <input
+                                className="ios-input w-full"
+                                onChange={(event) =>
+                                  setSettingsForm((current) => ({
+                                    ...current,
+                                    chatModelDisplay: {
+                                      ...current.chatModelDisplay,
+                                      [item.id]: {
+                                        ...current.chatModelDisplay[item.id],
+                                        contextNote: event.target.value
+                                      }
+                                    }
+                                  }))
+                                }
+                                placeholder={item.contextNote}
+                                value={display.contextNote || ""}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="ios-list lg:col-span-6">
+                  <div className="ios-cell px-3 py-2 text-xs font-semibold ios-muted">
+                    启用模型
+                  </div>
+                  <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {(settings?.chatModels ?? []).map((item) => (
+                      <ModelToggle
+                        checked={settingsForm.enabledChatModelIds.includes(item.id)}
+                        key={item.id}
+                        model={item}
+                        onChange={(checked) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            enabledChatModelIds: checked
+                              ? [...new Set([...current.enabledChatModelIds, item.id])]
+                              : current.enabledChatModelIds.filter((id) => id !== item.id)
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {activeTab === "prompts" ? (
+              <div className="ios-list lg:col-span-6">
+                <div className="ios-cell px-3 py-2">
+                  <p className="text-xs font-semibold ios-muted">身份与系统提示词</p>
+                </div>
+                <div className="grid gap-3 p-3">
+                  <div className="grid gap-3 lg:grid-cols-3">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">注入模式</span>
+                      <select
+                        className="ios-select w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            systemPromptMode: event.target.value as SystemPromptMode
+                          }))
+                        }
+                        value={settingsForm.systemPromptMode}
+                      >
+                        {SYSTEM_PROMPT_MODES.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-2">
+                      {SYSTEM_PROMPT_MODES.find((item) => item.id === settingsForm.systemPromptMode)
+                        ?.description || ""}
+                    </div>
+                  </div>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium ios-muted">全局追加/自定义系统提示词</span>
+                    <textarea
+                      className="ios-input min-h-28 w-full resize-y py-2 text-sm leading-6"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          customSystemPrompt: event.target.value
+                        }))
+                      }
+                      placeholder="支持 {model}、{date}、{time} 和 {timezone}。默认 + 追加模式下会保留内置模板。"
+                      value={settingsForm.customSystemPrompt}
+                    />
+                  </label>
+                  <details className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2">
+                    <summary className="cursor-pointer select-none text-xs font-semibold text-stone-700">
+                      查看内置默认提示词
+                    </summary>
+                    <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-stone-900 p-3 text-xs leading-5 text-stone-50">
+                      {defaultPromptPreview}
+                    </pre>
+                  </details>
+                  <div>
+                    <p className="mb-2 text-xs font-medium ios-muted">模型专属系统提示词</p>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {(settings?.chatModels ?? []).map((item) => (
+                        <label className="block" key={item.id}>
+                          <span className="mb-1 block truncate text-xs font-medium ios-muted">
+                            {item.label}
+                          </span>
+                          <textarea
+                            className="ios-input min-h-24 w-full resize-y py-2 text-sm leading-6"
+                            onChange={(event) =>
+                              setSettingsForm((current) => ({
+                                ...current,
+                                modelSystemPrompts: {
+                                  ...current.modelSystemPrompts,
+                                  [item.id]: event.target.value
+                                }
+                              }))
+                            }
+                            placeholder="留空则使用全局设置。支持 {model}、{date}、{time} 和 {timezone}。"
+                            value={settingsForm.modelSystemPrompts[item.id] || ""}
+                          />
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : null}
 
-            <div className="ios-list lg:col-span-6">
-              <div className="ios-cell flex items-center gap-2 px-3 py-2">
-                <Code2 className="size-4 text-[color:var(--claude-accent)]" />
-                <span className="text-xs font-semibold ios-muted">代码解释器沙箱</span>
-              </div>
-              <div className="grid gap-3 p-3 lg:grid-cols-3">
-                <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
-                  <input
-                    checked={settingsForm.codeInterpreterEnabled}
-                    className="size-4 accent-[color:var(--claude-accent)]"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        codeInterpreterEnabled: event.target.checked
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  保留代码解释器配置
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium ios-muted">沙箱</span>
-                  <select
-                    className="ios-select w-full"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        codeInterpreterSandbox: event.target.value
-                      }))
-                    }
-                    value={settingsForm.codeInterpreterSandbox}
+            {activeTab === "tools" ? (
+              <>
+                <div className="ios-list lg:col-span-6">
+                  <div className="ios-cell flex items-center gap-2 px-3 py-2">
+                    <Code2 className="size-4 text-[color:var(--claude-accent)]" />
+                    <span className="text-xs font-semibold ios-muted">代码解释器沙箱</span>
+                  </div>
+                  <div className="grid gap-3 p-3 lg:grid-cols-3">
+                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                      <input
+                        checked={settingsForm.codeInterpreterEnabled}
+                        className="size-4 accent-[color:var(--claude-accent)]"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            codeInterpreterEnabled: event.target.checked
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                      保留代码解释器配置
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">沙箱</span>
+                      <select
+                        className="ios-select w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            codeInterpreterSandbox: event.target.value
+                          }))
+                        }
+                        value={settingsForm.codeInterpreterSandbox}
+                      >
+                        <option value="docker">Docker 容器</option>
+                      </select>
+                    </label>
+                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                      <input
+                        checked={settingsForm.codeInterpreterAllowPackageInstall}
+                        className="size-4 accent-[color:var(--claude-accent)]"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            codeInterpreterAllowPackageInstall: event.target.checked
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                      允许沙箱内安装包
+                    </label>
+                    <label className="block lg:col-span-2">
+                      <span className="mb-1 block text-xs font-medium ios-muted">Python 包源</span>
+                      <input
+                        className="ios-input w-full"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            codeInterpreterPipIndexUrl: event.target.value
+                          }))
+                        }
+                        placeholder="https://pypi.org/simple"
+                        value={settingsForm.codeInterpreterPipIndexUrl}
+                      />
+                    </label>
+                    <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600">
+                      当前聊天不会自动调用代码解释器；附件会直接交给主模型，必要时仅使用内置文本解析作为兜底。
+                    </div>
+                  </div>
+                </div>
+                <div className="ios-list lg:col-span-6">
+                  <div className="ios-cell flex items-center gap-2 px-3 py-2">
+                    <Globe2 className="size-4 text-[color:var(--claude-accent)]" />
+                    <span className="text-xs font-semibold ios-muted">联网搜索</span>
+                  </div>
+                  <div className="grid gap-3 p-3 lg:grid-cols-2">
+                    <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                      <input
+                        checked={settingsForm.webSearchEnabled}
+                        className="size-4 accent-[color:var(--claude-accent)]"
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            webSearchEnabled: event.target.checked
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                      允许用户联网搜索
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">来源数量</span>
+                      <input
+                        className="ios-input w-full"
+                        max={8}
+                        min={1}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({
+                            ...current,
+                            webSearchMaxResults: Number(event.target.value)
+                          }))
+                        }
+                        type="number"
+                        value={settingsForm.webSearchMaxResults}
+                      />
+                    </label>
+                    <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-2">
+                      开启后，用户可在聊天输入框为单次消息打开联网搜索；后端通过 DuckDuckGo 搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {activeTab === "mail" ? (
+              <div className="ios-list lg:col-span-6">
+                <div className="ios-cell flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <span className="text-xs font-semibold ios-muted">
+                    SMTP 密码：{settings?.smtpHasPassword ? settings.smtpPasswordPreview : "未设置"}
+                  </span>
+                  <button
+                    className="ios-button-secondary app-action-button flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-50"
+                    disabled={testingSmtp}
+                    onClick={testSmtp}
+                    type="button"
                   >
-                    <option value="docker">Docker 容器</option>
-                  </select>
-                </label>
-                <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
-                  <input
-                    checked={settingsForm.codeInterpreterAllowPackageInstall}
-                    className="size-4 accent-[color:var(--claude-accent)]"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        codeInterpreterAllowPackageInstall: event.target.checked
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  允许沙箱内安装包
-                </label>
-                <label className="block lg:col-span-2">
-                  <span className="mb-1 block text-xs font-medium ios-muted">Python 包源</span>
-                  <input
-                    className="ios-input w-full"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        codeInterpreterPipIndexUrl: event.target.value
-                      }))
-                    }
-                    placeholder="https://pypi.org/simple"
-                    value={settingsForm.codeInterpreterPipIndexUrl}
-                  />
-                </label>
-                <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600">
-                  当前聊天不会自动调用代码解释器；附件会直接交给主模型，必要时仅使用内置文本解析作为兜底。
+                    {testingSmtp ? <Loader2 className="size-3.5 animate-spin" /> : <Mail className="size-3.5" />}
+                    发送测试邮件
+                  </button>
                 </div>
-              </div>
-            </div>
-
-            <div className="ios-list lg:col-span-6">
-              <div className="ios-cell flex items-center gap-2 px-3 py-2">
-                <Globe2 className="size-4 text-[color:var(--claude-accent)]" />
-                <span className="text-xs font-semibold ios-muted">联网搜索</span>
-              </div>
-              <div className="grid gap-3 p-3 lg:grid-cols-2">
-                <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
-                  <input
-                    checked={settingsForm.webSearchEnabled}
-                    className="size-4 accent-[color:var(--claude-accent)]"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        webSearchEnabled: event.target.checked
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  允许用户联网搜索
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium ios-muted">来源数量</span>
-                  <input
-                    className="ios-input w-full"
-                    max={8}
-                    min={1}
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        webSearchMaxResults: Number(event.target.value)
-                      }))
-                    }
-                    type="number"
-                    value={settingsForm.webSearchMaxResults}
-                  />
-                </label>
-                <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600 lg:col-span-2">
-                  开启后，用户可在聊天输入框为单次消息打开联网搜索；后端通过 DuckDuckGo 搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 lg:col-span-5">
-              <label className="flex h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
-                <input
-                  checked={settingsForm.mockResponses}
-                  className="size-4 accent-[color:var(--claude-accent)]"
-                  onChange={(event) =>
-                    setSettingsForm((current) => ({
-                      ...current,
-                      mockResponses: event.target.checked
-                    }))
-                  }
-                  type="checkbox"
-                />
-                Mock 模式
-              </label>
-              <label className="flex h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
-                <input
-                  checked={settingsForm.clearApiKey}
-                  className="size-4 accent-red-500"
-                  onChange={(event) =>
-                    setSettingsForm((current) => ({
-                      ...current,
-                      clearApiKey: event.target.checked,
-                      apiKey: event.target.checked ? "" : current.apiKey
-                    }))
-                  }
-                  type="checkbox"
-                />
-                清空 Key
-              </label>
-            </div>
-            <button
-              className="ios-button-primary app-action-button flex items-center justify-center gap-2 px-3 disabled:opacity-50"
-              disabled={savingSettings}
-              type="submit"
-            >
-              {savingSettings ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-              保存
-            </button>
-            <div className="ios-list lg:col-span-6">
-              <div className="ios-cell flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                <span className="text-xs font-semibold ios-muted">模型映射</span>
-                <button
-                  className="ios-button-secondary app-action-button flex h-8 items-center gap-2 px-3 text-xs disabled:opacity-50"
-                  disabled={refreshingModels}
-                  onClick={refreshUpstreamModels}
-                  type="button"
-                >
-                  {refreshingModels ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-3.5" />
-                  )}
-                  刷新上游模型
-                </button>
-              </div>
-              <div className="grid gap-3 p-3 md:grid-cols-2">
-                {CHAT_MODELS.map((item) => (
-                  <label className="block" key={item.id}>
-                    <span className="mb-1 block text-xs font-medium ios-muted">
-                      {item.label} 发给上游的模型 ID
-                    </span>
+                <div className="grid gap-3 p-3 lg:grid-cols-6">
+                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <input
+                      checked={settingsForm.smtpEnabled}
+                      className="size-4 accent-[color:var(--claude-accent)]"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          smtpEnabled: event.target.checked
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    启用邮件服务
+                  </label>
+                  <label className="block lg:col-span-3">
+                    <span className="mb-1 block text-xs font-medium ios-muted">SMTP 主机</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, smtpHost: event.target.value }))
+                      }
+                      placeholder="smtp.example.com"
+                      value={settingsForm.smtpHost}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium ios-muted">端口</span>
+                    <input
+                      className="ios-input w-full"
+                      max={65535}
+                      min={1}
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, smtpPort: Number(event.target.value) }))
+                      }
+                      type="number"
+                      value={settingsForm.smtpPort}
+                    />
+                  </label>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">账号</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, smtpUsername: event.target.value }))
+                      }
+                      value={settingsForm.smtpUsername}
+                    />
+                  </label>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">密码</span>
                     <input
                       className="ios-input w-full"
                       onChange={(event) =>
                         setSettingsForm((current) => ({
                           ...current,
-                          chatModelMap: {
-                            ...current.chatModelMap,
-                            [item.id]: event.target.value
-                          }
+                          smtpPassword: event.target.value,
+                          clearSmtpPassword: false
                         }))
                       }
-                      placeholder={DEFAULT_UPSTREAM_MODEL_MAP[item.id]}
-                      value={settingsForm.chatModelMap[item.id] || ""}
+                      placeholder={settings?.smtpHasPassword ? "输入新密码后替换" : "SMTP 密码"}
+                      type="password"
+                      value={settingsForm.smtpPassword}
                     />
                   </label>
-                ))}
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium ios-muted">
-                    image2 发给上游的模型 ID
-                  </span>
-                  <input
-                    className="ios-input w-full"
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        imageModelId: event.target.value
-                      }))
-                    }
-                    placeholder={DEFAULT_IMAGE_UPSTREAM_MODEL}
-                    value={settingsForm.imageModelId}
-                  />
-                </label>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">发件邮箱</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, smtpFromEmail: event.target.value }))
+                      }
+                      placeholder="noreply@example.com"
+                      type="email"
+                      value={settingsForm.smtpFromEmail}
+                    />
+                  </label>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">发件名称</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, smtpFromName: event.target.value }))
+                      }
+                      placeholder={settingsForm.siteName}
+                      value={settingsForm.smtpFromName}
+                    />
+                  </label>
+                  <label className="block lg:col-span-2">
+                    <span className="mb-1 block text-xs font-medium ios-muted">测试收件邮箱</span>
+                    <input
+                      className="ios-input w-full"
+                      onChange={(event) => setTestEmail(event.target.value)}
+                      type="email"
+                      value={testEmail}
+                    />
+                  </label>
+                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <input
+                      checked={settingsForm.smtpSecure}
+                      className="size-4 accent-[color:var(--claude-accent)]"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, smtpSecure: event.target.checked }))
+                      }
+                      type="checkbox"
+                    />
+                    SSL/TLS
+                  </label>
+                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <input
+                      checked={settingsForm.smtpStartTls}
+                      className="size-4 accent-[color:var(--claude-accent)]"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({ ...current, smtpStartTls: event.target.checked }))
+                      }
+                      type="checkbox"
+                    />
+                    STARTTLS
+                  </label>
+                  <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">
+                    <input
+                      checked={settingsForm.clearSmtpPassword}
+                      className="size-4 accent-red-500"
+                      onChange={(event) =>
+                        setSettingsForm((current) => ({
+                          ...current,
+                          clearSmtpPassword: event.target.checked,
+                          smtpPassword: event.target.checked ? "" : current.smtpPassword
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    清空 SMTP 密码
+                  </label>
+                </div>
               </div>
-            </div>
-            <div className="ios-list lg:col-span-6">
-              <div className="ios-cell px-3 py-2 text-xs font-semibold ios-muted">
-                模型展示
-              </div>
-              <div className="grid gap-3 p-3">
-                {(settings?.chatModels ?? []).map((item) => {
-                  const display = settingsForm.chatModelDisplay[item.id] || {};
+            ) : null}
 
-                  return (
-                    <div className="rounded-lg bg-white/70 p-3" key={item.id}>
-                      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
-                        <span className="truncate text-xs font-semibold text-slate-700">
-                          {item.id}
-                        </span>
-                        <span className="shrink-0 text-[11px] ios-muted">
-                          {item.source === "upstream" ? "上游" : "内置"}
-                        </span>
-                      </div>
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-medium ios-muted">显示名称</span>
-                          <input
-                            className="ios-input w-full"
-                            onChange={(event) =>
-                              setSettingsForm((current) => ({
-                                ...current,
-                                chatModelDisplay: {
-                                  ...current.chatModelDisplay,
-                                  [item.id]: {
-                                    ...current.chatModelDisplay[item.id],
-                                    label: event.target.value
-                                  }
-                                }
-                              }))
-                            }
-                            placeholder={item.label}
-                            value={display.label || ""}
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-medium ios-muted">描述</span>
-                          <input
-                            className="ios-input w-full"
-                            onChange={(event) =>
-                              setSettingsForm((current) => ({
-                                ...current,
-                                chatModelDisplay: {
-                                  ...current.chatModelDisplay,
-                                  [item.id]: {
-                                    ...current.chatModelDisplay[item.id],
-                                    contextNote: event.target.value
-                                  }
-                                }
-                              }))
-                            }
-                            placeholder={item.contextNote}
-                            value={display.contextNote || ""}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="flex justify-end lg:col-span-6">
+              <button
+                className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-50"
+                disabled={savingSettings}
+                type="submit"
+              >
+                {savingSettings ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+                保存
+              </button>
             </div>
-            <div className="ios-list lg:col-span-6">
-              <div className="ios-cell px-3 py-2 text-xs font-semibold ios-muted">
-                启用模型
-              </div>
-              <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
-                {(settings?.chatModels ?? []).map((item) => (
-                  <ModelToggle
-                    checked={settingsForm.enabledChatModelIds.includes(item.id)}
-                    key={item.id}
-                    model={item}
-                    onChange={(checked) =>
-                      setSettingsForm((current) => ({
-                        ...current,
-                        enabledChatModelIds: checked
-                          ? [...new Set([...current.enabledChatModelIds, item.id])]
-                          : current.enabledChatModelIds.filter((id) => id !== item.id)
-                      }))
-                    }
-                  />
-                ))}
-              </div>
+          </form>
+
+
+        </section>
+        ) : null}
+
+        {activeTab === "users" ? (
+        <>
+        <section className="ios-panel motion-lift mb-5 p-4">
+          <div className="mb-4 flex items-center gap-2">
+            <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
+              <UserCog className="size-4" />
+            </div>
+            <h2 className="text-base font-semibold">注册设置</h2>
+          </div>
+          <form className="grid gap-3 lg:grid-cols-6" onSubmit={saveSettings}>
+            <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700 lg:col-span-2">
+              <input
+                checked={settingsForm.registrationEnabled}
+                className="size-4 accent-[color:var(--claude-accent)]"
+                onChange={(event) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    registrationEnabled: event.target.checked
+                  }))
+                }
+                type="checkbox"
+              />
+              开放注册
+            </label>
+            <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700 lg:col-span-2">
+              <input
+                checked={settingsForm.registrationRequireEmailVerification}
+                className="size-4 accent-[color:var(--claude-accent)]"
+                onChange={(event) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    registrationRequireEmailVerification: event.target.checked
+                  }))
+                }
+                type="checkbox"
+              />
+              注册后验证邮箱
+            </label>
+            <label className="block lg:col-span-2">
+              <span className="mb-1 block text-xs font-medium ios-muted">注册默认余额（美元）</span>
+              <CostLimitInput
+                className="ios-input w-full"
+                onChange={(value) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    registrationDefaultCostLimitCents: value
+                  }))
+                }
+                value={settingsForm.registrationDefaultCostLimitCents}
+              />
+            </label>
+            <div className="flex justify-end lg:col-span-6">
+              <button
+                className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-50"
+                disabled={savingSettings}
+                type="submit"
+              >
+                {savingSettings ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+                保存
+              </button>
             </div>
           </form>
         </section>
@@ -1049,12 +1473,13 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
           ) : (
             <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1000px] border-collapse text-left text-sm">
                 <thead className="bg-white/50 text-xs text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">用户</th>
                     <th className="px-4 py-3 font-semibold">角色</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
+                    <th className="px-4 py-3 font-semibold">验证</th>
                     <th className="px-4 py-3 font-semibold">永久余额</th>
                     <th className="px-4 py-3 font-semibold">累计消费</th>
                     <th className="px-4 py-3 font-semibold">操作</th>
@@ -1102,6 +1527,20 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         >
                           {user.active ? <Check className="size-4" /> : <X className="size-4" />}
                           {user.active ? "启用" : "停用"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          className={`app-action-button flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${
+                            user.emailVerified
+                              ? "bg-green-50 text-green-700"
+                              : "bg-amber-50 text-amber-700"
+                          }`}
+                          onClick={() => patchUser(user.id, { emailVerified: !user.emailVerified })}
+                          type="button"
+                        >
+                          {user.emailVerified ? <Check className="size-4" /> : <Mail className="size-4" />}
+                          {user.emailVerified ? "已验证" : "未验证"}
                         </button>
                       </td>
                       <td className="px-4 py-3">
@@ -1203,6 +1642,21 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         {user.active ? "启用" : "停用"}
                       </button>
                     </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">邮箱</span>
+                      <button
+                        className={`app-action-button flex h-9 w-full items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold ${
+                          user.emailVerified
+                            ? "bg-green-50 text-green-700"
+                            : "bg-amber-50 text-amber-700"
+                        }`}
+                        onClick={() => patchUser(user.id, { emailVerified: !user.emailVerified })}
+                        type="button"
+                      >
+                        {user.emailVerified ? <Check className="size-4" /> : <Mail className="size-4" />}
+                        {user.emailVerified ? "已验证" : "未验证"}
+                      </button>
+                    </label>
                     <label className="block col-span-2">
                       <span className="mb-1 block text-xs font-medium ios-muted">永久余额（美元）</span>
                       <CostLimitInput
@@ -1255,6 +1709,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             </>
           )}
         </section>
+        </>
+        ) : null}
         </div>
       </div>
     </main>

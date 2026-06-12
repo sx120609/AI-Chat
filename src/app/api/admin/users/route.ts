@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       name: true,
       role: true,
       active: true,
+      emailVerified: true,
       monthlyCostLimitCents: true,
       quotaResetAt: true,
       createdAt: true,
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
         name: name || email,
         passwordHash: await hashPassword(password),
         role: body.role === "ADMIN" ? "ADMIN" : "USER",
+        emailVerified: true,
         monthlyCostLimitCents: coerceInt(body.monthlyCostLimitCents, 5000, 1)
       },
       select: {

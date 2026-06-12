@@ -320,6 +320,20 @@ WEB_SEARCH_ENABLED="${WEB_SEARCH_ENABLED:-false}"
 WEB_SEARCH_PROVIDER="${WEB_SEARCH_PROVIDER:-duckduckgo}"
 WEB_SEARCH_MAX_RESULTS="${WEB_SEARCH_MAX_RESULTS:-5}"
 
+REGISTRATION_ENABLED="${REGISTRATION_ENABLED:-false}"
+REGISTRATION_REQUIRE_EMAIL_VERIFICATION="${REGISTRATION_REQUIRE_EMAIL_VERIFICATION:-false}"
+REGISTRATION_DEFAULT_COST_LIMIT_CENTS="${REGISTRATION_DEFAULT_COST_LIMIT_CENTS:-5000}"
+
+SMTP_ENABLED="${SMTP_ENABLED:-false}"
+SMTP_HOST="${SMTP_HOST:-}"
+SMTP_PORT="${SMTP_PORT:-587}"
+SMTP_USERNAME="${SMTP_USERNAME:-}"
+SMTP_PASSWORD="${SMTP_PASSWORD:-}"
+SMTP_FROM_EMAIL="${SMTP_FROM_EMAIL:-}"
+SMTP_FROM_NAME="${SMTP_FROM_NAME:-}"
+SMTP_SECURE="${SMTP_SECURE:-false}"
+SMTP_STARTTLS="${SMTP_STARTTLS:-true}"
+
 ADMIN_EMAIL="$ADMIN_EMAIL"
 ADMIN_PASSWORD="$ADMIN_PASSWORD"
 ADMIN_NAME="$ADMIN_NAME"
@@ -354,6 +368,22 @@ EOF
     fi
 
     append_env_line_if_missing "ADMIN_NAME" "${ADMIN_NAME:-Admin}"
+    append_env_line_if_missing "REGISTRATION_ENABLED" "${REGISTRATION_ENABLED:-false}"
+    append_env_line_if_missing \
+      "REGISTRATION_REQUIRE_EMAIL_VERIFICATION" \
+      "${REGISTRATION_REQUIRE_EMAIL_VERIFICATION:-false}"
+    append_env_line_if_missing \
+      "REGISTRATION_DEFAULT_COST_LIMIT_CENTS" \
+      "${REGISTRATION_DEFAULT_COST_LIMIT_CENTS:-5000}"
+    append_env_line_if_missing "SMTP_ENABLED" "${SMTP_ENABLED:-false}"
+    append_env_line_if_missing "SMTP_HOST" "${SMTP_HOST:-}"
+    append_env_line_if_missing "SMTP_PORT" "${SMTP_PORT:-587}"
+    append_env_line_if_missing "SMTP_USERNAME" "${SMTP_USERNAME:-}"
+    append_env_line_if_missing "SMTP_PASSWORD" "${SMTP_PASSWORD:-}"
+    append_env_line_if_missing "SMTP_FROM_EMAIL" "${SMTP_FROM_EMAIL:-}"
+    append_env_line_if_missing "SMTP_FROM_NAME" "${SMTP_FROM_NAME:-}"
+    append_env_line_if_missing "SMTP_SECURE" "${SMTP_SECURE:-false}"
+    append_env_line_if_missing "SMTP_STARTTLS" "${SMTP_STARTTLS:-true}"
     append_env_line_if_missing "CODE_INTERPRETER_PACKAGE_CACHE" "${CODE_INTERPRETER_PACKAGE_CACHE:-true}"
     append_env_line_if_missing "CODE_INTERPRETER_CACHE_DIR" "${CODE_INTERPRETER_CACHE_DIR:-.cache/code-interpreter}"
     append_env_line_if_missing \

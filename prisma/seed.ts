@@ -34,13 +34,15 @@ async function main() {
       name,
       passwordHash,
       role: "ADMIN",
-      active: true
+      active: true,
+      emailVerified: true
     },
     create: {
       email,
       name,
       passwordHash,
       role: "ADMIN",
+      emailVerified: true,
       monthlyTokenLimit: 1000000,
       monthlyMessageLimit: 2000,
       monthlyCostLimitCents: 20000
@@ -105,7 +107,37 @@ async function main() {
       webSearchMaxResults:
         Number(process.env.WEB_SEARCH_MAX_RESULTS) ||
         existingSettings?.webSearchMaxResults ||
-        5
+        5,
+      registrationEnabled:
+        process.env.REGISTRATION_ENABLED === undefined
+          ? existingSettings?.registrationEnabled || false
+          : process.env.REGISTRATION_ENABLED === "true",
+      registrationRequireEmailVerification:
+        process.env.REGISTRATION_REQUIRE_EMAIL_VERIFICATION === undefined
+          ? existingSettings?.registrationRequireEmailVerification || false
+          : process.env.REGISTRATION_REQUIRE_EMAIL_VERIFICATION === "true",
+      registrationDefaultCostLimitCents:
+        Number(process.env.REGISTRATION_DEFAULT_COST_LIMIT_CENTS) ||
+        existingSettings?.registrationDefaultCostLimitCents ||
+        5000,
+      smtpEnabled:
+        process.env.SMTP_ENABLED === undefined
+          ? existingSettings?.smtpEnabled || false
+          : process.env.SMTP_ENABLED === "true",
+      smtpHost: process.env.SMTP_HOST || existingSettings?.smtpHost || "",
+      smtpPort: Number(process.env.SMTP_PORT) || existingSettings?.smtpPort || 587,
+      smtpUsername: process.env.SMTP_USERNAME || existingSettings?.smtpUsername || "",
+      smtpPassword: process.env.SMTP_PASSWORD || existingSettings?.smtpPassword || null,
+      smtpFromEmail: process.env.SMTP_FROM_EMAIL || existingSettings?.smtpFromEmail || "",
+      smtpFromName: process.env.SMTP_FROM_NAME || existingSettings?.smtpFromName || "",
+      smtpSecure:
+        process.env.SMTP_SECURE === undefined
+          ? existingSettings?.smtpSecure || false
+          : process.env.SMTP_SECURE === "true",
+      smtpStartTls:
+        process.env.SMTP_STARTTLS === undefined
+          ? existingSettings?.smtpStartTls ?? true
+          : process.env.SMTP_STARTTLS !== "false"
     },
     create: {
       id: "default",
@@ -136,7 +168,21 @@ async function main() {
         process.env.CODE_INTERPRETER_PIP_INDEX_URL || "https://pypi.org/simple",
       webSearchEnabled: process.env.WEB_SEARCH_ENABLED === "true",
       webSearchProvider: "duckduckgo",
-      webSearchMaxResults: Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5
+      webSearchMaxResults: Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5,
+      registrationEnabled: process.env.REGISTRATION_ENABLED === "true",
+      registrationRequireEmailVerification:
+        process.env.REGISTRATION_REQUIRE_EMAIL_VERIFICATION === "true",
+      registrationDefaultCostLimitCents:
+        Number(process.env.REGISTRATION_DEFAULT_COST_LIMIT_CENTS) || 5000,
+      smtpEnabled: process.env.SMTP_ENABLED === "true",
+      smtpHost: process.env.SMTP_HOST || "",
+      smtpPort: Number(process.env.SMTP_PORT) || 587,
+      smtpUsername: process.env.SMTP_USERNAME || "",
+      smtpPassword: process.env.SMTP_PASSWORD || null,
+      smtpFromEmail: process.env.SMTP_FROM_EMAIL || "",
+      smtpFromName: process.env.SMTP_FROM_NAME || "",
+      smtpSecure: process.env.SMTP_SECURE === "true",
+      smtpStartTls: process.env.SMTP_STARTTLS !== "false"
     }
   });
 

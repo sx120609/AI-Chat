@@ -207,6 +207,7 @@ async function main() {
         passwordHash: stringValue(row, columns.User, "passwordHash"),
         role: stringValue(row, columns.User, "role", "USER"),
         active: boolValue(row, columns.User, "active", true),
+        emailVerified: boolValue(row, columns.User, "emailVerified", true),
         monthlyTokenLimit: intValue(row, columns.User, "monthlyTokenLimit", 200000),
         monthlyMessageLimit: intValue(row, columns.User, "monthlyMessageLimit", 500),
         monthlyCostLimitCents: intValue(row, columns.User, "monthlyCostLimitCents", 5000),
@@ -333,6 +334,28 @@ async function main() {
         webSearchEnabled: boolValue(row, columns.AiSettings, "webSearchEnabled", false),
         webSearchProvider: stringValue(row, columns.AiSettings, "webSearchProvider", "duckduckgo"),
         webSearchMaxResults: intValue(row, columns.AiSettings, "webSearchMaxResults", 5),
+        registrationEnabled: boolValue(row, columns.AiSettings, "registrationEnabled", false),
+        registrationRequireEmailVerification: boolValue(
+          row,
+          columns.AiSettings,
+          "registrationRequireEmailVerification",
+          false
+        ),
+        registrationDefaultCostLimitCents: intValue(
+          row,
+          columns.AiSettings,
+          "registrationDefaultCostLimitCents",
+          5000
+        ),
+        smtpEnabled: boolValue(row, columns.AiSettings, "smtpEnabled", false),
+        smtpHost: stringValue(row, columns.AiSettings, "smtpHost", ""),
+        smtpPort: intValue(row, columns.AiSettings, "smtpPort", 587),
+        smtpUsername: stringValue(row, columns.AiSettings, "smtpUsername", ""),
+        smtpPassword: optionalString(row, columns.AiSettings, "smtpPassword"),
+        smtpFromEmail: stringValue(row, columns.AiSettings, "smtpFromEmail", ""),
+        smtpFromName: stringValue(row, columns.AiSettings, "smtpFromName", ""),
+        smtpSecure: boolValue(row, columns.AiSettings, "smtpSecure", false),
+        smtpStartTls: boolValue(row, columns.AiSettings, "smtpStartTls", true),
         updatedAt: dateValue(row, columns.AiSettings, "updatedAt")
       });
     }

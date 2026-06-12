@@ -122,6 +122,18 @@ AI_API_BASE_URL="https://api.openai.com/v1"
 AI_MOCK_RESPONSES="false"
 SITE_NAME="Team AI Gateway"
 SITE_URL=""
+REGISTRATION_ENABLED="false"
+REGISTRATION_REQUIRE_EMAIL_VERIFICATION="false"
+REGISTRATION_DEFAULT_COST_LIMIT_CENTS="5000"
+SMTP_ENABLED="false"
+SMTP_HOST=""
+SMTP_PORT="587"
+SMTP_USERNAME=""
+SMTP_PASSWORD=""
+SMTP_FROM_EMAIL=""
+SMTP_FROM_NAME=""
+SMTP_SECURE="false"
+SMTP_STARTTLS="true"
 ADMIN_EMAIL=""
 ADMIN_PASSWORD=""
 ADMIN_NAME="管理员"
@@ -156,6 +168,18 @@ CODE_INTERPRETER_DOCKER_CPUS="1"
 WEB_SEARCH_ENABLED="false"
 WEB_SEARCH_PROVIDER="duckduckgo"
 WEB_SEARCH_MAX_RESULTS="5"
+REGISTRATION_ENABLED="false"
+REGISTRATION_REQUIRE_EMAIL_VERIFICATION="false"
+REGISTRATION_DEFAULT_COST_LIMIT_CENTS="5000"
+SMTP_ENABLED="false"
+SMTP_HOST=""
+SMTP_PORT="587"
+SMTP_USERNAME=""
+SMTP_PASSWORD=""
+SMTP_FROM_EMAIL=""
+SMTP_FROM_NAME=""
+SMTP_SECURE="false"
+SMTP_STARTTLS="true"
 ```
 
 这些 `CODE_INTERPRETER_*` 变量目前只是保留配置，不会被聊天请求自动调用。以后如果重新接入代码执行工具，仍应只允许 Docker 沙箱运行，且默认 `--network none`。
@@ -171,6 +195,12 @@ WEB_SEARCH_MAX_RESULTS="5"
 ```
 
 搜索由服务端请求 DuckDuckGo 结果，前端用户浏览器不会直接访问搜索引擎。管理员开启后，后端会先用 AI 规划搜索词，再对最新/今天/实时/新闻/价格/版本等问题自动搜索；用户也可以点亮聊天输入框的联网按钮，强制下一条消息搜索。来源会作为卡片保存到助手消息中。天气类问题会优先补充服务端实时天气来源，提高“今天/当前天气”这类回答的稳定性。
+
+## 注册与邮件
+
+公开注册默认关闭。管理员可在管理后台的“用户”选项卡开启注册、设置注册默认余额，并选择是否要求邮箱验证。启用邮箱验证前，需要先在“邮件”选项卡配置 SMTP 服务。
+
+SMTP 支持 465 这类隐式 SSL/TLS，也支持 587 这类 STARTTLS。`SMTP_SECURE="true"` 表示连接一开始就使用 TLS；`SMTP_STARTTLS="true"` 表示普通 SMTP 连接后必须升级到 TLS。后台会隐藏已保存的 SMTP 密码，并提供测试邮件按钮。
 
 ## 数据库
 

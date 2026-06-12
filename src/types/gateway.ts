@@ -67,8 +67,14 @@ export type UserView = {
   name: string;
   role: Role;
   active: boolean;
+  emailVerified: boolean;
   monthlyCostLimitCents: number;
   quotaResetAt: string;
+};
+
+export type PublicAuthSettingsView = {
+  registrationEnabled: boolean;
+  registrationRequireEmailVerification: boolean;
 };
 
 export type SiteSettingsView = {
@@ -185,5 +191,18 @@ export type AiSettingsView = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  registrationEnabled: boolean;
+  registrationRequireEmailVerification: boolean;
+  registrationDefaultCostLimitCents: number;
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUsername: string;
+  smtpHasPassword: boolean;
+  smtpPasswordPreview: string;
+  smtpFromEmail: string;
+  smtpFromName: string;
+  smtpSecure: boolean;
+  smtpStartTls: boolean;
   updatedAt: string;
 };

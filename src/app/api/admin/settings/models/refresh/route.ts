@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import { normalizeRegistrationCostLimitCents } from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
 import { jsonError, requireAdmin } from "@/lib/http";
 import {
@@ -22,6 +23,7 @@ import {
   normalizeSystemPromptMode,
   parseModelSystemPrompts
 } from "@/lib/system-prompt";
+import { maskSecret } from "@/lib/smtp";
 import {
   AI_RUNTIME_SETTINGS_CACHE_KEY,
   fetchUpstreamModelIds,
@@ -83,6 +85,21 @@ async function serializeSettings() {
     webSearchEnabled: settings.webSearchEnabled,
     webSearchProvider: "duckduckgo",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
+    registrationEnabled: settings.registrationEnabled,
+    registrationRequireEmailVerification: settings.registrationRequireEmailVerification,
+    registrationDefaultCostLimitCents: normalizeRegistrationCostLimitCents(
+      settings.registrationDefaultCostLimitCents
+    ),
+    smtpEnabled: settings.smtpEnabled,
+    smtpHost: settings.smtpHost || "",
+    smtpPort: settings.smtpPort || 587,
+    smtpUsername: settings.smtpUsername || "",
+    smtpHasPassword: Boolean(settings.smtpPassword),
+    smtpPasswordPreview: maskSecret(settings.smtpPassword),
+    smtpFromEmail: settings.smtpFromEmail || "",
+    smtpFromName: settings.smtpFromName || "",
+    smtpSecure: settings.smtpSecure,
+    smtpStartTls: settings.smtpStartTls,
     updatedAt: settings.updatedAt.toISOString()
   };
 }
@@ -141,7 +158,19 @@ export async function POST(request: NextRequest) {
         codeInterpreterPipIndexUrl: runtimeSettings.codeInterpreterPipIndexUrl,
         webSearchEnabled: runtimeSettings.webSearchEnabled,
         webSearchProvider: runtimeSettings.webSearchProvider,
-        webSearchMaxResults: runtimeSettings.webSearchMaxResults
+        webSearchMaxResults: runtimeSettings.webSearchMaxResults,
+        registrationEnabled: false,
+        registrationRequireEmailVerification: false,
+        registrationDefaultCostLimitCents: 5000,
+        smtpEnabled: false,
+        smtpHost: "",
+        smtpPort: 587,
+        smtpUsername: "",
+        smtpPassword: null,
+        smtpFromEmail: "",
+        smtpFromName: "",
+        smtpSecure: false,
+        smtpStartTls: true
       }
     });
 

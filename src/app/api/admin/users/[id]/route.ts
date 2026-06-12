@@ -19,6 +19,7 @@ type UpdateUserBody = {
   password?: string;
   role?: "USER" | "ADMIN";
   active?: boolean;
+  emailVerified?: boolean;
   monthlyCostLimitCents?: number;
 };
 
@@ -48,6 +49,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     passwordHash?: string;
     role?: "USER" | "ADMIN";
     active?: boolean;
+    emailVerified?: boolean;
     monthlyCostLimitCents?: number;
   } = {};
 
@@ -69,6 +71,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   if (typeof body.active === "boolean") {
     data.active = body.active;
+  }
+
+  if (typeof body.emailVerified === "boolean") {
+    data.emailVerified = body.emailVerified;
   }
 
   if (body.monthlyCostLimitCents !== undefined) {

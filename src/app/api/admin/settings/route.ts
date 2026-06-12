@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import {
+  DEFAULT_REGISTRATION_COST_LIMIT_CENTS,
+  normalizeRegistrationCostLimitCents
+} from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
 import {
@@ -24,6 +28,7 @@ import {
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { normalizeSiteName, normalizeSiteUrl, SITE_SETTINGS_CACHE_KEY } from "@/lib/site-settings";
+import { maskSecret, normalizeSmtpSettings } from "@/lib/smtp";
 import {
   DEFAULT_SYSTEM_PROMPT_MODE,
   normalizeModelSystemPrompts,
@@ -61,6 +66,19 @@ type SettingsBody = {
   webSearchEnabled?: boolean;
   webSearchProvider?: string;
   webSearchMaxResults?: number;
+  registrationEnabled?: boolean;
+  registrationRequireEmailVerification?: boolean;
+  registrationDefaultCostLimitCents?: number;
+  smtpEnabled?: boolean;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUsername?: string;
+  smtpPassword?: string;
+  clearSmtpPassword?: boolean;
+  smtpFromEmail?: string;
+  smtpFromName?: string;
+  smtpSecure?: boolean;
+  smtpStartTls?: boolean;
 };
 
 function maskKey(key: string | null | undefined) {
@@ -98,6 +116,18 @@ function serializeSettings(settings: {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  registrationEnabled: boolean;
+  registrationRequireEmailVerification: boolean;
+  registrationDefaultCostLimitCents: number;
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUsername: string;
+  smtpPassword: string | null;
+  smtpFromEmail: string;
+  smtpFromName: string;
+  smtpSecure: boolean;
+  smtpStartTls: boolean;
   updatedAt: Date;
 }) {
   const chatModelMap = parseModelMap(settings.chatModelMapJson);
@@ -140,6 +170,21 @@ function serializeSettings(settings: {
     webSearchEnabled: settings.webSearchEnabled,
     webSearchProvider: "duckduckgo",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
+    registrationEnabled: settings.registrationEnabled,
+    registrationRequireEmailVerification: settings.registrationRequireEmailVerification,
+    registrationDefaultCostLimitCents: normalizeRegistrationCostLimitCents(
+      settings.registrationDefaultCostLimitCents
+    ),
+    smtpEnabled: settings.smtpEnabled,
+    smtpHost: settings.smtpHost || "",
+    smtpPort: settings.smtpPort || 587,
+    smtpUsername: settings.smtpUsername || "",
+    smtpHasPassword: Boolean(settings.smtpPassword),
+    smtpPasswordPreview: maskSecret(settings.smtpPassword),
+    smtpFromEmail: settings.smtpFromEmail || "",
+    smtpFromName: settings.smtpFromName || "",
+    smtpSecure: settings.smtpSecure,
+    smtpStartTls: settings.smtpStartTls,
     updatedAt: settings.updatedAt.toISOString()
   };
 }
@@ -295,7 +340,23 @@ export async function GET(request: NextRequest) {
       webSearchProvider: "duckduckgo",
       webSearchMaxResults: normalizeWebSearchMaxResults(
         Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5
-      )
+      ),
+      registrationEnabled: process.env.REGISTRATION_ENABLED === "true",
+      registrationRequireEmailVerification:
+        process.env.REGISTRATION_REQUIRE_EMAIL_VERIFICATION === "true",
+      registrationDefaultCostLimitCents: normalizeRegistrationCostLimitCents(
+        Number(process.env.REGISTRATION_DEFAULT_COST_LIMIT_CENTS) ||
+          DEFAULT_REGISTRATION_COST_LIMIT_CENTS
+      ),
+      smtpEnabled: process.env.SMTP_ENABLED === "true",
+      smtpHost: process.env.SMTP_HOST || "",
+      smtpPort: Number(process.env.SMTP_PORT) || 587,
+      smtpUsername: process.env.SMTP_USERNAME || "",
+      smtpPassword: process.env.SMTP_PASSWORD || null,
+      smtpFromEmail: process.env.SMTP_FROM_EMAIL || "",
+      smtpFromName: process.env.SMTP_FROM_NAME || "",
+      smtpSecure: process.env.SMTP_SECURE === "true",
+      smtpStartTls: process.env.SMTP_STARTTLS !== "false"
     }
   });
 
@@ -344,6 +405,39 @@ export async function PATCH(request: NextRequest) {
   const existingSettings = await prisma.aiSettings.findUnique({
     where: { id: "default" }
   });
+  const nextSmtpPassword = body.clearSmtpPassword
+    ? null
+    : typeof body.smtpPassword === "string" && body.smtpPassword.trim()
+      ? body.smtpPassword.trim()
+      : existingSettings?.smtpPassword || null;
+  const registrationEnabled = Boolean(body.registrationEnabled);
+  const registrationRequireEmailVerification = Boolean(
+    body.registrationRequireEmailVerification
+  );
+  const registrationDefaultCostLimitCents = normalizeRegistrationCostLimitCents(
+    body.registrationDefaultCostLimitCents
+  );
+  let smtpSettings: ReturnType<typeof normalizeSmtpSettings>;
+
+  try {
+    smtpSettings = normalizeSmtpSettings({
+      smtpEnabled: body.smtpEnabled,
+      smtpHost: body.smtpHost,
+      smtpPort: body.smtpPort,
+      smtpUsername: body.smtpUsername,
+      smtpPassword: nextSmtpPassword,
+      smtpFromEmail: body.smtpFromEmail,
+      smtpFromName: body.smtpFromName,
+      smtpSecure: body.smtpSecure,
+      smtpStartTls: body.smtpStartTls
+    });
+  } catch (smtpError) {
+    return jsonError(smtpError instanceof Error ? smtpError.message : "邮件服务设置无效。", 400);
+  }
+
+  if (registrationEnabled && registrationRequireEmailVerification && !smtpSettings.smtpEnabled) {
+    return jsonError("启用注册邮件验证前，请先启用并配置邮件服务。", 400);
+  }
 
   const data: {
     siteName: string;
@@ -371,6 +465,18 @@ export async function PATCH(request: NextRequest) {
     webSearchEnabled: boolean;
     webSearchProvider: string;
     webSearchMaxResults: number;
+    registrationEnabled: boolean;
+    registrationRequireEmailVerification: boolean;
+    registrationDefaultCostLimitCents: number;
+    smtpEnabled: boolean;
+    smtpHost: string;
+    smtpPort: number;
+    smtpUsername: string;
+    smtpPassword?: string | null;
+    smtpFromEmail: string;
+    smtpFromName: string;
+    smtpSecure: boolean;
+    smtpStartTls: boolean;
   } = {
     siteName: normalizeSiteName(body.siteName),
     siteUrl,
@@ -399,7 +505,19 @@ export async function PATCH(request: NextRequest) {
     codeInterpreterPipIndexUrl,
     webSearchEnabled: Boolean(body.webSearchEnabled),
     webSearchProvider: "duckduckgo",
-    webSearchMaxResults: normalizeWebSearchMaxResults(body.webSearchMaxResults)
+    webSearchMaxResults: normalizeWebSearchMaxResults(body.webSearchMaxResults),
+    registrationEnabled,
+    registrationRequireEmailVerification,
+    registrationDefaultCostLimitCents,
+    smtpEnabled: smtpSettings.smtpEnabled,
+    smtpHost: smtpSettings.smtpHost,
+    smtpPort: smtpSettings.smtpPort,
+    smtpUsername: smtpSettings.smtpUsername,
+    smtpPassword: smtpSettings.smtpPassword,
+    smtpFromEmail: smtpSettings.smtpFromEmail,
+    smtpFromName: smtpSettings.smtpFromName,
+    smtpSecure: smtpSettings.smtpSecure,
+    smtpStartTls: smtpSettings.smtpStartTls
   };
   data.enabledChatModelsJson = JSON.stringify(
     normalizeEnabledModelIds(

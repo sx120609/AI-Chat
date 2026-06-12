@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
+import { getPublicAuthSettings } from "@/lib/auth-settings";
 import { DocumentTitle } from "@/components/document-title";
 import { LoginForm } from "@/components/login-form";
 import { SiteLogo } from "@/components/site-logo";
@@ -22,6 +23,7 @@ export default async function LoginPage() {
   }
 
   const siteSettings = await getSiteSettings();
+  const authSettings = await getPublicAuthSettings();
 
   return (
     <main className="ios-page app-shell app-route-enter grid place-items-center px-5 py-10">
@@ -34,9 +36,11 @@ export default async function LoginPage() {
               {siteSettings.siteName}
             </p>
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-stone-950">登录</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-stone-950">
+            {authSettings.registrationEnabled ? "登录或注册" : "登录"}
+          </h1>
         </div>
-        <LoginForm />
+        <LoginForm authSettings={authSettings} />
       </div>
     </main>
   );

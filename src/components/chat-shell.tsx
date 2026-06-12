@@ -209,6 +209,8 @@ function mergeToolEvent(
   );
 }
 const STREAM_RENDER_INTERVAL_MS = 48;
+const IMAGE_REQUEST_PATTERN =
+  /(生图|生成图片|生成一张|画一张|画个|画幅|出图|绘制|设计.{0,12}(图|图片|海报|头像|logo|壁纸|封面|插画|表情包)|做.{0,12}(图|图片|海报|头像|logo|壁纸|封面|插画|表情包)|draw|generate an image|create an image|make an image|illustration|poster|logo|wallpaper)/i;
 
 function emptyMessage(
   role: "USER" | "ASSISTANT",
@@ -237,6 +239,10 @@ function emptyMessage(
     attachments,
     pending: true
   };
+}
+
+function shouldSendAsImageRequest(prompt: string) {
+  return IMAGE_REQUEST_PATTERN.test(prompt);
 }
 
 function formatBytes(bytes: number) {
@@ -324,6 +330,25 @@ function messageProcessStatus(message: MessageView) {
   }
 
   return "已完成。";
+}
+
+function shouldShowInlineError(message: string) {
+  const normalized = message.trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return !(
+    normalized.includes("流式连接中断") ||
+    normalized.includes("network error") ||
+    normalized.includes("生图连接中断") ||
+    normalized.includes("生图失败") ||
+    normalized.includes("上游 api 错误") ||
+    normalized.includes("gateway time-out") ||
+    normalized.includes("后台生图仍在进行") ||
+    normalized.includes("图片可能仍在后台生成")
+  );
 }
 
 function latestMessageProcess(messages: MessageView[]) {
@@ -1535,7 +1560,7 @@ export function ChatShell({
         } else {
           updateChatAssistantMessage((item) => ({ ...item, content: message, pending: false }));
         }
-        if (isViewingInFlightChat()) {
+        if (isViewingInFlightChat() && !assistantMessage?.id) {
           setError(message);
         }
         setChatToolEvents((current) =>
@@ -1774,6 +1799,190 @@ export function ChatShell({
 
     await refreshConversations();
   }
+
+  async function sendImage(
+    prompt: string,
+    attachments: AttachmentView[],
+    options: {
+      reuseUserMessage?: MessageView;
+      sourceImageMessage?: MessageView | null;
+    } = {}
+  ) {
+    const reuseUserMessage = options.reuseUserMessage;
+    const reuseUserMessageId = reuseUserMessage?.id;
+    const sourceImageMessageId = options.sourceImageMessage?.id;
+    const localUser = reuseUserMessage
+      ? { ...reuseUserMessage, attachments, content: prompt, mode: "IMAGE" as const, model: "image2" }
+      : { ...emptyMessage("USER", prompt, "IMAGE", attachments), model: "image2" };
+    const localAssistant = { ...emptyMessage("ASSISTANT", "生成中...", "IMAGE"), model: "image2" };
+    const controller = new AbortController();
+    const processStart = Date.now();
+    const startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
+    let conversationKey = startingConversationId ?? activeConversationKeyRef.current;
+    const initialToolEvents = [
+      createToolEvent(
+        {
+          detail:
+            sourceImageMessageId || attachments.some((attachment) => attachment.kind === "IMAGE")
+              ? "正在基于图片生成或编辑"
+              : "正在根据文字生成图片",
+          id: "image",
+          label: "image2",
+          status: "running",
+          type: "image"
+        },
+        processStart
+      )
+    ];
+
+    abortControllersRef.current.set(conversationKey, controller);
+    markGenerationRunning(conversationKey);
+    storeInFlightChat(conversationKey, {
+      assistantMessage: localAssistant,
+      contextStats: null,
+      conversationId: startingConversationId,
+      processFinishedAt: null,
+      processStartedAt: processStart,
+      streamStatus: "正在使用 image2 生成图片...",
+      toolEvents: initialToolEvents
+    });
+
+    if (isViewingConversationKey(conversationKey)) {
+      autoScrollRef.current = true;
+      setProcessStartedAt(processStart);
+      setProcessFinishedAt(null);
+      setProcessNow(processStart);
+      setToolEvents(initialToolEvents);
+      setStreamStatus("正在使用 image2 生成图片...");
+      setMessages((current) => {
+        if (!reuseUserMessageId) {
+          return [...current, localUser, localAssistant];
+        }
+
+        const userIndex = current.findIndex((message) => message.id === reuseUserMessageId);
+        const base = userIndex >= 0 ? current.slice(0, userIndex + 1) : current;
+
+        return [...base, localAssistant];
+      });
+      scheduleMessagesToBottom();
+    }
+
+    const finish = (status: "done" | "error" | "skipped", detail: string) => {
+      const now = Date.now();
+      const nextToolEvents = mergeToolEvent(initialToolEvents, {
+        detail,
+        finishedAt: now,
+        id: "image",
+        label: "image2",
+        status,
+        type: "image"
+      }, now);
+
+      markGenerationFinished(conversationKey);
+      abortControllersRef.current.delete(conversationKey);
+      deleteInFlightChat(conversationKey);
+
+      if (isViewingConversationKey(conversationKey)) {
+        setToolEvents(nextToolEvents);
+        setProcessFinishedAt(now);
+        setProcessNow(now);
+        setStreamStatus(
+          status === "done" ? "生图完成。" : status === "skipped" ? "已停止。" : "生图失败。"
+        );
+      }
+
+      return { finishedAt: now, toolEvents: nextToolEvents };
+    };
+
+    try {
+      const response = await fetch("/api/images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          attachmentIds: attachments.map((attachment) => attachment.id),
+          conversationId: startingConversationId,
+          model: "image2",
+          prompt,
+          reuseUserMessageId,
+          sourceImageMessageId
+        }),
+        signal: controller.signal
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            assistantMessage?: MessageView;
+            conversationId?: string;
+            error?: string;
+            usage?: UsageSummary;
+            userMessage?: MessageView;
+          }
+        | null;
+
+      if (!response.ok || !payload?.assistantMessage || !payload.conversationId) {
+        const message = payload?.error || "生图失败。";
+        finish("error", message);
+
+        if (isViewingConversationKey(conversationKey)) {
+          setMessages((current) =>
+            current.map((item) =>
+              item.id === localAssistant.id
+                ? { ...localAssistant, content: message, pending: false }
+                : item.id === localUser.id && payload?.userMessage
+                  ? payload.userMessage
+                  : item
+            )
+          );
+        }
+        return;
+      }
+
+      conversationKey = resolveInFlightConversationKey(conversationKey, payload.conversationId);
+      const assistantMessage = { ...payload.assistantMessage, pending: false };
+      const userMessage = payload.userMessage;
+
+      if (isViewingConversationKey(conversationKey)) {
+        setMessages((current) =>
+          current.map((item) => {
+            if (item.id === localAssistant.id || item.id === assistantMessage.id) {
+              return assistantMessage;
+            }
+
+            if (userMessage && item.id === localUser.id) {
+              return userMessage;
+            }
+
+            return item;
+          })
+        );
+      }
+
+      if (payload.usage) {
+        setUsage(payload.usage);
+      }
+
+      finish("done", "图片已生成");
+      await refreshConversations();
+    } catch (error) {
+      if (controller.signal.aborted) {
+        finish("skipped", "已停止");
+        return;
+      }
+
+      const message = error instanceof Error ? `生图失败：${error.message}` : "生图失败。";
+      finish("error", message);
+
+      if (isViewingConversationKey(conversationKey)) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === localAssistant.id ? { ...localAssistant, content: message, pending: false } : item
+          )
+        );
+      }
+    } finally {
+      void refreshMe();
+    }
+  }
+
   function findPreviousUserMessage(messageId: string) {
     const index = messages.findIndex((message) => message.id === messageId);
 
@@ -1870,8 +2079,14 @@ export function ChatShell({
     });
     setEditingMessage(null);
 
+    if (payload.message.mode === "IMAGE") {
+      await sendImage(prompt, payload.message.attachments ?? [], {
+        reuseUserMessage: payload.message
+      });
+      return;
+    }
+
     await sendChat(prompt, payload.message.attachments ?? [], {
-      imageToolRequested: payload.message.mode === "IMAGE",
       reuseUserMessage: payload.message,
       useWebSearch
     });
@@ -1889,8 +2104,14 @@ export function ChatShell({
     setStreamStatus("正在重新生成...");
 
     try {
+      if (previousUserMessage.mode === "IMAGE") {
+        await sendImage(previousUserMessage.content, previousUserMessage.attachments ?? [], {
+          reuseUserMessage: previousUserMessage
+        });
+        return;
+      }
+
       await sendChat(previousUserMessage.content, previousUserMessage.attachments ?? [], {
-        imageToolRequested: previousUserMessage.mode === "IMAGE",
         reuseUserMessage: previousUserMessage
       });
     } finally {
@@ -1949,11 +2170,19 @@ export function ChatShell({
         return;
       }
 
-      const imageToolRequested = imageToolEnabled || Boolean(sourceImage);
+      const imageToolRequested =
+        imageToolEnabled || Boolean(sourceImage) || shouldSendAsImageRequest(prompt);
       setImageToolEnabled(false);
       setWebSearchEnabledForMessage(false);
+
+      if (imageToolRequested) {
+        await sendImage(prompt, attachments, {
+          sourceImageMessage: sourceImage
+        });
+        return;
+      }
+
       await sendChat(prompt, attachments, {
-        imageToolRequested,
         sourceImageMessage: sourceImage,
         useWebSearch
       });
@@ -2364,7 +2593,7 @@ export function ChatShell({
                 <span>{streamStatus}</span>
               </div>
             ) : null}
-            {error ? (
+            {error && shouldShowInlineError(error) ? (
               <div className="app-inline-alert mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {error}
               </div>

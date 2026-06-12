@@ -371,6 +371,25 @@ function friendlyHttpHint(status: number) {
   return "";
 }
 
+function cleanUpstreamErrorText(text: string) {
+  const title = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  const heading = text.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
+  const candidate = title || heading || text;
+
+  return candidate
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function upstreamErrorMessage(response: Response) {
   const text = (await response.text().catch(() => "")).slice(0, 2000);
   const hint = friendlyHttpHint(response.status);
@@ -390,13 +409,15 @@ async function upstreamErrorMessage(response: Response) {
       typeof errorField === "string" ? errorField : errorField?.message || payload.message || "";
 
     if (message) {
-      return `${prefix}：${message}`;
+      return `${prefix}：${cleanUpstreamErrorText(message).slice(0, 300)}`;
     }
   } catch {
-    return `${prefix}：${text.slice(0, 300)}`;
+    const cleanText = cleanUpstreamErrorText(text);
+    return cleanText ? `${prefix}：${cleanText.slice(0, 300)}` : `${prefix}。`;
   }
 
-  return `${prefix}：${text.slice(0, 300)}`;
+  const cleanText = cleanUpstreamErrorText(text);
+  return cleanText ? `${prefix}：${cleanText.slice(0, 300)}` : `${prefix}。`;
 }
 
 // Sub2API / One API 等网关的旧版本可能不认识 stream_options 或 reasoning 参数，

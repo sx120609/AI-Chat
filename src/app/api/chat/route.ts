@@ -4,7 +4,9 @@ import {
   attachmentToView,
   contentWithAttachmentContext,
   deleteAttachmentFiles,
-  MAX_ATTACHMENTS_PER_MESSAGE
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  readAttachmentBuffer
 } from "@/lib/attachments";
 import { ensureAttachmentsText } from "@/lib/attachment-repair";
 import {
@@ -28,18 +30,20 @@ import {
 } from "@/lib/message-process";
 import {
   estimateChatCostForModel,
+  estimateImageCostCents,
   getChatModel,
   isChatModel,
   normalizeReasoningEffort
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
-import { planWebSearchQuery } from "@/lib/search-planner";
 import { normalizePromptClock, resolveSystemPrompt } from "@/lib/system-prompt";
+import { planMessageTools } from "@/lib/tool-router";
 import { compactTitle, estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
   createChatCompletionStream,
+  generateImage,
   getAiRuntimeSettings,
   type UpstreamUsage
 } from "@/lib/upstream";
@@ -54,7 +58,9 @@ type ChatBody = {
   content?: string;
   reasoningEffort?: string;
   attachmentIds?: string[];
+  imageToolRequested?: boolean;
   reuseUserMessageId?: string;
+  sourceImageMessageId?: string;
   useWebSearch?: boolean;
   webSearchProvider?: string;
   clientDate?: string;
@@ -249,6 +255,101 @@ function uniqueAttachmentIds(value: unknown) {
     0,
     MAX_ATTACHMENTS_PER_MESSAGE
   );
+}
+
+function isPrivateImageHost(hostname: string) {
+  const host = hostname.toLowerCase();
+
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    return true;
+  }
+
+  if (/^(127|10)\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) {
+    return true;
+  }
+
+  if (host === "::1" || host.startsWith("fc") || host.startsWith("fd")) {
+    return true;
+  }
+
+  return false;
+}
+
+async function sourceImageFromMessageUrl(imageUrl: string) {
+  if (imageUrl.startsWith("data:")) {
+    const match = imageUrl.match(/^data:([^;,]+);base64,(.+)$/);
+
+    if (!match) {
+      throw new Error("源图片格式无效。");
+    }
+
+    const buffer = Buffer.from(match[2], "base64");
+
+    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
+      throw new Error("源图片不能超过 25 MB。");
+    }
+
+    return {
+      buffer,
+      mimeType: match[1] || "image/png",
+      originalName: "generated-image.png"
+    };
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(imageUrl);
+  } catch {
+    throw new Error("源图片地址无效。");
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("源图片地址协议无效。");
+  }
+
+  if (isPrivateImageHost(url.hostname)) {
+    throw new Error("源图片地址不能指向本机或内网。");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        accept: "image/*",
+        "user-agent": "TeamAIGateway/1.0"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error("源图片下载失败。");
+    }
+
+    const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+
+    if (!mimeType.startsWith("image/")) {
+      throw new Error("源图片不是有效图片。");
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
+      throw new Error("源图片不能超过 25 MB。");
+    }
+
+    const extension = mimeType.split("/")[1] || "png";
+
+    return {
+      buffer,
+      mimeType,
+      originalName: `generated-image.${extension}`
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function buildUserContentWithImages(content: string, attachments: ChatAttachment[]) {
@@ -677,6 +778,303 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const toolRoutePlan = await planMessageTools({
+    attachmentCount: effectiveAttachments.length,
+    forceSearch: body.useWebSearch === true,
+    hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
+    imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
+    modelId: model.id,
+    prompt: content,
+    promptClock,
+    settings: aiSettings,
+    signal: request.signal,
+    sourceImageSelected: Boolean(body.sourceImageMessageId)
+  });
+
+  if (toolRoutePlan.tool === "image") {
+    const sourceImageMessage = body.sourceImageMessageId
+      ? await prisma.message.findFirst({
+          where: {
+            id: body.sourceImageMessageId,
+            imageUrl: {
+              not: null
+            },
+            conversation: {
+              userId: user.id
+            }
+          },
+          select: {
+            imageUrl: true
+          }
+        })
+      : null;
+
+    if (body.sourceImageMessageId && !sourceImageMessage?.imageUrl) {
+      return jsonError("源图片不存在或无权访问。", 404);
+    }
+
+    const promptWithAttachmentContext = contentWithAttachmentContext(content, effectiveAttachments);
+    const promptTokens = estimateTokens(promptWithAttachmentContext);
+    const estimatedCostCents = estimateImageCostCents(promptTokens);
+
+    try {
+      await assertQuotaAvailable(user.id, estimatedCostCents);
+    } catch (error) {
+      if (error instanceof QuotaError) {
+        return jsonError(error.message, error.status, { usage: error.summary });
+      }
+
+      throw error;
+    }
+
+    const imageConversation =
+      existingConversation ??
+      (await prisma.conversation.create({
+        data: {
+          userId: user.id,
+          title: compactTitle(content),
+          model: "image2",
+          mode: "IMAGE"
+        },
+        include: {
+          _count: {
+            select: { messages: true }
+          }
+        }
+      }));
+    const imageUserMessage = reusedUserMessage
+      ? await prisma.message.update({
+          where: { id: reusedUserMessage.id },
+          data: {
+            content,
+            model: "image2",
+            mode: "IMAGE"
+          },
+          include: { attachments: true }
+        })
+      : await prisma.message.create({
+          data: {
+            conversationId: imageConversation.id,
+            role: "USER",
+            content,
+            model: "image2",
+            mode: "IMAGE"
+          },
+          include: { attachments: true }
+        });
+
+    if (!reusedUserMessage && attachments.length > 0) {
+      await prisma.attachment.updateMany({
+        where: {
+          id: { in: attachments.map((attachment) => attachment.id) },
+          userId: user.id
+        },
+        data: {
+          conversationId: imageConversation.id,
+          messageId: imageUserMessage.id
+        }
+      });
+    }
+
+    const imageUserMessageView = {
+      ...imageUserMessage,
+      attachments: effectiveAttachments.map(attachmentToView)
+    };
+    const imageRouterFinishedAt = Date.now();
+    const imageStartedAt = imageRouterFinishedAt;
+    const imageInitialEvents: PersistedToolEvent[] = [
+      {
+        detail: toolRoutePlan.reason
+          ? `AI 路由选择 image2：${toolRoutePlan.reason}`
+          : "AI 路由选择 image2",
+        finishedAt: imageRouterFinishedAt,
+        id: "router",
+        label: "工具状态",
+        startedAt: routerStartedAt,
+        status: "done",
+        type: "router"
+      },
+      ...(effectiveAttachments.length > 0
+        ? [
+            {
+              detail: `已读取 ${effectiveAttachments.length} 个附件并加入生图上下文`,
+              finishedAt: attachmentFinishedAt,
+              id: "attachments",
+              label: "附件",
+              startedAt: attachmentStartedAt,
+              status: "done" as const,
+              type: "attachments" as const
+            }
+          ]
+        : []),
+      {
+        detail:
+          sourceImageMessage?.imageUrl || effectiveAttachments.some((attachment) => attachment.kind === "IMAGE")
+            ? "正在基于图片生成或编辑"
+            : "正在根据文字生成图片",
+        id: "image",
+        label: "image2",
+        startedAt: imageStartedAt,
+        status: "running",
+        type: "image"
+      }
+    ];
+    const imageStreamStatus = "正在使用 image2 生成图片...";
+    const imageAssistantDraft = await prisma.message.create({
+      data: {
+        conversationId: imageConversation.id,
+        role: "ASSISTANT",
+        content: "生成中...",
+        createdAt: new Date(Math.max(Date.now(), imageUserMessage.createdAt.getTime() + 1)),
+        generationStatus: "running",
+        model: "image2",
+        mode: "IMAGE",
+        processStartedAt: new Date(routerStartedAt),
+        streamStatus: imageStreamStatus,
+        toolEventsJson: stringifyToolEvents(imageInitialEvents)
+      }
+    });
+
+    const imageMessageForResponse = (message: typeof imageAssistantDraft) => ({
+      ...messageForClient(message),
+      ...messageProcessForClient(message),
+      createdAt: message.createdAt.toISOString()
+    });
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let imageEvents = imageInitialEvents;
+
+        sse(controller, "meta", {
+          conversationId: imageConversation.id,
+          userMessage: {
+            ...imageUserMessageView,
+            createdAt: imageUserMessage.createdAt.toISOString()
+          },
+          assistantMessage: imageMessageForResponse(imageAssistantDraft)
+        });
+        for (const toolEvent of imageEvents) {
+          sse(controller, "tool", toolEvent);
+        }
+
+        try {
+          const sourceImages = await Promise.all(
+            [
+              ...effectiveAttachments
+                .filter((attachment) => attachment.kind === "IMAGE")
+                .map(async (attachment) => ({
+                  buffer: await readAttachmentBuffer(attachment),
+                  mimeType: attachment.mimeType,
+                  originalName: attachment.originalName
+                })),
+              ...(sourceImageMessage?.imageUrl
+                ? [sourceImageFromMessageUrl(sourceImageMessage.imageUrl)]
+                : [])
+            ]
+          );
+          const imageUrl = await generateImage(promptWithAttachmentContext, "1024x1024", {
+            sourceImages
+          });
+          const finishedAt = Date.now();
+          imageEvents = mergePersistedToolEvent(imageEvents, {
+            detail: "图片已生成",
+            finishedAt,
+            id: "image",
+            label: "image2",
+            status: "done",
+            type: "image"
+          }, finishedAt);
+          const assistantMessage = await prisma.message.update({
+            where: { id: imageAssistantDraft.id },
+            data: {
+              content: "Image generated",
+              estimatedCostCents,
+              generationStatus: "done",
+              imageUrl,
+              processFinishedAt: new Date(finishedAt),
+              promptTokens,
+              streamStatus: "生图完成。",
+              toolEventsJson: stringifyToolEvents(imageEvents),
+              totalTokens: promptTokens
+            }
+          });
+
+          await prisma.usageRecord.create({
+            data: {
+              userId: user.id,
+              conversationId: imageConversation.id,
+              messageId: assistantMessage.id,
+              model: "image2",
+              mode: "IMAGE",
+              promptTokens,
+              totalTokens: promptTokens,
+              estimatedCostCents
+            }
+          });
+
+          await prisma.conversation.update({
+            where: { id: imageConversation.id },
+            data: {
+              mode: imageConversation._count.messages === 0 ? "IMAGE" : imageConversation.mode,
+              model: imageConversation._count.messages === 0 ? "image2" : imageConversation.model,
+              title:
+                imageConversation._count.messages === 0
+                  ? compactTitle(content)
+                  : imageConversation.title
+            }
+          });
+
+          const usage = await getUsageSummary(user.id, { readCache: false });
+          sse(controller, "tool", imageEvents.find((event) => event.id === "image"));
+          sse(controller, "done", {
+            assistantMessage: imageMessageForResponse(assistantMessage),
+            usage
+          });
+        } catch (error) {
+          const finishedAt = Date.now();
+          const message = error instanceof Error ? error.message : "上游生图失败。";
+          imageEvents = mergePersistedToolEvent(imageEvents, {
+            detail: message,
+            finishedAt,
+            id: "image",
+            label: "image2",
+            status: "error",
+            type: "image"
+          }, finishedAt);
+          const assistantMessage = await prisma.message.update({
+            where: { id: imageAssistantDraft.id },
+            data: {
+              content: message,
+              generationStatus: "error",
+              processFinishedAt: new Date(finishedAt),
+              streamStatus: "生图失败。",
+              toolEventsJson: stringifyToolEvents(imageEvents)
+            }
+          });
+
+          sse(controller, "tool", imageEvents.find((event) => event.id === "image"));
+          sse(controller, "error", {
+            assistantMessage: imageMessageForResponse(assistantMessage),
+            error: message
+          });
+        } finally {
+          try {
+            controller.close();
+          } catch {
+            // The browser may have closed the stream; the message state has already been persisted.
+          }
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive"
+      }
+    });
+  }
+
   const previousMessages = existingConversation
     ? await prisma.message.findMany({
         where: {
@@ -717,15 +1115,10 @@ export async function POST(request: NextRequest) {
     promptClock
   });
   const webSearchStartedAt = Date.now();
-  const webSearchPlan = await planWebSearchQuery({
-    attachmentCount: effectiveAttachments.length,
-    force: body.useWebSearch === true,
-    modelId: model.id,
-    prompt: content,
-    promptClock,
-    signal: request.signal,
-    settings: aiSettings
-  });
+  const webSearchPlan = {
+    query: toolRoutePlan.query,
+    shouldSearch: toolRoutePlan.shouldSearch
+  };
   const webSearchResult = webSearchPlan.shouldSearch
     ? await searchWeb(
         content,

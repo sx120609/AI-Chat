@@ -53,6 +53,7 @@ model UserApiKey {
   userId      String
   name        String
   keyHash     String    @unique
+  keyEncrypted String?
   keyPrefix   String
   active      Boolean   @default(true)
   lastUsedAt  DateTime?

@@ -27,9 +27,16 @@ import {
   type PersonalizationLevel,
   type PersonalizationSettings
 } from "@/lib/personalization";
-import type { SiteSettingsView, UsageSummary, UserApiKeyView, UserView } from "@/types/gateway";
+import type {
+  ChatModelView,
+  SiteSettingsView,
+  UsageSummary,
+  UserApiKeyView,
+  UserView
+} from "@/types/gateway";
 
 type ProfileCenterProps = {
+  apiModels: ChatModelView[];
   initialUser: UserView;
   initialUsage: UsageSummary;
   siteSettings: SiteSettingsView;
@@ -39,6 +46,8 @@ type ApiKeysPayload = {
   canCreate: boolean;
   keys: UserApiKeyView[];
 };
+
+type ProfileTab = "overview" | "personalization" | "security" | "api";
 
 function groupLabel(group: string) {
   return group === "VIP" ? "VIP" : "普通";
@@ -61,6 +70,38 @@ const LEVEL_OPTIONS: SelectOption<PersonalizationLevel>[] = [
   { label: "少一点", value: "low" },
   { label: "适中", value: "medium" },
   { label: "更多", value: "high" }
+];
+
+const profileTabs: Array<{
+  id: ProfileTab;
+  label: string;
+  description: string;
+  icon: typeof UserRound;
+}> = [
+  {
+    id: "overview",
+    label: "资料",
+    description: "昵称、邮箱与余额",
+    icon: UserRound
+  },
+  {
+    id: "personalization",
+    label: "个性化",
+    description: "风格、语调与记忆",
+    icon: Sparkles
+  },
+  {
+    id: "security",
+    label: "安全",
+    description: "登录密码",
+    icon: Lock
+  },
+  {
+    id: "api",
+    label: "个人 API",
+    description: "模型、Base URL 与 Key",
+    icon: KeyRound
+  }
 ];
 
 function PreferenceSelect<T extends string>({
@@ -131,18 +172,18 @@ function ToggleRow({
   );
 }
 
-export function ProfileCenter({ initialUser, initialUsage, siteSettings }: ProfileCenterProps) {
+export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettings }: ProfileCenterProps) {
   const [user, setUser] = useState(initialUser);
   const [name, setName] = useState(initialUser.name);
   const [personalization, setPersonalization] = useState<PersonalizationSettings>(() =>
     parsePersonalizationSettings(initialUser.aiStylePrompt)
   );
+  const [activeTab, setActiveTab] = useState<ProfileTab>("overview");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [apiKeyName, setApiKeyName] = useState("个人 API Key");
   const [apiKeys, setApiKeys] = useState<UserApiKeyView[]>([]);
   const [canCreateApiKey, setCanCreateApiKey] = useState(user.userGroup === "VIP");
-  const [createdApiKey, setCreatedApiKey] = useState("");
   const [origin, setOrigin] = useState("");
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -260,7 +301,6 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
     setCreatingKey(true);
     setNotice("");
     setError("");
-    setCreatedApiKey("");
 
     const response = await fetch("/api/profile/api-keys", {
       method: "POST",
@@ -274,7 +314,6 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
     if (!response.ok || !payload?.apiKey || !payload.key) {
       setError(payload?.error || "创建 API Key 失败。");
     } else {
-      setCreatedApiKey(payload.apiKey);
       setApiKeys((current) => [payload.key as UserApiKeyView, ...current]);
       setNotice("API Key 已创建。");
     }
@@ -331,12 +370,13 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
     setDeleteKeyId(null);
   }
 
-  async function copyCreatedKey() {
-    if (!createdApiKey) {
+  async function copyApiKey(apiKey: string | null | undefined) {
+    if (!apiKey) {
+      setError("这个 Key 是旧版本创建的，无法查看明文。请重新创建一个。");
       return;
     }
 
-    await navigator.clipboard?.writeText(createdApiKey);
+    await navigator.clipboard?.writeText(apiKey);
     setNotice("API Key 已复制。");
   }
 
@@ -379,6 +419,38 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
             </div>
           ) : null}
 
+          <nav className="ios-panel motion-lift grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-4">
+            {profileTabs.map((tab) => {
+              const TabIcon = tab.icon;
+              const selected = activeTab === tab.id;
+
+              return (
+                <button
+                  className={`app-action-button flex min-h-14 items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
+                    selected ? "bg-white text-stone-950 shadow-sm" : "text-stone-600 hover:bg-white/60"
+                  }`}
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  type="button"
+                >
+                  <span
+                    className={`grid size-8 shrink-0 place-items-center rounded-lg ${
+                      selected ? "bg-[color:var(--claude-accent)] text-white" : "bg-white/70"
+                    }`}
+                  >
+                    <TabIcon className="size-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">{tab.label}</span>
+                    <span className="block truncate text-[11px] ios-muted">{tab.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {activeTab === "overview" ? (
+            <>
           <section className="ios-panel motion-lift grid gap-3 p-4 md:grid-cols-3">
             <div className="flex items-center gap-3">
               <div className="grid size-10 place-items-center rounded-lg bg-white/75 text-[color:var(--claude-accent)]">
@@ -404,7 +476,7 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
             </div>
           </section>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4">
             <form className="ios-panel motion-lift p-4" onSubmit={saveProfile}>
               <div className="mb-4 flex items-center gap-2">
                 <UserRound className="size-4 text-[color:var(--claude-accent)]" />
@@ -434,6 +506,11 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
               </div>
             </form>
 
+          </div>
+            </>
+          ) : null}
+
+          {activeTab === "security" ? (
             <form className="ios-panel motion-lift p-4" onSubmit={changePassword}>
               <div className="mb-4 flex items-center gap-2">
                 <Lock className="size-4 text-[color:var(--claude-accent)]" />
@@ -465,9 +542,10 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
                 </button>
               </div>
             </form>
-          </div>
+          ) : null}
 
-          <form className="ios-panel motion-lift overflow-hidden" onSubmit={saveProfile}>
+          {activeTab === "personalization" ? (
+            <form className="ios-panel motion-lift overflow-hidden" onSubmit={saveProfile}>
             <div className="flex items-center gap-2 border-b border-[color:var(--ios-separator)] px-4 py-4">
               <Sparkles className="size-4 text-[color:var(--claude-accent)]" />
               <h2 className="text-base font-semibold">个性化</h2>
@@ -595,9 +673,11 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
                 </button>
               </div>
             </div>
-          </form>
+            </form>
+          ) : null}
 
-          <section className="ios-panel motion-lift overflow-hidden">
+          {activeTab === "api" ? (
+            <section className="ios-panel motion-lift overflow-hidden">
             <div className="flex items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
               <div className="flex items-center gap-2">
                 <KeyRound className="size-4 text-[color:var(--claude-accent)]" />
@@ -609,10 +689,43 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
             </div>
 
             <div className="grid gap-4 p-4">
-              <div className="rounded-lg border border-[color:var(--app-border)] bg-white/55 px-3 py-2 text-sm text-stone-700">
-                Base URL：<span className="font-semibold">{origin ? `${origin}/api/v1` : "/api/v1"}</span>
-                <span className="mx-2 text-stone-300">/</span>
-                兼容地址：<span className="font-semibold">{origin ? `${origin}/v1` : "/v1"}</span>
+              <div className="grid gap-2 rounded-lg border border-[color:var(--app-border)] bg-white/55 p-3 text-sm text-stone-700">
+                <div>
+                  Base URL：<span className="font-semibold">{origin ? `${origin}/api/v1` : "/api/v1"}</span>
+                  <span className="mx-2 text-stone-300">/</span>
+                  兼容地址：<span className="font-semibold">{origin ? `${origin}/v1` : "/v1"}</span>
+                </div>
+                <div className="grid gap-1 text-xs ios-muted sm:grid-cols-2">
+                  <span>Responses：{origin ? `${origin}/v1/responses` : "/v1/responses"}</span>
+                  <span>Models：{origin ? `${origin}/v1/models` : "/v1/models"}</span>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-[color:var(--app-border)] bg-white/55 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-stone-950">支持的模型</h3>
+                  <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-semibold ios-muted">
+                    {apiModels.length} 个
+                  </span>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {apiModels.map((model) => (
+                    <div
+                      className="rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-3 py-2 text-sm"
+                      key={model.id}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate font-semibold">{model.id}</span>
+                        <span className="shrink-0 rounded-full bg-[color:var(--app-accent-soft)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--claude-accent)]">
+                          {model.contextNote}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs ios-muted">
+                        上游 {model.upstreamId} · 上下文 {formatNumber(model.contextWindowTokens)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <form className="grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={createApiKey}>
@@ -632,25 +745,6 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
                   创建 Key
                 </button>
               </form>
-
-              {createdApiKey ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  <p className="font-semibold">只显示一次</p>
-                  <div className="mt-2 flex gap-2">
-                    <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-white/80 px-2 py-2 text-xs">
-                      {createdApiKey}
-                    </code>
-                    <button
-                      className="ios-icon-button app-action-button shrink-0"
-                      onClick={copyCreatedKey}
-                      title="复制"
-                      type="button"
-                    >
-                      <Copy className="size-4" />
-                    </button>
-                  </div>
-                </div>
-              ) : null}
 
               {loadingKeys ? (
                 <div className="grid min-h-24 place-items-center text-stone-500">
@@ -682,10 +776,24 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
                             {key.active ? "启用" : "停用"}
                           </span>
                         </div>
-                        <p className="mt-2 truncate text-xs ios-muted">
-                          {key.keyPrefix}... · 创建 {new Date(key.createdAt).toLocaleString()}
-                          {key.lastUsedAt ? ` · 最近使用 ${new Date(key.lastUsedAt).toLocaleString()}` : ""}
-                        </p>
+                      <p className="mt-2 truncate text-xs ios-muted">
+                        {key.keyPrefix}... · 创建 {new Date(key.createdAt).toLocaleString()}
+                        {key.lastUsedAt ? ` · 最近使用 ${new Date(key.lastUsedAt).toLocaleString()}` : ""}
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-white/80 px-2 py-2 text-xs">
+                          {key.apiKey || "旧 Key 无法查看明文，请重新创建后复制"}
+                        </code>
+                        <button
+                          className="ios-icon-button app-action-button shrink-0 disabled:opacity-50"
+                          disabled={!key.apiKey}
+                          onClick={() => void copyApiKey(key.apiKey)}
+                          title="复制"
+                          type="button"
+                        >
+                          <Copy className="size-4" />
+                        </button>
+                      </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -713,6 +821,7 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
               )}
             </div>
           </section>
+          ) : null}
         </div>
       </div>
 

@@ -227,18 +227,20 @@ SMTP 支持 465 这类隐式 SSL/TLS，也支持 587 这类 STARTTLS。`SMTP_SEC
 
 ## 个人中心与个人 API
 
-登录后可从聊天侧边栏进入“个人中心”，修改昵称、密码和个人 AI 风格。个人 AI 风格会追加到网页聊天的系统提示词中；留空时不影响全局提示词。
+登录后可从聊天侧边栏进入“个人中心”，在“资料、个性化、安全、个人 API”多个选项卡中修改昵称、密码和个人 AI 风格。个人 AI 风格会追加到网页聊天和个人 API 的系统提示词中；留空时不影响全局提示词。
 
 管理员可在“用户”选项卡把账号设置为 `VIP` 用户组。只有 VIP 用户可以在个人中心创建个人 API Key。个人 API 使用同一个账号余额与用量统计，不会单独分配额度。
 
-兼容 Responses API 的入口：
+兼容 Responses API 与模型列表的入口：
 
 ```text
 https://your-site.example/api/v1/responses
 https://your-site.example/v1/responses
+https://your-site.example/api/v1/models
+https://your-site.example/v1/models
 ```
 
-调用时使用个人中心生成的 Key：
+调用时使用个人中心生成的 Key。个人中心会展示当前启用的模型 ID；这些模型也可通过 `/models` 查询。Key 会加密保存，创建后可在个人中心重复复制；旧版本创建的 Key 会在下次成功调用 API 后自动回填加密明文。
 
 ```bash
 curl https://your-site.example/api/v1/responses \
@@ -246,6 +248,13 @@ curl https://your-site.example/api/v1/responses \
   -H "Content-Type: application/json" \
   -d '{"model":"GPT-5.5","input":"你好","stream":false}'
 ```
+
+```bash
+curl https://your-site.example/v1/models \
+  -H "Authorization: Bearer sk-user-..."
+```
+
+个人 API 会注入后台“身份与系统提示词”和用户自己的个性化风格，再保留调用方传入的 `instructions`，用于纠正上游兼容网关可能返回的 Codex CLI 等身份设定。
 
 ## 易支付充值
 

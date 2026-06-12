@@ -6,16 +6,17 @@ import {
   getEnabledChatModels,
   type ChatModelConfig
 } from "@/lib/models";
+import { formatPersonalizationForPrompt } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, QuotaError } from "@/lib/quota";
+import { resolveSystemPrompt } from "@/lib/system-prompt";
 import { estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
   getAiRuntimeSettings,
+  type AiRuntimeSettings,
   type UpstreamUsage
 } from "@/lib/upstream";
-
-export const USER_RESPONSES_RUNTIME = "nodejs";
 
 const decoder = new TextDecoder();
 
@@ -180,6 +181,78 @@ function promptEstimateFromBody(body: Record<string, unknown>) {
   return Math.max(1, estimateTokens(JSON.stringify(body.input ?? body.messages ?? body)));
 }
 
+function gatewayInstructions({
+  body,
+  model,
+  settings,
+  userStylePrompt
+}: {
+  body: Record<string, unknown>;
+  model: ChatModelConfig;
+  settings: AiRuntimeSettings;
+  userStylePrompt: string;
+}) {
+  const baseSystemPrompt = resolveSystemPrompt({
+    mode: settings.systemPromptMode,
+    customSystemPrompt: settings.customSystemPrompt,
+    modelSystemPrompt:
+      settings.modelSystemPrompts[model.id] || settings.modelSystemPrompts[model.upstreamId],
+    modelLabel: model.label
+  });
+  const callerInstructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
+
+  return [
+    baseSystemPrompt,
+    userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : "",
+    callerInstructions
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function upstreamRequestBody({
+  body,
+  model,
+  settings,
+  userStylePrompt
+}: {
+  body: Record<string, unknown>;
+  model: ChatModelConfig;
+  settings: AiRuntimeSettings;
+  userStylePrompt: string;
+}) {
+  const instructions = gatewayInstructions({
+    body,
+    model,
+    settings,
+    userStylePrompt
+  });
+
+  return {
+    ...body,
+    ...(instructions ? { instructions } : {}),
+    model: model.upstreamId || model.id
+  };
+}
+
+function serializeModel(model: ChatModelConfig) {
+  return {
+    id: model.id,
+    object: "model",
+    created: 0,
+    owned_by: "team-ai-gateway",
+    label: model.label,
+    upstream_id: model.upstreamId,
+    context_window_tokens: model.contextWindowTokens,
+    max_context_window_tokens: model.maxContextWindowTokens,
+    context_note: model.contextNote,
+    input_cents_per_million_tokens: model.inputCentsPerMillionTokens,
+    cached_input_cents_per_million_tokens: model.cachedInputCentsPerMillionTokens,
+    output_cents_per_million_tokens: model.outputCentsPerMillionTokens,
+    supports_reasoning: model.supportsReasoning
+  };
+}
+
 async function recordUserApiUsage({
   completionTokensEstimate,
   model,
@@ -282,7 +355,14 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
-  const promptTokensEstimate = promptEstimateFromBody(body);
+  const userStylePrompt = formatPersonalizationForPrompt(authenticated.user.aiStylePrompt);
+  const upstreamBody = upstreamRequestBody({
+    body,
+    model,
+    settings,
+    userStylePrompt
+  });
+  const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
   const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
 
   try {
@@ -295,13 +375,8 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     throw error;
   }
 
-  const upstreamBody = {
-    ...body,
-    model: model.upstreamId || model.id
-  };
-
   if (settings.mockResponses) {
-    const payload = mockResponsesBody(body, model);
+    const payload = mockResponsesBody(upstreamBody, model);
 
     await recordUserApiUsage({
       completionTokensEstimate: numberFromUsage(payload.usage.output_tokens),
@@ -430,5 +505,20 @@ export async function handleUserResponsesRequest(request: NextRequest) {
   return new Response(text, {
     status: response.status,
     headers: passthroughHeaders(response)
+  });
+}
+
+export async function handleUserModelsRequest(request: NextRequest) {
+  const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
+
+  if (!authenticated) {
+    return jsonError("无效的 API Key，或当前账号不是 VIP 用户组。", 401);
+  }
+
+  const settings = await getAiRuntimeSettings();
+
+  return Response.json({
+    object: "list",
+    data: getEnabledChatModels(settings.chatModels).map(serializeModel)
   });
 }

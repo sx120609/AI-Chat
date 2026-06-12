@@ -227,6 +227,7 @@ async function main() {
         userId: stringValue(row, columns.UserApiKey, "userId"),
         name: stringValue(row, columns.UserApiKey, "name", "个人 API Key"),
         keyHash: stringValue(row, columns.UserApiKey, "keyHash"),
+        keyEncrypted: optionalString(row, columns.UserApiKey, "keyEncrypted"),
         keyPrefix: stringValue(row, columns.UserApiKey, "keyPrefix"),
         active: boolValue(row, columns.UserApiKey, "active", true),
         lastUsedAt: optionalDate(row, columns.UserApiKey, "lastUsedAt"),

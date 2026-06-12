@@ -81,6 +81,8 @@ export type UserApiKeyView = {
   id: string;
   name: string;
   keyPrefix: string;
+  apiKey?: string | null;
+  canReveal: boolean;
   active: boolean;
   lastUsedAt?: string | null;
   createdAt: string;

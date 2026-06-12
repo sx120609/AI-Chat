@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ProfileCenter } from "@/components/profile-center";
 import { getCurrentUser, serializeCurrentUser } from "@/lib/auth";
+import { getEnabledChatModels } from "@/lib/models";
 import { getUsageSummary } from "@/lib/quota";
 import { getSiteSettings } from "@/lib/site-settings";
+import { getAiRuntimeSettings } from "@/lib/upstream";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteSettings = await getSiteSettings();
@@ -20,15 +22,17 @@ export default async function ProfilePage() {
     redirect("/login");
   }
 
-  const [siteSettings, usage] = await Promise.all([
+  const [siteSettings, usage, aiSettings] = await Promise.all([
     getSiteSettings(),
-    getUsageSummary(user.id)
+    getUsageSummary(user.id),
+    getAiRuntimeSettings()
   ]);
 
   return (
     <ProfileCenter
       initialUser={serializeCurrentUser(user)}
       initialUsage={usage}
+      apiModels={getEnabledChatModels(aiSettings.chatModels)}
       siteSettings={siteSettings}
     />
   );

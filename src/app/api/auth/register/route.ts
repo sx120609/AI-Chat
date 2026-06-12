@@ -5,7 +5,7 @@ import { jsonError, readJson } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 import { normalizeSiteName, normalizeSiteUrl } from "@/lib/site-settings";
-import { normalizeEmail, normalizeSmtpSettings } from "@/lib/smtp";
+import { describeSmtpError, normalizeEmail, normalizeSmtpSettings } from "@/lib/smtp";
 import { DEFAULT_REGISTRATION_COST_LIMIT_CENTS } from "@/lib/auth-settings";
 
 export const runtime = "nodejs";
@@ -108,12 +108,16 @@ export async function POST(request: NextRequest) {
       const siteUrl = normalizeSiteUrl(settings?.siteUrl || process.env.SITE_URL);
       const verificationUrl = `${getRequestBaseUrl(request, siteUrl)}/verify-email?token=${encodeURIComponent(token)}`;
 
-      await sendVerificationEmail({
-        settings: smtpSettings,
-        siteName,
-        to: email,
-        verificationUrl
-      });
+      try {
+        await sendVerificationEmail({
+          settings: smtpSettings,
+          siteName,
+          to: email,
+          verificationUrl
+        });
+      } catch (sendError) {
+        throw new Error(describeSmtpError(sendError));
+      }
 
       return NextResponse.json(
         {

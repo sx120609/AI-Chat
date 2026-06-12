@@ -3,7 +3,12 @@ import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { normalizeSiteName } from "@/lib/site-settings";
-import { normalizeEmail, normalizeSmtpSettings, sendSmtpMail } from "@/lib/smtp";
+import {
+  describeSmtpError,
+  normalizeEmail,
+  normalizeSmtpSettings,
+  sendSmtpMail
+} from "@/lib/smtp";
 
 export const runtime = "nodejs";
 
@@ -49,12 +54,16 @@ export async function POST(request: NextRequest) {
     return jsonError(smtpError instanceof Error ? smtpError.message : "邮件服务设置无效。", 400);
   }
 
-  await sendSmtpMail(smtpSettings, {
-    to,
-    subject: `${normalizeSiteName(settings.siteName)} SMTP 测试邮件`,
-    text: "这是一封 SMTP 测试邮件。如果你收到它，说明邮件服务配置可用。",
-    html: "<p>这是一封 SMTP 测试邮件。如果你收到它，说明邮件服务配置可用。</p>"
-  });
+  try {
+    await sendSmtpMail(smtpSettings, {
+      to,
+      subject: `${normalizeSiteName(settings.siteName)} SMTP 测试邮件`,
+      text: "这是一封 SMTP 测试邮件。如果你收到它，说明邮件服务配置可用。",
+      html: "<p>这是一封 SMTP 测试邮件。如果你收到它，说明邮件服务配置可用。</p>"
+    });
+  } catch (sendError) {
+    return jsonError(describeSmtpError(sendError), 502);
+  }
 
   return NextResponse.json({ message: `测试邮件已发送到 ${to}。` });
 }

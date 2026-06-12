@@ -3,7 +3,7 @@ import { createEmailVerificationToken, sendVerificationEmail } from "@/lib/email
 import { jsonError, readJson } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { normalizeSiteName, normalizeSiteUrl } from "@/lib/site-settings";
-import { normalizeEmail, normalizeSmtpSettings } from "@/lib/smtp";
+import { describeSmtpError, normalizeEmail, normalizeSmtpSettings } from "@/lib/smtp";
 
 export const runtime = "nodejs";
 
@@ -66,12 +66,16 @@ export async function POST(request: NextRequest) {
   const siteUrl = normalizeSiteUrl(settings?.siteUrl || process.env.SITE_URL);
   const verificationUrl = `${getRequestBaseUrl(request, siteUrl)}/verify-email?token=${encodeURIComponent(token)}`;
 
-  await sendVerificationEmail({
-    settings: smtpSettings,
-    siteName: normalizeSiteName(settings?.siteName || process.env.SITE_NAME),
-    to: email,
-    verificationUrl
-  });
+  try {
+    await sendVerificationEmail({
+      settings: smtpSettings,
+      siteName: normalizeSiteName(settings?.siteName || process.env.SITE_NAME),
+      to: email,
+      verificationUrl
+    });
+  } catch (sendError) {
+    return jsonError(describeSmtpError(sendError), 502);
+  }
 
   return NextResponse.json({ message: "验证邮件已发送，请查收。" });
 }

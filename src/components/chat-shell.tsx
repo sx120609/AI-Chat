@@ -3232,7 +3232,7 @@ export function ChatShell({
                 ))}
               </div>
             ) : null}
-            <div className="ios-panel app-glass-panel claude-composer app-composer flex min-h-14 items-center gap-1.5 px-2 py-2 sm:gap-2 sm:px-3">
+            <div className="ios-panel app-glass-panel claude-composer app-composer flex min-h-12 items-center gap-1.5 px-1.5 py-1 sm:gap-2 sm:px-2 sm:py-1.5">
               <input
                 className="hidden"
                 multiple
@@ -3559,7 +3559,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
 
   return (
     <>
-      <div className="flex min-h-10 w-full min-w-0 flex-1 items-end gap-1.5">
+      <div className="flex min-h-10 w-full min-w-0 flex-1 items-end gap-1.5 sm:min-h-9">
         <div className="relative min-w-0 flex-1">
           {fullscreenButtonVisible ? (
             <button

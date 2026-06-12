@@ -1577,6 +1577,7 @@ export async function POST(request: NextRequest) {
       const stopKeepAlive = startSseKeepAlive(controller);
       let assistantContent = "";
       let reasoningContent = "";
+      let streamedReasoningContent = "";
       let currentStreamStatus = initialStreamStatus;
       let draftPersistPromise = Promise.resolve();
       let generationStreamStarted = false;
@@ -1646,6 +1647,21 @@ export async function POST(request: NextRequest) {
           status: "running",
           type: "generation"
         });
+      };
+
+      const emitReasoningDelta = () => {
+        const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
+
+        if (!visibleReasoningContent || visibleReasoningContent === streamedReasoningContent) {
+          return;
+        }
+
+        const delta = visibleReasoningContent.startsWith(streamedReasoningContent)
+          ? visibleReasoningContent.slice(streamedReasoningContent.length)
+          : visibleReasoningContent;
+
+        streamedReasoningContent = visibleReasoningContent;
+        sse(controller, "reasoning", { delta });
       };
 
       const finalizeAssistantMessage = async (options: {
@@ -1791,6 +1807,7 @@ export async function POST(request: NextRequest) {
             onReasoning: (delta) => {
               reasoningContent += delta;
               markModelOutputStarted("正在思考并整理思路", "正在思考...");
+              emitReasoningDelta();
               queueDraftPersist();
             }
           });
@@ -1840,9 +1857,16 @@ export async function POST(request: NextRequest) {
         });
         const usage = await getUsageSummary(user.id, { readCache: false });
         const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
+        const remainingReasoningContent =
+          visibleReasoningContent && visibleReasoningContent !== streamedReasoningContent
+            ? visibleReasoningContent.startsWith(streamedReasoningContent)
+              ? visibleReasoningContent.slice(streamedReasoningContent.length)
+              : visibleReasoningContent
+            : "";
 
-        if (visibleReasoningContent) {
-          sse(controller, "reasoning", { delta: visibleReasoningContent });
+        if (remainingReasoningContent) {
+          streamedReasoningContent = visibleReasoningContent;
+          sse(controller, "reasoning", { delta: remainingReasoningContent });
         }
 
         sse(controller, "done", {

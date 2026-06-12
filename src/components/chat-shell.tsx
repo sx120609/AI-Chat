@@ -117,6 +117,16 @@ type InFlightChatGeneration = {
   toolEvents: ToolEventView[];
 };
 
+type InlineProcessView = {
+  events: ToolEventView[];
+  expanded: boolean;
+  finishedAt: number | null;
+  now: number;
+  onExpandedChange: (expanded: boolean) => void;
+  startedAt: number;
+  status: string;
+};
+
 type ComposerDraftState = {
   focusToken: number;
   text: string;
@@ -492,6 +502,23 @@ export function ChatShell({
   const webSearchProvider = "duckduckgo";
   const webSearchProviderLabel = "DuckDuckGo";
   const groupedConversations = useMemo(() => groupConversations(conversations), [conversations]);
+  const inlineProcessMessageId = useMemo(() => {
+    if (!processStartedAt) {
+      return null;
+    }
+
+    const processMessage = latestMessageProcess(messages);
+
+    if (processMessage) {
+      return processMessage.id;
+    }
+
+    return (
+      [...messages]
+        .reverse()
+        .find((message) => message.role === "ASSISTANT" && message.pending)?.id ?? null
+    );
+  }, [messages, processStartedAt]);
   const sidebarHeaderButtonClass =
     "app-action-button app-glass-control min-h-9 min-w-9 shrink-0 place-items-center rounded-xl text-[#4f4338] transition hover:text-[color:var(--claude-ink)] active:scale-95";
   const setComposerText = useCallback((text: string, focus = false) => {
@@ -2879,19 +2906,35 @@ export function ChatShell({
               </div>
             ) : null}
 
-            {messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                modelLabelById={messageModelLabels}
-                onContinue={continueGeneratingHandler}
-                onCopy={copyMessageHandler}
-                onDelete={deleteMessageHandler}
-                onEdit={editMessageHandler}
-                onEditImage={editImageHandler}
-                onRegenerate={regenerateMessageHandler}
-              />
-            ))}
+            {messages.map((message) => {
+              const inlineProcess =
+                message.id === inlineProcessMessageId && processStartedAt && toolEvents.length > 0
+                  ? {
+                      events: toolEvents,
+                      expanded: processTimelineExpanded,
+                      finishedAt: processFinishedAt,
+                      now: processNow,
+                      onExpandedChange: setProcessTimelineExpanded,
+                      startedAt: processStartedAt,
+                      status: streamStatus
+                    }
+                  : null;
+
+              return (
+                <MessageBubble
+                  inlineProcess={inlineProcess}
+                  key={message.id}
+                  message={message}
+                  modelLabelById={messageModelLabels}
+                  onContinue={continueGeneratingHandler}
+                  onCopy={copyMessageHandler}
+                  onDelete={deleteMessageHandler}
+                  onEdit={editMessageHandler}
+                  onEditImage={editImageHandler}
+                  onRegenerate={regenerateMessageHandler}
+                />
+              );
+            })}
             <div ref={scrollRef} />
           </div>
         </div>
@@ -2917,7 +2960,7 @@ export function ChatShell({
                 下一条将联网搜索（{webSearchProviderLabel}）
               </div>
             ) : null}
-            {toolEvents.length > 0 && processStartedAt ? (
+            {toolEvents.length > 0 && processStartedAt && !inlineProcessMessageId ? (
               <ProcessTimelinePanel
                 events={toolEvents}
                 expanded={processTimelineExpanded}
@@ -3663,6 +3706,7 @@ function ProcessTimelinePanel({
   finishedAt,
   now,
   onExpandedChange,
+  reasoning,
   startedAt,
   status
 }: {
@@ -3671,6 +3715,7 @@ function ProcessTimelinePanel({
   finishedAt: number | null;
   now: number;
   onExpandedChange: (expanded: boolean) => void;
+  reasoning?: string;
   startedAt: number;
   status: string;
 }) {
@@ -3708,6 +3753,11 @@ function ProcessTimelinePanel({
       </button>
       {expanded ? (
         <div className="app-reveal mt-2 border-t border-[color:var(--ios-separator)] pt-2">
+          {reasoning ? (
+            <div className="mb-2 whitespace-pre-wrap break-words rounded-lg bg-white/35 px-3 py-2 leading-5 text-stone-600">
+              {reasoning}
+            </div>
+          ) : null}
           <div className="space-y-2">
             {orderedEvents.map((event) => {
               const eventFinishedAt = event.finishedAt ?? (event.status === "running" ? now : event.startedAt);
@@ -4151,6 +4201,7 @@ function getMessageModelTitle(message: MessageView, modelLabelById: ReadonlyMap<
 }
 
 const MessageBubble = memo(function MessageBubble({
+  inlineProcess,
   message,
   modelLabelById,
   onContinue,
@@ -4160,6 +4211,7 @@ const MessageBubble = memo(function MessageBubble({
   onEditImage,
   onRegenerate
 }: {
+  inlineProcess?: InlineProcessView | null;
   message: MessageView;
   modelLabelById: ReadonlyMap<string, string>;
   onContinue: () => void;
@@ -4177,6 +4229,7 @@ const MessageBubble = memo(function MessageBubble({
   const displayReasoning = !isUser
     ? sanitizeReasoningContent(message.reasoningContent || "", message.model || "")
     : "";
+  const showStandaloneReasoning = Boolean(displayReasoning && !inlineProcess);
   const canContinue = !isUser && !message.imageUrl && message.mode !== "IMAGE";
   const modelTitle = isUser ? "" : getMessageModelTitle(message, modelLabelById);
 
@@ -4213,7 +4266,7 @@ const MessageBubble = memo(function MessageBubble({
           />
         ) : (
           <>
-            {displayReasoning ? (
+            {showStandaloneReasoning ? (
               <details className="app-glass-control mb-3 rounded-xl px-3 py-2 text-xs text-stone-600">
                 <summary className="cursor-pointer select-none font-semibold text-stone-600">
                   思考过程
@@ -4238,6 +4291,18 @@ const MessageBubble = memo(function MessageBubble({
             )}
           </>
         )}
+        {!isUser && inlineProcess ? (
+          <ProcessTimelinePanel
+            events={inlineProcess.events}
+            expanded={inlineProcess.expanded}
+            finishedAt={inlineProcess.finishedAt}
+            now={inlineProcess.now}
+            onExpandedChange={inlineProcess.onExpandedChange}
+            reasoning={displayReasoning}
+            startedAt={inlineProcess.startedAt}
+            status={inlineProcess.status}
+          />
+        ) : null}
         {!isUser && message.webSources?.length ? (
           <WebSourceCards sources={message.webSources} />
         ) : null}
@@ -4257,7 +4322,9 @@ const MessageBubble = memo(function MessageBubble({
             {formatCents(message.estimatedCostCents)}
           </p>
         ) : null}
-        {message.pending ? <p className="mt-2 text-xs opacity-70">处理中</p> : null}
+        {message.pending && !inlineProcess ? (
+          <p className="mt-2 text-xs opacity-70">{GENERATION_THINKING_STATUS}</p>
+        ) : null}
         </div>
         {!message.pending ? (
           <div

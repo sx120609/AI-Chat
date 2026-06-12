@@ -8,7 +8,7 @@ import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 import type { AttachmentKind, AttachmentView } from "@/types/gateway";
 
-export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 export const MAX_ATTACHMENTS_PER_MESSAGE = 8;
 export const MAX_EXTRACTED_TEXT_CHARS = 80_000;
 const MAX_ARCHIVE_LISTED_ENTRIES = 200;
@@ -120,7 +120,7 @@ export function validateAttachment(fileName: string, mimeType: string, sizeBytes
   }
 
   if (sizeBytes > MAX_ATTACHMENT_BYTES) {
-    throw new Error("单个附件不能超过 25 MB。");
+    throw new Error("单个附件不能超过 50 MB。");
   }
 
   const normalizedMime = normalizeAttachmentMime(fileName, mimeType);

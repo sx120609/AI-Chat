@@ -71,7 +71,7 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
     const buffer = Buffer.from(match[2], "base64");
 
     if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
-      throw new Error("源图片不能超过 25 MB。");
+      throw new Error("源图片不能超过 50 MB。");
     }
 
     return {
@@ -122,7 +122,7 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
     const buffer = Buffer.from(await response.arrayBuffer());
 
     if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
-      throw new Error("源图片不能超过 25 MB。");
+      throw new Error("源图片不能超过 50 MB。");
     }
 
     const extension = mimeType.split("/")[1] || "png";

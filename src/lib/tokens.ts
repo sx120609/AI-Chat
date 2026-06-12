@@ -1,6 +1,7 @@
 export type ChatContentPart =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file"; file: { filename: string; file_data?: string; file_id?: string } };
 
 export type ChatMessageContent = string | ChatContentPart[];
 
@@ -26,7 +27,13 @@ export function textFromMessageContent(content: ChatMessageContent) {
   }
 
   return content
-    .map((part) => (part.type === "text" ? part.text : "[image]"))
+    .map((part) =>
+      part.type === "text"
+        ? part.text
+        : part.type === "image_url"
+          ? "[image]"
+          : `[file: ${part.file.filename}]`
+    )
     .join("\n");
 }
 

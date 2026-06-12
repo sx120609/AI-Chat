@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import {
   attachmentDataUrl,
+  attachmentContextBlock,
   attachmentToView,
   contentWithAttachmentContext,
   deleteAttachmentFiles,
@@ -74,6 +75,7 @@ const IDLE_TIMEOUT_MS = 300_000;
 const MAX_CONTEXT_HISTORY_MESSAGES = 120;
 const DRAFT_PERSIST_INTERVAL_MS = 1000;
 const SSE_KEEPALIVE_INTERVAL_MS = 15_000;
+const MAX_DIRECT_FILE_INPUT_BYTES = 50 * 1024 * 1024;
 
 class UpstreamStreamError extends Error {}
 
@@ -299,7 +301,7 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
     const buffer = Buffer.from(match[2], "base64");
 
     if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
-      throw new Error("源图片不能超过 25 MB。");
+      throw new Error("源图片不能超过 50 MB。");
     }
 
     return {
@@ -350,7 +352,7 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
     const buffer = Buffer.from(await response.arrayBuffer());
 
     if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
-      throw new Error("源图片不能超过 25 MB。");
+      throw new Error("源图片不能超过 50 MB。");
     }
 
     const extension = mimeType.split("/")[1] || "png";
@@ -365,6 +367,46 @@ async function sourceImageFromMessageUrl(imageUrl: string) {
   }
 }
 
+function directFileAttachmentIds(attachments: ChatAttachment[]) {
+  const fileAttachments = attachments.filter((attachment) => attachment.kind !== "IMAGE");
+  const totalSize = fileAttachments.reduce((total, attachment) => total + attachment.sizeBytes, 0);
+
+  if (totalSize > MAX_DIRECT_FILE_INPUT_BYTES) {
+    return new Set<string>();
+  }
+
+  return new Set(fileAttachments.map((attachment) => attachment.id));
+}
+
+function contentWithDirectFileContext(
+  content: string,
+  attachments: ChatAttachment[],
+  directFileIds: Set<string>
+) {
+  if (directFileIds.size === 0) {
+    return contentWithAttachmentContext(content, attachments);
+  }
+
+  const directFileBlocks = attachments
+    .filter((attachment) => directFileIds.has(attachment.id))
+    .map(
+      (attachment) =>
+        `[原始文件附件: ${attachment.originalName} (${attachment.mimeType})]\n已作为原始文件随本次请求发送给模型。`
+    );
+  const fallbackAttachmentContext = attachmentContextBlock(
+    attachments.filter((attachment) => !directFileIds.has(attachment.id))
+  );
+  const attachmentContext = [...directFileBlocks, fallbackAttachmentContext]
+    .filter(Boolean)
+    .join("\n\n");
+
+  if (!attachmentContext) {
+    return content;
+  }
+
+  return `${content}\n\n---\n用户上传的附件内容：\n${attachmentContext}`;
+}
+
 async function buildUserContentWithImages(content: string, attachments: ChatAttachment[]) {
   const text = contentWithAttachmentContext(content, attachments);
   const imageAttachments = attachments.filter((attachment) => attachment.kind === "IMAGE");
@@ -374,6 +416,40 @@ async function buildUserContentWithImages(content: string, attachments: ChatAtta
   }
 
   return [
+    { type: "text" as const, text },
+    ...(await Promise.all(
+      imageAttachments.map(async (attachment) => ({
+        type: "image_url" as const,
+        image_url: {
+          url: await attachmentDataUrl(attachment)
+        }
+      }))
+    ))
+  ];
+}
+
+async function buildUserContentWithRawFiles(content: string, attachments: ChatAttachment[]) {
+  const directFileIds = directFileAttachmentIds(attachments);
+  const text = contentWithDirectFileContext(content, attachments, directFileIds);
+  const imageAttachments = attachments.filter((attachment) => attachment.kind === "IMAGE");
+  const fileAttachments = attachments.filter((attachment) => directFileIds.has(attachment.id));
+
+  if (imageAttachments.length === 0 && fileAttachments.length === 0) {
+    return text;
+  }
+
+  return [
+    ...(fileAttachments.length
+      ? await Promise.all(
+          fileAttachments.map(async (attachment) => ({
+            type: "file" as const,
+            file: {
+              filename: attachment.originalName,
+              file_data: await attachmentDataUrl(attachment)
+            }
+          }))
+        )
+      : []),
     { type: "text" as const, text },
     ...(await Promise.all(
       imageAttachments.map(async (attachment) => ({
@@ -1187,6 +1263,16 @@ export async function POST(request: NextRequest) {
     model,
     longContextThresholdTokens: aiSettings.longContextThresholdTokens
   });
+  let fallbackUpstreamMessages = upstreamMessages;
+  upstreamMessages = buildContextMessages({
+    compressedHistoryMessageCount,
+    contextSummary,
+    previousMessages: requestPreviousContextMessages,
+    systemPrompt,
+    userContent: await buildUserContentWithRawFiles(modelContent, effectiveAttachments),
+    model,
+    longContextThresholdTokens: aiSettings.longContextThresholdTokens
+  }).upstreamMessages;
   const quotaCostEstimate = estimateChatCostForModel(model, promptTokensEstimate, 0);
 
   try {
@@ -1222,7 +1308,16 @@ export async function POST(request: NextRequest) {
     });
     contextStats = rebuiltContext.contextStats;
     promptTokensEstimate = rebuiltContext.promptTokensEstimate;
-    upstreamMessages = rebuiltContext.upstreamMessages;
+    fallbackUpstreamMessages = rebuiltContext.upstreamMessages;
+    upstreamMessages = buildContextMessages({
+      compressedHistoryMessageCount,
+      contextSummary,
+      previousMessages: requestPreviousContextMessages,
+      systemPrompt,
+      userContent: await buildUserContentWithRawFiles(modelContent, effectiveAttachments),
+      model,
+      longContextThresholdTokens: aiSettings.longContextThresholdTokens
+    }).upstreamMessages;
 
     try {
       await assertQuotaAvailable(user.id, estimateChatCostForModel(model, promptTokensEstimate, 0));
@@ -1536,7 +1631,14 @@ export async function POST(request: NextRequest) {
             model.id,
             upstreamMessages,
             aiSettings,
-            { reasoningEffort, signal: streamAbortController.signal }
+            {
+              fallbackMessages:
+                directFileAttachmentIds(effectiveAttachments).size > 0
+                  ? fallbackUpstreamMessages
+                  : undefined,
+              reasoningEffort,
+              signal: streamAbortController.signal
+            }
           );
           upstreamUsage = await pipeOpenAiSse(upstreamBody, {
             onDelta: (delta) => {

@@ -423,7 +423,7 @@ async function upstreamErrorMessage(response: Response) {
 // Sub2API / One API 等网关的旧版本可能不认识 stream_options 或 reasoning 参数，
 // 遇到这类 400 报错时逐步降级，尽量保留 include_usage。
 function looksLikeUnsupportedParamError(message: string) {
-  return /stream_options|reasoning|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request)|额外|不支持|无效参数/i.test(
+  return /stream_options|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|unsupported\s+file|file\s+type|supported\s+format|messages.*content.*file|too\s+large|entity\s+too\s+large|payload|request\s+body|combined\s+limit|under\s+50\s*mb|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数|请求体过大|文件过大/i.test(
     message
   );
 }
@@ -433,6 +433,7 @@ export async function createChatCompletionStream(
   messages: UpstreamChatMessage[],
   settings: AiRuntimeSettings,
   options?: {
+    fallbackMessages?: UpstreamChatMessage[];
     reasoningEffort?: ReasoningEffort;
     signal?: AbortSignal;
   }
@@ -440,27 +441,43 @@ export async function createChatCompletionStream(
   assertUpstreamConfigured(settings);
   const selectedModel = getChatModel(model, settings.chatModels);
   const url = `${settings.apiBaseUrl}/chat/completions`;
-  const baseBody: Record<string, unknown> = {
-    model: selectedModel.upstreamId,
-    messages,
-    stream: true
-  };
-  const fullBody: Record<string, unknown> = {
-    ...baseBody,
-    // 请求上游在流末尾返回 usage，确保 token 统计准确（OpenAI 兼容网关基本都支持）
-    stream_options: { include_usage: true }
-  };
   const reasoningEffort = normalizeReasoningEffort(
     options?.reasoningEffort || settings.defaultReasoningEffort
   );
 
-  if (selectedModel.supportsReasoning && settings.reasoningParamMode !== "disabled") {
-    if (settings.reasoningParamMode === "responses") {
-      fullBody.reasoning = { effort: reasoningEffort };
-    } else {
-      fullBody.reasoning_effort = reasoningEffort;
+  const bodyVariants = (messageList: UpstreamChatMessage[]) => {
+    const baseBody: Record<string, unknown> = {
+      model: selectedModel.upstreamId,
+      messages: messageList,
+      stream: true
+    };
+    const fullBody: Record<string, unknown> = {
+      ...baseBody,
+      // 请求上游在流末尾返回 usage，确保 token 统计准确（OpenAI 兼容网关基本都支持）
+      stream_options: { include_usage: true }
+    };
+
+    if (selectedModel.supportsReasoning && settings.reasoningParamMode !== "disabled") {
+      if (settings.reasoningParamMode === "responses") {
+        fullBody.reasoning = { effort: reasoningEffort };
+      } else {
+        fullBody.reasoning_effort = reasoningEffort;
+      }
     }
-  }
+
+    const variants = [fullBody];
+
+    if (fullBody.reasoning || fullBody.reasoning_effort) {
+      variants.push({
+        ...baseBody,
+        stream_options: { include_usage: true }
+      });
+    }
+
+    variants.push(baseBody);
+
+    return variants;
+  };
 
   const requestInit = (body: Record<string, unknown>): RequestInit => ({
     method: "POST",
@@ -469,16 +486,10 @@ export async function createChatCompletionStream(
     signal: options?.signal
   });
 
-  const bodyCandidates = [fullBody];
-
-  if (fullBody.reasoning || fullBody.reasoning_effort) {
-    bodyCandidates.push({
-      ...baseBody,
-      stream_options: { include_usage: true }
-    });
-  }
-
-  bodyCandidates.push(baseBody);
+  const bodyCandidates = [
+    ...bodyVariants(messages),
+    ...(options?.fallbackMessages ? bodyVariants(options.fallbackMessages) : [])
+  ];
 
   let lastUnsupportedParamError = "";
 

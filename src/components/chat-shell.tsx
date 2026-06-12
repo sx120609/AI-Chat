@@ -436,6 +436,7 @@ export function ChatShell({
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [streamStatus, setStreamStatus] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEventView[]>([]);
+  const [processTimelineExpanded, setProcessTimelineExpanded] = useState(true);
   const [processStartedAt, setProcessStartedAt] = useState<number | null>(null);
   const [processFinishedAt, setProcessFinishedAt] = useState<number | null>(null);
   const [processNow, setProcessNow] = useState(() => Date.now());
@@ -2919,8 +2920,10 @@ export function ChatShell({
             {toolEvents.length > 0 && processStartedAt ? (
               <ProcessTimelinePanel
                 events={toolEvents}
+                expanded={processTimelineExpanded}
                 finishedAt={processFinishedAt}
                 now={processNow}
+                onExpandedChange={setProcessTimelineExpanded}
                 startedAt={processStartedAt}
                 status={streamStatus}
               />
@@ -3609,36 +3612,80 @@ function processTimelineStatus(status: string, latestRunningEvent?: ToolEventVie
   return "";
 }
 
+const TOOL_EVENT_DISPLAY_ORDER: Record<ToolEventView["type"], number> = {
+  router: 0,
+  attachments: 1,
+  web_search: 2,
+  context_compression: 3,
+  file_analysis: 4,
+  generation: 5,
+  image: 5,
+  usage: 6
+};
+
+function processTimelineSortTime(event: ToolEventView) {
+  if (event.type === "router") {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  if (event.type === "usage") {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return event.startedAt;
+}
+
+function sortProcessTimelineEvents(events: ToolEventView[]) {
+  return events
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => {
+      const timeDiff = processTimelineSortTime(left.event) - processTimelineSortTime(right.event);
+
+      if (timeDiff !== 0) {
+        return timeDiff;
+      }
+
+      const orderDiff =
+        TOOL_EVENT_DISPLAY_ORDER[left.event.type] - TOOL_EVENT_DISPLAY_ORDER[right.event.type];
+
+      if (orderDiff !== 0) {
+        return orderDiff;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ event }) => event);
+}
+
 function ProcessTimelinePanel({
   events,
+  expanded,
   finishedAt,
   now,
+  onExpandedChange,
   startedAt,
   status
 }: {
   events: ToolEventView[];
+  expanded: boolean;
   finishedAt: number | null;
   now: number;
+  onExpandedChange: (expanded: boolean) => void;
   startedAt: number;
   status: string;
 }) {
   const active = !finishedAt;
-  const [expanded, setExpanded] = useState(active);
+  const orderedEvents = sortProcessTimelineEvents(events);
   const elapsed = formatElapsedDuration((finishedAt ?? now) - startedAt);
-  const latestRunningEvent = [...events].reverse().find((event) => event.status === "running");
+  const latestRunningEvent = [...orderedEvents].reverse().find((event) => event.status === "running");
   const displayStatus = processTimelineStatus(status, latestRunningEvent);
-
-  useEffect(() => {
-    if (active) {
-      setExpanded(true);
-    }
-  }, [active]);
 
   return (
     <div className="app-reveal app-glass-control mb-2 rounded-2xl px-3 py-2 text-xs text-stone-700 sm:mb-3 sm:rounded-xl">
       <button
+        aria-expanded={expanded}
         className="flex w-full items-center justify-between gap-3 text-left"
-        onClick={() => setExpanded((current) => !current)}
+        onClick={() => onExpandedChange(!expanded)}
         type="button"
       >
         <span className="flex min-w-0 items-center gap-2">
@@ -3662,7 +3709,7 @@ function ProcessTimelinePanel({
       {expanded ? (
         <div className="app-reveal mt-2 border-t border-[color:var(--ios-separator)] pt-2">
           <div className="space-y-2">
-            {events.map((event) => {
+            {orderedEvents.map((event) => {
               const eventFinishedAt = event.finishedAt ?? (event.status === "running" ? now : event.startedAt);
               const eventElapsed = formatElapsedDuration(eventFinishedAt - event.startedAt);
               const eventDetail = toolEventDisplayDetail(event);

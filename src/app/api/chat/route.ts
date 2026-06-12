@@ -9,7 +9,10 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   readAttachmentBuffer
 } from "@/lib/attachments";
-import { ensureAttachmentsText } from "@/lib/attachment-repair";
+import {
+  ensureAttachmentsMetadata,
+  ensureAttachmentsText
+} from "@/lib/attachment-repair";
 import {
   maybeCompressConversationContext,
   resetContextSummaryData,
@@ -46,6 +49,9 @@ import {
   createResponseStream,
   generateImage,
   getAiRuntimeSettings,
+  uploadResponseFile,
+  type AiRuntimeSettings,
+  type UpstreamMessage,
   type UpstreamUsage
 } from "@/lib/upstream";
 import { formatWebSearchContext, searchWeb, type WebSearchSource } from "@/lib/web-search";
@@ -429,18 +435,11 @@ function contentWithDirectFileContext(
 
   const directFileBlocks = attachments
     .filter((attachment) => directFileIds.has(attachment.id))
-    .map((attachment) => {
-      const extractedText = attachment.extractedText?.trim();
-      const directFileNote =
+    .map(
+      (attachment) =>
         `[原始文件附件: ${attachment.originalName} (${attachment.mimeType})]\n` +
-        "已作为原始文件随本次请求发送给模型。";
-
-      if (!extractedText) {
-        return directFileNote;
-      }
-
-      return `${directFileNote}\n同时提供后端已提取文本备份：\n${extractedText}`;
-    });
+        "已作为原始文件随本次请求发送给模型，请优先直接解析原始文件内容。"
+    );
   const fallbackAttachmentContext = attachmentContextBlock(
     attachments.filter((attachment) => !directFileIds.has(attachment.id))
   );
@@ -476,7 +475,62 @@ async function buildUserContentWithImages(content: string, attachments: ChatAtta
   ];
 }
 
-async function buildUserContentWithRawFiles(content: string, attachments: ChatAttachment[]) {
+type RawFileUploadOptions = {
+  settings: AiRuntimeSettings;
+  signal?: AbortSignal;
+  uploadCache: Map<string, string>;
+};
+
+async function attachmentFilePart(
+  attachment: ChatAttachment,
+  options: RawFileUploadOptions | undefined
+) {
+  const cachedFileId = options?.uploadCache.get(attachment.id);
+
+  if (cachedFileId) {
+    return {
+      filename: attachment.originalName,
+      file_id: cachedFileId
+    };
+  }
+
+  if (options) {
+    try {
+      const fileId = await uploadResponseFile(
+        {
+          buffer: await readAttachmentBuffer(attachment),
+          filename: attachment.originalName,
+          mimeType: attachment.mimeType
+        },
+        options.settings,
+        { signal: options.signal }
+      );
+
+      options.uploadCache.set(attachment.id, fileId);
+
+      return {
+        filename: attachment.originalName,
+        file_id: fileId
+      };
+    } catch (error) {
+      console.warn(
+        `[attachments] Failed to upload ${attachment.originalName} to upstream /files, falling back to file_data:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
+  return {
+    filename: attachment.originalName,
+    file_data: await attachmentDataUrl(attachment)
+  };
+}
+
+async function buildUserContentWithRawFiles(
+  content: string,
+  attachments: ChatAttachment[],
+  rawFileOptions?: RawFileUploadOptions
+) {
   const directFileIds = directFileAttachmentIds(attachments);
   const text = contentWithDirectFileContext(content, attachments, directFileIds);
   const imageAttachments = attachments.filter((attachment) => attachment.kind === "IMAGE");
@@ -491,10 +545,7 @@ async function buildUserContentWithRawFiles(content: string, attachments: ChatAt
       ? await Promise.all(
           fileAttachments.map(async (attachment) => ({
             type: "file" as const,
-            file: {
-              filename: attachment.originalName,
-              file_data: await attachmentDataUrl(attachment)
-            }
+            file: await attachmentFilePart(attachment, rawFileOptions)
           }))
         )
       : []),
@@ -790,6 +841,12 @@ export async function POST(request: NextRequest) {
   }
 
   const aiSettings = await getAiRuntimeSettings();
+  const rawFileUploadCache = new Map<string, string>();
+  const rawFileUploadOptions: RawFileUploadOptions = {
+    settings: aiSettings,
+    signal: request.signal,
+    uploadCache: rawFileUploadCache
+  };
 
   try {
     assertUpstreamConfigured(aiSettings);
@@ -868,7 +925,7 @@ export async function POST(request: NextRequest) {
   const routerStartedAt = Date.now();
   const attachmentStartedAt = Date.now();
   const attachments = attachmentIds.length
-    ? await ensureAttachmentsText(
+    ? await ensureAttachmentsMetadata(
         await prisma.attachment.findMany({
           where: {
             id: { in: attachmentIds },
@@ -888,7 +945,7 @@ export async function POST(request: NextRequest) {
   }
 
   const effectiveAttachments = reusedUserMessage
-    ? await ensureAttachmentsText(reusedUserMessage.attachments)
+    ? await ensureAttachmentsMetadata(reusedUserMessage.attachments)
     : attachments;
   attachmentFinishedAt = effectiveAttachments.length > 0 ? Date.now() : attachmentFinishedAt;
 
@@ -1243,7 +1300,7 @@ export async function POST(request: NextRequest) {
     : [];
   const previousContextMessages = await Promise.all(
     previousMessages.map(async (message) => {
-      const messageAttachments = await ensureAttachmentsText(message.attachments);
+      const messageAttachments = await ensureAttachmentsMetadata(message.attachments);
 
       return {
         createdAt: message.createdAt,
@@ -1321,16 +1378,38 @@ export async function POST(request: NextRequest) {
     model,
     longContextThresholdTokens: aiSettings.longContextThresholdTokens
   });
-  let fallbackUpstreamMessages = upstreamMessages;
   upstreamMessages = buildContextMessages({
     compressedHistoryMessageCount,
     contextSummary,
     previousMessages: requestPreviousContextMessages,
     systemPrompt,
-    userContent: await buildUserContentWithRawFiles(modelContent, effectiveAttachments),
+    userContent: await buildUserContentWithRawFiles(
+      modelContent,
+      effectiveAttachments,
+      rawFileUploadOptions
+    ),
     model,
     longContextThresholdTokens: aiSettings.longContextThresholdTokens
   }).upstreamMessages;
+  const buildFallbackUpstreamMessages = directFileAttachmentIds(effectiveAttachments).size > 0
+    ? async (): Promise<UpstreamMessage[]> => {
+        const fallbackAttachments = await ensureAttachmentsText(effectiveAttachments);
+        const fallbackUserContent = await buildUserContentWithImages(
+          modelContent,
+          fallbackAttachments
+        );
+
+        return buildContextMessages({
+          compressedHistoryMessageCount,
+          contextSummary,
+          previousMessages: requestPreviousContextMessages,
+          systemPrompt,
+          userContent: fallbackUserContent,
+          model,
+          longContextThresholdTokens: aiSettings.longContextThresholdTokens
+        }).upstreamMessages;
+      }
+    : undefined;
   const quotaCostEstimate = estimateChatCostForModel(model, promptTokensEstimate, 0);
 
   try {
@@ -1366,13 +1445,16 @@ export async function POST(request: NextRequest) {
     });
     contextStats = rebuiltContext.contextStats;
     promptTokensEstimate = rebuiltContext.promptTokensEstimate;
-    fallbackUpstreamMessages = rebuiltContext.upstreamMessages;
     upstreamMessages = buildContextMessages({
       compressedHistoryMessageCount,
       contextSummary,
       previousMessages: requestPreviousContextMessages,
       systemPrompt,
-      userContent: await buildUserContentWithRawFiles(modelContent, effectiveAttachments),
+      userContent: await buildUserContentWithRawFiles(
+        modelContent,
+        effectiveAttachments,
+        rawFileUploadOptions
+      ),
       model,
       longContextThresholdTokens: aiSettings.longContextThresholdTokens
     }).upstreamMessages;
@@ -1690,10 +1772,7 @@ export async function POST(request: NextRequest) {
             upstreamMessages,
             aiSettings,
             {
-              fallbackMessages:
-                directFileAttachmentIds(effectiveAttachments).size > 0
-                  ? fallbackUpstreamMessages
-                  : undefined,
+              fallbackMessages: buildFallbackUpstreamMessages,
               reasoningEffort,
               signal: streamAbortController.signal
             }

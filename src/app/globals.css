@@ -324,18 +324,18 @@ button:disabled {
 }
 
 .app-glass-panel {
-  border: 1px solid rgba(255, 255, 255, 0.52);
-  background: rgba(255, 250, 244, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  background: rgba(255, 250, 244, 0.72);
   box-shadow:
-    0 22px 70px rgba(83, 69, 54, 0.13),
-    inset 0 1px 0 rgba(255, 255, 255, 0.76);
-  backdrop-filter: blur(24px) saturate(150%);
+    0 24px 76px rgba(83, 69, 54, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(22px) saturate(145%);
 }
 
 .app-glass-sidebar {
   background:
-    linear-gradient(180deg, rgba(255, 250, 244, 0.64), rgba(246, 239, 228, 0.48)),
-    rgba(251, 247, 239, 0.58);
+    linear-gradient(180deg, rgba(255, 250, 244, 0.74), rgba(246, 239, 228, 0.62)),
+    rgba(251, 247, 239, 0.68);
   box-shadow:
     18px 0 60px rgba(83, 69, 54, 0.12),
     inset -1px 0 0 rgba(255, 255, 255, 0.54);
@@ -344,7 +344,7 @@ button:disabled {
 
 .app-glass-header {
   border-bottom: 1px solid rgba(255, 255, 255, 0.5);
-  background: rgba(251, 247, 239, 0.56);
+  background: rgba(251, 247, 239, 0.68);
   box-shadow:
     0 14px 42px rgba(83, 69, 54, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
@@ -352,17 +352,17 @@ button:disabled {
 }
 
 .app-glass-control {
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  background: rgba(255, 250, 244, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(255, 250, 244, 0.66);
   box-shadow:
     0 12px 34px rgba(83, 69, 54, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.74);
-  backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(18px) saturate(140%);
 }
 
 .app-glass-control:not(:disabled):hover {
   border-color: rgba(255, 255, 255, 0.72);
-  background: rgba(255, 250, 244, 0.68);
+  background: rgba(255, 250, 244, 0.78);
   box-shadow:
     0 16px 42px rgba(83, 69, 54, 0.13),
     inset 0 1px 0 rgba(255, 255, 255, 0.84);

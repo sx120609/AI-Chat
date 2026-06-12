@@ -1,6 +1,7 @@
 import {
   attachmentAbsolutePath,
-  attachmentDataUrl
+  attachmentDataUrl,
+  readAttachmentBuffer
 } from "@/lib/attachments";
 import {
   runPythonInSandbox,
@@ -10,6 +11,7 @@ import {
 import { LIGHTWEIGHT_TASK_MODEL_ID } from "@/lib/models";
 import {
   createResponseText,
+  uploadResponseFile,
   type AiRuntimeSettings,
   type UpstreamMessage
 } from "@/lib/upstream";
@@ -132,10 +134,14 @@ function nonImageAttachments(attachments: AttachmentForAnalysis[]) {
   return attachments.filter((attachment) => attachment.kind !== "IMAGE");
 }
 
-function attachmentMetadataLine(attachment: AttachmentForAnalysis, index: number) {
-  const extracted = attachment.extractedText?.trim()
+function attachmentMetadataLine(
+  attachment: AttachmentForAnalysis,
+  index: number,
+  includeExtractedText: boolean
+) {
+  const extracted = includeExtractedText && attachment.extractedText?.trim()
     ? `\n已提取文本备份：\n${attachment.extractedText.trim().slice(0, MAX_PREVIEW_TEXT_CHARS)}`
-    : "\n无已提取文本备份。";
+    : "";
 
   return [
     `## 附件 ${index + 1}`,
@@ -143,7 +149,7 @@ function attachmentMetadataLine(attachment: AttachmentForAnalysis, index: number
     `后端初步类型：${attachment.kind}`,
     `MIME：${attachment.mimeType}`,
     `大小：${attachment.sizeBytes} bytes`,
-    extracted
+    extracted || "未附带本地提取文本；请优先读取原始文件。"
   ].join("\n");
 }
 
@@ -153,7 +159,9 @@ function buildFilePreAnalysisPrompt(options: {
   rawFilesIncluded: boolean;
 }) {
   const files = options.attachments
-    .map((attachment, index) => attachmentMetadataLine(attachment, index))
+    .map((attachment, index) =>
+      attachmentMetadataLine(attachment, index, !options.rawFilesIncluded)
+    )
     .join("\n\n");
 
   return [
@@ -170,6 +178,8 @@ async function buildFilePreAnalysisMessages(options: {
   attachments: AttachmentForAnalysis[];
   includeRawFiles: boolean;
   prompt: string;
+  settings: AiRuntimeSettings;
+  signal?: AbortSignal;
 }): Promise<UpstreamMessage[]> {
   const prompt = buildFilePreAnalysisPrompt({
     attachments: options.attachments,
@@ -190,10 +200,7 @@ async function buildFilePreAnalysisMessages(options: {
             ...(await Promise.all(
               options.attachments.map(async (attachment) => ({
                 type: "file" as const,
-                file: {
-                  filename: attachment.originalName,
-                  file_data: await attachmentDataUrl(attachment)
-                }
+                file: await preAnalysisFilePart(attachment, options.settings, options.signal)
               }))
             )),
             { type: "text" as const, text: prompt }
@@ -201,6 +208,39 @@ async function buildFilePreAnalysisMessages(options: {
         : prompt
     }
   ];
+}
+
+async function preAnalysisFilePart(
+  attachment: AttachmentForAnalysis,
+  settings: AiRuntimeSettings,
+  signal?: AbortSignal
+) {
+  try {
+    const fileId = await uploadResponseFile(
+      {
+        buffer: await readAttachmentBuffer(attachment),
+        filename: attachment.originalName,
+        mimeType: attachment.mimeType
+      },
+      settings,
+      { signal }
+    );
+
+    return {
+      filename: attachment.originalName,
+      file_id: fileId
+    };
+  } catch (error) {
+    console.warn(
+      `[file-analysis] Failed to upload ${attachment.originalName} to upstream /files for pre-analysis, falling back to file_data:`,
+      error instanceof Error ? error.message : error
+    );
+  }
+
+  return {
+    filename: attachment.originalName,
+    file_data: await attachmentDataUrl(attachment)
+  };
 }
 
 function truncateReport(value: string) {
@@ -232,18 +272,13 @@ async function maybeRunSparkFilePreAnalysis(options: {
       await buildFilePreAnalysisMessages({
         attachments,
         includeRawFiles,
-        prompt: options.prompt
+        prompt: options.prompt,
+        settings: options.settings,
+        signal: options.signal
       }),
       options.settings,
       {
         allowDisabledModel: true,
-        fallbackMessages: includeRawFiles
-          ? await buildFilePreAnalysisMessages({
-              attachments,
-              includeRawFiles: false,
-              prompt: options.prompt
-            })
-          : undefined,
         signal: options.signal
       }
     );
@@ -253,9 +288,11 @@ async function maybeRunSparkFilePreAnalysis(options: {
       ? truncateReport(`附件预分析结果（${LIGHTWEIGHT_TASK_MODEL_ID}）：\n\n${trimmed}`)
       : "";
   } catch (error) {
-    return truncateReport(
-      `附件预分析未完成：${error instanceof Error ? error.message : String(error)}`
+    console.warn(
+      "[file-analysis] Spark file pre-analysis failed:",
+      error instanceof Error ? error.message : error
     );
+    return "";
   }
 }
 

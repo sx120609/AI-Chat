@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   attachmentToView,
-  extractAttachmentText,
   saveAttachmentBuffer,
   validateAttachment
 } from "@/lib/attachments";
@@ -46,38 +45,38 @@ export async function POST(request: NextRequest) {
 
   try {
     for (const file of files) {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const { kind, mimeType } = validateAttachment(
-        file.name,
-        file.type,
-        buffer.byteLength,
-        buffer
-      );
-      const storagePath = await saveAttachmentBuffer({
-        buffer,
-        originalName: file.name,
-        userId: user.id
-      });
-      const extractedText = await extractAttachmentText({
-        buffer,
-        kind,
-        mimeType,
-        originalName: file.name
-      });
-
-      const attachment = await prisma.attachment.create({
-        data: {
-          userId: user.id,
-          kind,
+      try {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        const { kind, mimeType } = validateAttachment(
+          file.name,
+          file.type,
+          buffer.byteLength,
+          buffer
+        );
+        const storagePath = await saveAttachmentBuffer({
+          buffer,
           originalName: file.name,
-          mimeType,
-          sizeBytes: buffer.byteLength,
-          storagePath,
-          extractedText
-        }
-      });
+          userId: user.id
+        });
 
-      attachments.push(attachmentToView(attachment));
+        const attachment = await prisma.attachment.create({
+          data: {
+            userId: user.id,
+            kind,
+            originalName: file.name,
+            mimeType,
+            sizeBytes: buffer.byteLength,
+            storagePath,
+            extractedText: null
+          }
+        });
+
+        attachments.push(attachmentToView(attachment));
+      } catch (fileError) {
+        throw new Error(
+          `${file.name}: ${fileError instanceof Error ? fileError.message : "附件处理失败。"}`
+        );
+      }
     }
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "附件上传失败。", 400);

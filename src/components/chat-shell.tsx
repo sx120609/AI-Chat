@@ -1101,12 +1101,14 @@ export function ChatShell({
       return;
     }
 
+    const selectedFiles = Array.from(files);
+    const selectedFileNames = selectedFiles.map((file) => file.name).join("、");
     setUploadingAttachments(true);
     setError("");
 
     const formData = new FormData();
 
-    for (const file of Array.from(files)) {
+    for (const file of selectedFiles) {
       formData.append("files", file);
     }
 
@@ -1120,7 +1122,7 @@ export function ChatShell({
         | null;
 
       if (!response.ok || !payload?.attachments) {
-        setError(payload?.error || "附件上传失败。");
+        setError(payload?.error || `附件上传失败：${selectedFileNames}`);
         return;
       }
 
@@ -3318,9 +3320,10 @@ function ModelReasoningPicker({
         type="button"
       />
       <div
-        className="app-popover-enter app-glass-panel fixed bottom-3 left-2 right-2 z-50 flex max-h-[calc(100dvh_-_1.5rem)] min-h-0 flex-col overflow-hidden rounded-[1.25rem] p-2 ring-1 ring-white/70 sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[34rem] sm:w-[26rem]"
+        className="app-popover-enter app-glass-panel fixed bottom-2 left-2 right-2 z-50 flex max-h-[calc(100dvh_-_1rem)] min-h-0 flex-col overflow-hidden rounded-[1.35rem] p-2.5 ring-1 ring-white/70 sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[34rem] sm:w-[26rem] sm:rounded-[1.25rem] sm:p-2"
         data-model-picker-panel
       >
+        <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-stone-300/70 sm:hidden" />
         <div className="flex items-center justify-between gap-3 px-2 py-1.5">
           <div>
             <p className="text-sm font-semibold text-stone-950">模型与思考</p>
@@ -3337,7 +3340,7 @@ function ModelReasoningPicker({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-1 pr-1">
-          <div className="mt-2 rounded-[1.05rem] border border-white/35 bg-white/28 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-xl">
+          <div className="mt-2 rounded-[1.05rem] border border-white/45 bg-white/58 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)] backdrop-blur-xl">
             <div className="flex items-center justify-between px-2 py-1.5">
               <span className="text-[11px] font-semibold text-stone-500">模型</span>
               <span className="text-[11px] text-stone-400">{formatNumber(models.length)}</span>
@@ -3349,10 +3352,10 @@ function ModelReasoningPicker({
 
                 return (
                   <button
-                    className={`app-list-row group flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-[0.9rem] px-3 text-left text-sm transition ${
+                    className={`app-list-row group flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-[0.9rem] px-3 py-2 text-left text-sm transition sm:py-0 ${
                       selected
-                        ? "bg-white/62 text-stone-950 shadow-[0_10px_26px_rgba(83,69,54,0.1)] ring-1 ring-[rgba(201,100,66,0.22)] backdrop-blur-xl"
-                        : "text-stone-700 hover:bg-white/45 hover:text-stone-950"
+                        ? "bg-white/82 text-stone-950 shadow-[0_10px_26px_rgba(83,69,54,0.1)] ring-1 ring-[rgba(201,100,66,0.24)] backdrop-blur-xl"
+                        : "text-stone-700 hover:bg-white/62 hover:text-stone-950"
                     }`}
                     key={item.id}
                     onClick={() => onModelChange(item.id)}
@@ -3375,24 +3378,24 @@ function ModelReasoningPicker({
             </div>
           </div>
 
-          <div className="mt-2 rounded-[1.05rem] border border-white/35 bg-white/28 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-xl">
+          <div className="mt-2 rounded-[1.05rem] border border-white/45 bg-white/58 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.62)] backdrop-blur-xl">
             <div className="flex items-center justify-between px-2 py-1.5">
-              <span className="text-[11px] font-semibold text-stone-500">思考</span>
+              <span className="text-[11px] font-semibold text-stone-500">思考强度</span>
               {!reasoningSupported ? (
                 <span className="text-[11px] text-stone-500">可能不会生效</span>
               ) : null}
             </div>
-            <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+            <div className="grid grid-cols-4 gap-1">
               {REASONING_EFFORTS.map((item) => {
                 const selected = item.id === reasoningValue;
                 const copy = getReasoningUiCopy(item.id);
 
                 return (
                   <button
-                    className={`app-list-row min-h-12 rounded-[0.9rem] px-2.5 text-left transition ${
+                    className={`app-list-row min-h-12 rounded-[0.9rem] px-1.5 text-center transition sm:px-2.5 sm:text-left ${
                       selected
-                        ? "bg-white/62 text-stone-950 shadow-[0_10px_26px_rgba(83,69,54,0.1)] ring-1 ring-[rgba(201,100,66,0.22)] backdrop-blur-xl"
-                        : "text-stone-600 hover:bg-white/45 hover:text-stone-950"
+                        ? "bg-white/82 text-stone-950 shadow-[0_10px_26px_rgba(83,69,54,0.1)] ring-1 ring-[rgba(201,100,66,0.24)] backdrop-blur-xl"
+                        : "text-stone-600 hover:bg-white/62 hover:text-stone-950"
                     }`}
                     key={item.id}
                     onClick={() => onReasoningChange(item.id)}
@@ -3425,7 +3428,7 @@ function ModelReasoningPicker({
         aria-label="选择模型和思考强度"
         className={`app-action-button flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-[15px] font-semibold backdrop-blur-xl transition sm:h-9 sm:min-w-60 sm:px-3.5 sm:text-xs sm:font-medium ${
           open
-            ? "border-white/70 bg-white/70 text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10),0_16px_42px_rgba(83,69,54,0.14)]"
+            ? "border-white/75 bg-white/78 text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10),0_16px_42px_rgba(83,69,54,0.14)]"
             : "app-glass-control text-stone-800"
         }`}
         onClick={() => onOpenChange(!open)}
@@ -3477,15 +3480,15 @@ function getModelPickerDetail(model: ChatModelView) {
 
 function getReasoningUiCopy(id: ReasoningEffort) {
   if (id === "low") {
-    return { label: "快速", hint: "轻任务" };
+    return { label: "快", hint: "日常" };
   }
 
   if (id === "high") {
-    return { label: "深入", hint: "复杂" };
+    return { label: "深", hint: "复杂" };
   }
 
   if (id === "xhigh") {
-    return { label: "极致", hint: "最强" };
+    return { label: "最强", hint: "难题" };
   }
 
   return { label: "均衡", hint: "默认" };

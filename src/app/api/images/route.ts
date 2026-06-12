@@ -7,7 +7,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   readAttachmentBuffer
 } from "@/lib/attachments";
-import { ensureAttachmentsText } from "@/lib/attachment-repair";
+import { ensureAttachmentsMetadata } from "@/lib/attachment-repair";
 import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
   }
 
   const attachments = attachmentIds.length
-    ? await ensureAttachmentsText(
+    ? await ensureAttachmentsMetadata(
         await prisma.attachment.findMany({
           where: {
             id: { in: attachmentIds },
@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
   }
 
   const effectiveAttachments = reusedUserMessage
-    ? await ensureAttachmentsText(reusedUserMessage.attachments)
+    ? await ensureAttachmentsMetadata(reusedUserMessage.attachments)
     : attachments;
 
   const sourceImageMessage = body.sourceImageMessageId

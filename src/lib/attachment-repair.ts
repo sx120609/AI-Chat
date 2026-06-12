@@ -57,13 +57,9 @@ async function repairAttachmentType<T extends RepairableAttachment>(attachment: 
   };
 }
 
-export async function ensureAttachmentText<T extends RepairableAttachment>(
+export async function ensureAttachmentMetadata<T extends RepairableAttachment>(
   attachment: T
 ): Promise<T> {
-  if (hasText(attachment.extractedText)) {
-    return attachment;
-  }
-
   const repaired = await repairAttachmentType(attachment).catch((error) => {
     console.warn(
       `[attachments] Failed to repair type for ${attachment.originalName}:`,
@@ -72,26 +68,42 @@ export async function ensureAttachmentText<T extends RepairableAttachment>(
     return null;
   });
 
-  const nextAttachment = repaired?.attachment ?? attachment;
+  return repaired?.attachment ?? attachment;
+}
 
-  if (nextAttachment.kind === "IMAGE") {
+export async function ensureAttachmentText<T extends RepairableAttachment>(
+  attachment: T
+): Promise<T> {
+  const nextAttachment = await ensureAttachmentMetadata(attachment);
+
+  if (hasText(nextAttachment.extractedText) || nextAttachment.kind === "IMAGE") {
     return nextAttachment;
   }
 
-  const extractedText = repaired
-    ? await extractAttachmentText({
-        buffer: repaired.buffer,
-        kind: nextAttachment.kind as AttachmentKind,
-        mimeType: nextAttachment.mimeType,
-        originalName: nextAttachment.originalName
-      }).catch((error) => {
-        console.warn(
-          `[attachments] Failed to repair text for ${nextAttachment.originalName}:`,
-          error instanceof Error ? error.message : error
-        );
-        return null;
-      })
-    : null;
+  const buffer = await readAttachmentBuffer(nextAttachment).catch((error) => {
+    console.warn(
+      `[attachments] Failed to read ${nextAttachment.originalName} for fallback text:`,
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  });
+
+  if (!buffer) {
+    return nextAttachment;
+  }
+
+  const extractedText = await extractAttachmentText({
+    buffer,
+    kind: nextAttachment.kind as AttachmentKind,
+    mimeType: nextAttachment.mimeType,
+    originalName: nextAttachment.originalName
+  }).catch((error) => {
+    console.warn(
+      `[attachments] Failed to repair text for ${nextAttachment.originalName}:`,
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  });
 
   if (!hasText(extractedText)) {
     return nextAttachment;
@@ -119,4 +131,10 @@ export async function ensureAttachmentsText<T extends RepairableAttachment>(
   attachments: T[]
 ): Promise<T[]> {
   return Promise.all(attachments.map((attachment) => ensureAttachmentText(attachment)));
+}
+
+export async function ensureAttachmentsMetadata<T extends RepairableAttachment>(
+  attachments: T[]
+): Promise<T[]> {
+  return Promise.all(attachments.map((attachment) => ensureAttachmentMetadata(attachment)));
 }

@@ -63,6 +63,8 @@ export type UpstreamUsage = {
   cost_usd?: number | string;
 };
 
+type FallbackMessages = UpstreamMessage[] | (() => Promise<UpstreamMessage[]>);
+
 export type AiRuntimeSettings = {
   apiBaseUrl: string;
   apiKey: string;
@@ -88,6 +90,7 @@ export type AiRuntimeSettings = {
 };
 
 const CHAT_HEADERS_TIMEOUT_MS = 60_000;
+const FILE_UPLOAD_TIMEOUT_MS = 300_000;
 const MODELS_TIMEOUT_MS = 20_000;
 const IMAGE_TIMEOUT_MS = 300_000;
 export const AI_RUNTIME_SETTINGS_CACHE_KEY = "ai-runtime-settings:v1";
@@ -562,12 +565,24 @@ function looksLikeUnsupportedParamError(message: string) {
   );
 }
 
+function looksLikeRetryableFallbackError(message: string) {
+  return looksLikeUnsupportedParamError(message) || /HTTP 5\d\d|upstream request failed|上游服务暂时不可用/i.test(message);
+}
+
+async function resolveFallbackMessages(fallbackMessages: FallbackMessages | undefined) {
+  if (!fallbackMessages) {
+    return undefined;
+  }
+
+  return typeof fallbackMessages === "function" ? fallbackMessages() : fallbackMessages;
+}
+
 export async function createResponseStream(
   model: string,
   messages: UpstreamMessage[],
   settings: AiRuntimeSettings,
   options?: {
-    fallbackMessages?: UpstreamMessage[];
+    fallbackMessages?: FallbackMessages;
     reasoningEffort?: ReasoningEffort;
     signal?: AbortSignal;
   }
@@ -586,24 +601,13 @@ export async function createResponseStream(
     signal: options?.signal
   });
 
-  const bodyCandidates = [
-    ...responseBodyVariants({
-      messages,
-      model: selectedModel,
-      reasoningEffort,
-      settings,
-      stream: true
-    }),
-    ...(options?.fallbackMessages
-      ? responseBodyVariants({
-          messages: options.fallbackMessages,
-          model: selectedModel,
-          reasoningEffort,
-          settings,
-          stream: true
-        })
-      : [])
-  ];
+  const bodyCandidates = responseBodyVariants({
+    messages,
+    model: selectedModel,
+    reasoningEffort,
+    settings,
+    stream: true
+  });
 
   let lastUnsupportedParamError = "";
 
@@ -619,7 +623,7 @@ export async function createResponseStream(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
-      if (!options?.fallbackMessages || !looksLikeUnsupportedParamError(message)) {
+      if (!options?.fallbackMessages || !looksLikeRetryableFallbackError(message)) {
         throw error;
       }
 
@@ -633,11 +637,41 @@ export async function createResponseStream(
 
     const message = await upstreamErrorMessage(response);
 
-    if (!looksLikeUnsupportedParamError(message)) {
+    if (!options?.fallbackMessages || !looksLikeRetryableFallbackError(message)) {
       throw new Error(message);
     }
 
     lastUnsupportedParamError = message;
+  }
+
+  const fallbackMessages = await resolveFallbackMessages(options?.fallbackMessages);
+
+  if (fallbackMessages?.length) {
+    for (const candidate of responseBodyVariants({
+      messages: fallbackMessages,
+      model: selectedModel,
+      reasoningEffort,
+      settings,
+      stream: true
+    })) {
+      const response = await fetchWithHeadersTimeout(
+        url,
+        requestInit(candidate),
+        CHAT_HEADERS_TIMEOUT_MS
+      );
+
+      if (response.ok && response.body) {
+        return openAiCompatibleBody(response);
+      }
+
+      const message = await upstreamErrorMessage(response);
+
+      if (!looksLikeUnsupportedParamError(message)) {
+        throw new Error(message);
+      }
+
+      lastUnsupportedParamError = message;
+    }
   }
 
   throw new Error(lastUnsupportedParamError || "上游 API 不支持当前请求参数。");
@@ -649,7 +683,7 @@ export async function createResponseText(
   settings: AiRuntimeSettings,
   options?: {
     allowDisabledModel?: boolean;
-    fallbackMessages?: UpstreamMessage[];
+    fallbackMessages?: FallbackMessages;
     signal?: AbortSignal;
   }
 ) {
@@ -659,37 +693,39 @@ export async function createResponseText(
   });
   const url = `${settings.apiBaseUrl}/responses`;
   const reasoningEffort = normalizeReasoningEffort(settings.defaultReasoningEffort);
-  const bodyCandidates = [
-    ...responseBodyVariants({
-      messages,
-      model: selectedModel,
-      reasoningEffort,
-      settings,
-      stream: false
-    }),
-    ...(options?.fallbackMessages
-      ? responseBodyVariants({
-          messages: options.fallbackMessages,
-          model: selectedModel,
-          reasoningEffort,
-          settings,
-          stream: false
-        })
-      : [])
-  ];
+  const bodyCandidates = responseBodyVariants({
+    messages,
+    model: selectedModel,
+    reasoningEffort,
+    settings,
+    stream: false
+  });
   let lastUnsupportedParamError = "";
 
   for (const body of bodyCandidates) {
-    const response = await fetchWithHeadersTimeout(
-      url,
-      {
-        method: "POST",
-        headers: upstreamHeaders(settings),
-        body: JSON.stringify(body),
-        signal: options?.signal
-      },
-      CHAT_HEADERS_TIMEOUT_MS
-    );
+    let response: Response;
+
+    try {
+      response = await fetchWithHeadersTimeout(
+        url,
+        {
+          method: "POST",
+          headers: upstreamHeaders(settings),
+          body: JSON.stringify(body),
+          signal: options?.signal
+        },
+        CHAT_HEADERS_TIMEOUT_MS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (!options?.fallbackMessages || !looksLikeRetryableFallbackError(message)) {
+        throw error;
+      }
+
+      lastUnsupportedParamError = message;
+      continue;
+    }
 
     if (response.ok) {
       const payload = (await response.json().catch(() => null)) as unknown;
@@ -699,11 +735,48 @@ export async function createResponseText(
 
     const message = await upstreamErrorMessage(response);
 
-    if (!looksLikeUnsupportedParamError(message)) {
+    if (!options?.fallbackMessages || !looksLikeRetryableFallbackError(message)) {
       throw new Error(message);
     }
 
     lastUnsupportedParamError = message;
+  }
+
+  const fallbackMessages = await resolveFallbackMessages(options?.fallbackMessages);
+
+  if (fallbackMessages?.length) {
+    for (const body of responseBodyVariants({
+      messages: fallbackMessages,
+      model: selectedModel,
+      reasoningEffort,
+      settings,
+      stream: false
+    })) {
+      const response = await fetchWithHeadersTimeout(
+        url,
+        {
+          method: "POST",
+          headers: upstreamHeaders(settings),
+          body: JSON.stringify(body),
+          signal: options?.signal
+        },
+        CHAT_HEADERS_TIMEOUT_MS
+      );
+
+      if (response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+
+        return payload ? textFromResponsePayload(payload) : "";
+      }
+
+      const message = await upstreamErrorMessage(response);
+
+      if (!looksLikeUnsupportedParamError(message)) {
+        throw new Error(message);
+      }
+
+      lastUnsupportedParamError = message;
+    }
   }
 
   throw new Error(lastUnsupportedParamError || "上游 API 不支持当前请求参数。");
@@ -739,7 +812,7 @@ export async function uploadResponseFile(
       body: formData,
       signal: options?.signal
     },
-    CHAT_HEADERS_TIMEOUT_MS
+    FILE_UPLOAD_TIMEOUT_MS
   );
 
   if (!response.ok) {

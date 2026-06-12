@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attachmentToView, contentWithAttachmentContext, deleteAttachmentFiles } from "@/lib/attachments";
-import { ensureAttachmentsText } from "@/lib/attachment-repair";
+import { ensureAttachmentsMetadata } from "@/lib/attachment-repair";
 import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     ? await Promise.all(
         conversation.messages.map(async (message) => ({
           ...message,
-          attachments: await ensureAttachmentsText(message.attachments)
+          attachments: await ensureAttachmentsMetadata(message.attachments)
         }))
       )
     : conversation.messages;

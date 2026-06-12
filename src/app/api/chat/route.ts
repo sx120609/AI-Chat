@@ -82,6 +82,10 @@ const MAX_CONTEXT_HISTORY_MESSAGES = 120;
 const DRAFT_PERSIST_INTERVAL_MS = 1000;
 const SSE_KEEPALIVE_INTERVAL_MS = 15_000;
 const MAX_DIRECT_FILE_INPUT_BYTES = 50 * 1024 * 1024;
+const MODEL_THINKING_DETAIL = "正在思考并组织回答";
+const MODEL_THINKING_STATUS = "思考中，正在组织回答...";
+const MODEL_STREAMING_DETAIL = "正在组织回答并输出内容";
+const MODEL_STREAMING_STATUS = "正在组织回答...";
 
 class UpstreamStreamError extends Error {}
 
@@ -1530,13 +1534,13 @@ export async function POST(request: NextRequest) {
     webSearchFinishedAt,
     webSearchStartedAt
   });
-  const initialStreamStatus = "工具路由完成，等待模型输出...";
+  const initialStreamStatus = MODEL_THINKING_STATUS;
   const initialProcessToolEvents = mergePersistedToolEvent(
     normalizeToolEvents(toolEvents),
     {
-      detail: "等待模型输出",
+      detail: MODEL_THINKING_DETAIL,
       id: "generation",
-      label: "模型生成",
+      label: "思考中",
       startedAt: routerFinishedAt,
       status: "running",
       type: "generation"
@@ -1638,7 +1642,7 @@ export async function POST(request: NextRequest) {
         upsertProcessToolEvent({
           detail,
           id: "generation",
-          label: "模型生成",
+          label: "思考中",
           status: "running",
           type: "generation"
         });
@@ -1762,7 +1766,7 @@ export async function POST(request: NextRequest) {
         if (aiSettings.mockResponses) {
           await streamMockAnswer(content, (delta) => {
             assistantContent += delta;
-            markModelOutputStarted("正在流式输出回答", "正在流式输出...");
+            markModelOutputStarted(MODEL_STREAMING_DETAIL, MODEL_STREAMING_STATUS);
             queueDraftPersist();
             sse(controller, "delta", { delta });
           }, streamAbortController.signal);
@@ -1780,13 +1784,13 @@ export async function POST(request: NextRequest) {
           upstreamUsage = await pipeOpenAiSse(upstreamBody, {
             onDelta: (delta) => {
               assistantContent += delta;
-              markModelOutputStarted("正在流式输出回答", "正在流式输出...");
+              markModelOutputStarted(MODEL_STREAMING_DETAIL, MODEL_STREAMING_STATUS);
               queueDraftPersist();
               sse(controller, "delta", { delta });
             },
             onReasoning: (delta) => {
               reasoningContent += delta;
-              markModelOutputStarted("正在接收思考过程", "正在思考...");
+              markModelOutputStarted("正在思考并整理思路", "正在思考...");
               queueDraftPersist();
             }
           });

@@ -164,6 +164,11 @@ function usagePercent(used: number, limit: number) {
 }
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
+const GENERATION_THINKING_LABEL = "思考中";
+const GENERATION_THINKING_DETAIL = "正在思考并组织回答";
+const GENERATION_THINKING_STATUS = "思考中，正在组织回答...";
+const GENERATION_STREAMING_DETAIL = "正在组织回答并输出内容";
+const GENERATION_STREAMING_STATUS = "正在组织回答...";
 
 function formatElapsedDuration(milliseconds: number) {
   if (milliseconds > 0 && milliseconds < 1000) {
@@ -326,7 +331,7 @@ function messageProcessStatus(message: MessageView) {
   }
 
   if (message.generationStatus === "running") {
-    return "处理中...";
+    return GENERATION_THINKING_STATUS;
   }
 
   if (message.generationStatus === "error") {
@@ -1532,7 +1537,7 @@ export function ChatShell({
       }
     };
 
-    setChatStreamStatus("工具路由完成，等待模型输出...");
+    setChatStreamStatus(GENERATION_THINKING_STATUS);
 
     const clearStreamFlushTimer = () => {
       if (streamFlushTimer) {
@@ -1638,9 +1643,9 @@ export function ChatShell({
 
         if (!routeIsImage) {
           upsertToolEvent({
-            detail: "已创建会话并整理上下文",
+            detail: GENERATION_THINKING_DETAIL,
             id: "generation",
-            label: "模型生成",
+            label: GENERATION_THINKING_LABEL,
             status: "running",
             type: "generation"
           });
@@ -1666,7 +1671,12 @@ export function ChatShell({
           });
 
           if (toolEvent.status === "running") {
-            setChatStreamStatus(toolEvent.detail || `${toolEvent.label}中...`);
+            setChatStreamStatus(
+              toolEvent.detail ||
+                (toolEvent.id === "generation"
+                  ? GENERATION_THINKING_STATUS
+                  : `${toolEvent.label}中...`)
+            );
           } else if (toolEvent.status === "done") {
             setChatStreamStatus(toolEvent.detail || `${toolEvent.label}完成。`);
           }
@@ -1684,13 +1694,13 @@ export function ChatShell({
           if (!streamStatusStarted) {
             streamStatusStarted = true;
             upsertToolEvent({
-              detail: "正在流式输出回答",
+              detail: GENERATION_STREAMING_DETAIL,
               id: "generation",
-              label: "模型生成",
+              label: GENERATION_THINKING_LABEL,
               status: "running",
               type: "generation"
             });
-            setChatStreamStatus("正在流式输出...");
+            setChatStreamStatus(GENERATION_STREAMING_STATUS);
           }
         }
       }
@@ -3555,6 +3565,50 @@ function eventStatusLabel(status: ToolEventView["status"]) {
   return "跳过";
 }
 
+function toolEventDisplayLabel(event: ToolEventView) {
+  if (event.id === "generation" && event.status === "running") {
+    return GENERATION_THINKING_LABEL;
+  }
+
+  return event.label;
+}
+
+function toolEventDisplayDetail(event: ToolEventView) {
+  if (event.id === "generation" && event.status === "running") {
+    if (
+      !event.detail ||
+      event.detail === "等待模型输出" ||
+      event.detail === "已创建会话并整理上下文"
+    ) {
+      return GENERATION_THINKING_DETAIL;
+    }
+  }
+
+  return event.detail;
+}
+
+function processTimelineStatus(status: string, latestRunningEvent?: ToolEventView) {
+  const trimmedStatus = status.trim();
+
+  if (
+    latestRunningEvent?.id === "generation" &&
+    latestRunningEvent.status === "running" &&
+    (!trimmedStatus || trimmedStatus === "处理中..." || trimmedStatus.includes("等待模型输出"))
+  ) {
+    return GENERATION_THINKING_STATUS;
+  }
+
+  if (trimmedStatus) {
+    return trimmedStatus;
+  }
+
+  if (latestRunningEvent) {
+    return toolEventDisplayDetail(latestRunningEvent) || toolEventDisplayLabel(latestRunningEvent);
+  }
+
+  return "";
+}
+
 function ProcessTimelinePanel({
   events,
   finishedAt,
@@ -3572,6 +3626,7 @@ function ProcessTimelinePanel({
   const [expanded, setExpanded] = useState(active);
   const elapsed = formatElapsedDuration((finishedAt ?? now) - startedAt);
   const latestRunningEvent = [...events].reverse().find((event) => event.status === "running");
+  const displayStatus = processTimelineStatus(status, latestRunningEvent);
 
   useEffect(() => {
     if (active) {
@@ -3595,7 +3650,7 @@ function ProcessTimelinePanel({
           <span className="shrink-0 font-semibold">{active ? "处理中" : "已处理"}</span>
           <span className="shrink-0 ios-muted">{elapsed}</span>
           <span className="min-w-0 truncate ios-muted">
-            {status || latestRunningEvent?.detail || latestRunningEvent?.label}
+            {displayStatus}
           </span>
         </span>
         <ChevronDown
@@ -3610,6 +3665,8 @@ function ProcessTimelinePanel({
             {events.map((event) => {
               const eventFinishedAt = event.finishedAt ?? (event.status === "running" ? now : event.startedAt);
               const eventElapsed = formatElapsedDuration(eventFinishedAt - event.startedAt);
+              const eventDetail = toolEventDisplayDetail(event);
+              const eventLabel = toolEventDisplayLabel(event);
 
               return (
                 <div className="app-reveal flex min-w-0 items-start gap-2" key={event.id}>
@@ -3626,13 +3683,13 @@ function ProcessTimelinePanel({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="font-medium text-stone-800">{event.label}</span>
+                      <span className="font-medium text-stone-800">{eventLabel}</span>
                       <span className="ios-muted">{eventStatusLabel(event.status)}</span>
                       <span className="ios-muted">{eventElapsed}</span>
                     </span>
-                    {event.detail ? (
+                    {eventDetail ? (
                       <span className="mt-0.5 block break-words leading-5 ios-muted">
-                        {event.detail}
+                        {eventDetail}
                       </span>
                     ) : null}
                   </span>

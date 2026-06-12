@@ -72,6 +72,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   const { id } = await context.params;
+  const includeContext = new URL(request.url).searchParams.get("context") === "1";
   const conversation = await prisma.conversation.findFirst({
     where: {
       id,
@@ -90,8 +91,41 @@ export async function GET(request: NextRequest, context: RouteContext) {
       contextSummaryUntilCreatedAt: true,
       contextSummaryMessageCount: true,
       messages: {
-        include: {
-          attachments: true
+        select: {
+          id: true,
+          conversationId: true,
+          role: true,
+          content: true,
+          reasoningContent: true,
+          imageUrl: true,
+          webSourcesJson: true,
+          generationStatus: true,
+          streamStatus: true,
+          toolEventsJson: true,
+          processStartedAt: true,
+          processFinishedAt: true,
+          model: true,
+          mode: true,
+          promptTokens: true,
+          completionTokens: true,
+          totalTokens: true,
+          cachedPromptTokens: true,
+          reasoningTokens: true,
+          usageSource: true,
+          estimatedCostCents: true,
+          createdAt: true,
+          attachments: {
+            select: {
+              id: true,
+              kind: true,
+              originalName: true,
+              mimeType: true,
+              sizeBytes: true,
+              extractedText: true,
+              storagePath: true,
+              createdAt: true
+            }
+          }
         },
         orderBy: MESSAGE_ORDER_ASC
       }
@@ -102,58 +136,74 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return jsonError("会话不存在。", 404);
   }
 
-  const aiSettings = await getAiRuntimeSettings();
-  const messages = await Promise.all(
-    conversation.messages.map(async (message) => ({
-      ...message,
-      attachments: await ensureAttachmentsText(message.attachments)
-    }))
-  );
-  const model = getChatModel(conversation.model, aiSettings.chatModels);
-  const summaryCutoff =
-    conversation.contextSummaryUntilCreatedAt && conversation.contextSummaryUntilMessageId
-      ? {
-          createdAt: conversation.contextSummaryUntilCreatedAt,
-          id: conversation.contextSummaryUntilMessageId
-        }
-      : null;
-  const systemPrompt = resolveSystemPrompt({
-    mode: aiSettings.systemPromptMode,
-    customSystemPrompt: aiSettings.customSystemPrompt,
-    modelSystemPrompt:
-      aiSettings.modelSystemPrompts[model.id] || aiSettings.modelSystemPrompts[model.upstreamId],
-    modelLabel: model.label
-  });
-  const previousMessages = messages
-    .filter(
-      (message) =>
-        !message.imageUrl &&
-        (message.role === "USER" || message.role === "ASSISTANT") &&
-        (!summaryCutoff || isMessageAfter(message, summaryCutoff))
-    )
-    .reverse()
-    .map((message) => ({
-      role: message.role as "USER" | "ASSISTANT",
-      content: contentWithAttachmentContext(message.content, message.attachments)
-    }));
-  const { contextStats } = buildContextMessages({
-    compressedHistoryMessageCount: conversation.contextSummaryMessageCount,
-    contextSummary: conversation.contextSummary || "",
-    previousMessages,
-    systemPrompt,
-    model,
-    longContextThresholdTokens: aiSettings.longContextThresholdTokens
-  });
+  const messages = includeContext
+    ? await Promise.all(
+        conversation.messages.map(async (message) => ({
+          ...message,
+          attachments: await ensureAttachmentsText(message.attachments)
+        }))
+      )
+    : conversation.messages;
+  let contextStats: ReturnType<typeof buildContextMessages>["contextStats"] | null = null;
+  let reasoningModelLabel = conversation.model;
+
+  if (includeContext) {
+    const aiSettings = await getAiRuntimeSettings();
+    const model = getChatModel(conversation.model, aiSettings.chatModels);
+    const summaryCutoff =
+      conversation.contextSummaryUntilCreatedAt && conversation.contextSummaryUntilMessageId
+        ? {
+            createdAt: conversation.contextSummaryUntilCreatedAt,
+            id: conversation.contextSummaryUntilMessageId
+          }
+        : null;
+    const systemPrompt = resolveSystemPrompt({
+      mode: aiSettings.systemPromptMode,
+      customSystemPrompt: aiSettings.customSystemPrompt,
+      modelSystemPrompt:
+        aiSettings.modelSystemPrompts[model.id] || aiSettings.modelSystemPrompts[model.upstreamId],
+      modelLabel: model.label
+    });
+    const previousMessages = messages
+      .filter(
+        (message) =>
+          !message.imageUrl &&
+          (message.role === "USER" || message.role === "ASSISTANT") &&
+          (!summaryCutoff || isMessageAfter(message, summaryCutoff))
+      )
+      .reverse()
+      .map((message) => ({
+        role: message.role as "USER" | "ASSISTANT",
+        content: contentWithAttachmentContext(message.content, message.attachments)
+      }));
+    contextStats = buildContextMessages({
+      compressedHistoryMessageCount: conversation.contextSummaryMessageCount,
+      contextSummary: conversation.contextSummary || "",
+      previousMessages,
+      systemPrompt,
+      model,
+      longContextThresholdTokens: aiSettings.longContextThresholdTokens
+    }).contextStats;
+    reasoningModelLabel = model.label;
+  }
 
   return NextResponse.json({
     conversation: {
-      ...serializeConversation(conversation),
+      ...serializeConversation({
+        createdAt: conversation.createdAt,
+        id: conversation.id,
+        mode: conversation.mode,
+        model: conversation.model,
+        pinned: conversation.pinned,
+        title: conversation.title,
+        updatedAt: conversation.updatedAt
+      }),
       messages: messages.map((message) => ({
         ...messageForClient(message),
         ...messageProcessForClient(message),
         attachments: message.attachments.map(attachmentToView),
         reasoningContent: message.reasoningContent
-          ? sanitizeReasoningContent(message.reasoningContent, message.model || model.label)
+          ? sanitizeReasoningContent(message.reasoningContent, message.model || reasoningModelLabel)
           : null,
         webSources: parseWebSourcesJson(message.webSourcesJson),
         createdAt: message.createdAt.toISOString()

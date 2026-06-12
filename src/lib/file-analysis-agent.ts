@@ -40,6 +40,10 @@ function shouldAnalyzeWithCode(attachments: AttachmentForAnalysis[], prompt: str
     return true;
   }
 
+  if (attachments.some((attachment) => attachment.kind === "FILE")) {
+    return true;
+  }
+
   return CODE_ANALYSIS_PROMPT_PATTERN.test(prompt);
 }
 

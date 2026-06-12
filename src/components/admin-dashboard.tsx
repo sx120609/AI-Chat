@@ -388,7 +388,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
   return (
     <main className="ios-page app-shell app-route-enter flex flex-col text-stone-950">
-      <header className="ios-glass app-header-enter z-20 shrink-0 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5 sm:py-4">
+      <header className="ios-glass app-header-enter z-20 shrink-0 px-3 pb-3 pt-[calc(0.75rem+var(--app-safe-area-top,0px))] sm:px-5 sm:py-4">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--claude-accent)]">

@@ -60,7 +60,7 @@ export function SiteConfirmDialog({
   const danger = tone === "danger";
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-end justify-center px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:items-center sm:p-6">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center px-3 pb-3 pt-[calc(0.75rem+var(--app-safe-area-top,0px))] sm:items-center sm:p-6">
       <button
         aria-label="关闭弹窗"
         className="app-backdrop-enter absolute inset-0 bg-stone-950/28 backdrop-blur-[2px]"

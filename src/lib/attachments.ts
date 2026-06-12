@@ -124,11 +124,7 @@ export function validateAttachment(fileName: string, mimeType: string, sizeBytes
   }
 
   const normalizedMime = normalizeAttachmentMime(fileName, mimeType);
-  const kind = attachmentKindFromMime(normalizedMime);
-
-  if (!kind) {
-    throw new Error("暂不支持该文件类型。支持 ZIP、PDF、Word、Excel、CSV、TXT 和常见图片。");
-  }
+  const kind = attachmentKindFromMime(normalizedMime) ?? "FILE";
 
   return { kind, mimeType: normalizedMime };
 }
@@ -531,6 +527,13 @@ export function attachmentContextBlock(attachments: Array<Pick<AttachmentLike, "
     if (attachment.kind === "ARCHIVE") {
       return `[压缩包附件: ${attachment.originalName} (${attachment.mimeType})]\n${
         attachment.extractedText?.trim() || "未能提取压缩包目录或可读文本。"
+      }`;
+    }
+
+    if (attachment.kind === "FILE") {
+      return `[文件附件: ${attachment.originalName} (${attachment.mimeType})]\n${
+        attachment.extractedText?.trim() ||
+        "已上传原始文件，但当前没有可直接加入聊天上下文的文本内容。"
       }`;
     }
 

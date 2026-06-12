@@ -4,7 +4,7 @@ export type GenerationMode = "CHAT" | "IMAGE";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 export type SystemPromptMode = "default" | "append" | "custom" | "off";
-export type AttachmentKind = "TEXT" | "DOCUMENT" | "SPREADSHEET" | "IMAGE" | "ARCHIVE";
+export type AttachmentKind = "TEXT" | "DOCUMENT" | "SPREADSHEET" | "IMAGE" | "ARCHIVE" | "FILE";
 export type MessageGenerationStatus = "running" | "done" | "error" | "stopped";
 
 export type ToolEventView = {

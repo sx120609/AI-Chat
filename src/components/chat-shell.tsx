@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
+  File as FileIcon,
   FileArchive,
   FileText,
   Gauge,
@@ -31,6 +32,7 @@ import {
 } from "lucide-react";
 import {
   Children,
+  type DragEvent,
   KeyboardEvent,
   type ReactElement,
   type ReactNode,
@@ -246,6 +248,10 @@ function emptyMessage(
   };
 }
 
+function isLocalMessage(message: MessageView) {
+  return message.id.startsWith("local-") || message.conversationId === "local";
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -397,6 +403,7 @@ export function ChatShell({
   const [deleteConversationTarget, setDeleteConversationTarget] =
     useState<ConversationSummary | null>(null);
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [imageToolEnabled, setImageToolEnabled] = useState(false);
   const [sourceImageMessage, setSourceImageMessage] = useState<MessageView | null>(null);
@@ -413,6 +420,7 @@ export function ChatShell({
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentView[]>([]);
   const [editingMessage, setEditingMessage] = useState<MessageView | null>(null);
   const [error, setError] = useState("");
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const [runningGenerationKeys, setRunningGenerationKeys] = useState<string[]>([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -433,6 +441,7 @@ export function ChatShell({
   const conversationLoadRequestSeqRef = useRef(0);
   const inFlightChatsRef = useRef(new Map<string, InFlightChatGeneration>());
   const initialConversationsLoadedRef = useRef(false);
+  const fileDragDepthRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const headerControlsRef = useRef<HTMLDivElement | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
@@ -444,6 +453,9 @@ export function ChatShell({
     [runningGenerationKeys]
   );
   const loading = runningGenerationKeySet.has(activeConversationKey);
+  const conversationSwitching = Boolean(
+    activeConversationId && loadingConversationId === activeConversationId
+  );
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId),
@@ -600,73 +612,97 @@ export function ChatShell({
   const loadConversation = useCallback(async (conversationId: string) => {
     const requestSeq = conversationLoadRequestSeqRef.current + 1;
     conversationLoadRequestSeqRef.current = requestSeq;
-    const response = await fetch(`/api/conversations/${conversationId}`);
+    setLoadingConversationId(conversationId);
 
-    if (!response.ok || requestSeq !== conversationLoadRequestSeqRef.current) {
-      return;
-    }
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}?context=0`);
 
-    const payload = (await response.json()) as {
-      conversation: ConversationSummary & { messages: MessageView[] };
-      context?: ContextStats;
-    };
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 
-    if (requestSeq !== conversationLoadRequestSeqRef.current) {
-      return;
-    }
+        if (requestSeq === conversationLoadRequestSeqRef.current) {
+          setError(payload?.error || "加载会话失败。");
+        }
+        return;
+      }
 
-    const inFlightChat = getInFlightChat(payload.conversation.id);
-    const restoringInFlightChat = inFlightChat && !inFlightChat.processFinishedAt ? inFlightChat : null;
-    let messagesWithInFlight = payload.conversation.messages;
+      if (requestSeq !== conversationLoadRequestSeqRef.current) {
+        return;
+      }
 
-    if (restoringInFlightChat) {
-      const hasPersistedAssistant = messagesWithInFlight.some(
-        (message) => message.id === restoringInFlightChat.assistantMessage.id
+      const payload = (await response.json()) as {
+        conversation: ConversationSummary & { messages: MessageView[] };
+        context?: ContextStats;
+      };
+
+      if (requestSeq !== conversationLoadRequestSeqRef.current) {
+        return;
+      }
+
+      const inFlightChat = getInFlightChat(payload.conversation.id);
+      const restoringInFlightChat =
+        inFlightChat && !inFlightChat.processFinishedAt ? inFlightChat : null;
+      let messagesWithInFlight = payload.conversation.messages;
+
+      if (restoringInFlightChat) {
+        const hasPersistedAssistant = messagesWithInFlight.some(
+          (message) => message.id === restoringInFlightChat.assistantMessage.id
+        );
+
+        messagesWithInFlight = hasPersistedAssistant
+          ? messagesWithInFlight.map((message) =>
+              message.id === restoringInFlightChat.assistantMessage.id
+                ? restoringInFlightChat.assistantMessage
+                : message
+            )
+          : [...messagesWithInFlight, restoringInFlightChat.assistantMessage];
+      }
+      const restoredProcessMessage = restoringInFlightChat
+        ? null
+        : latestMessageProcess(messagesWithInFlight);
+
+      activeConversationIdRef.current = payload.conversation.id;
+      activeConversationKeyRef.current = payload.conversation.id;
+      setActiveConversationId(payload.conversation.id);
+      setMessages(messagesWithInFlight);
+      setLastContextStats(
+        restoringInFlightChat
+          ? restoringInFlightChat.contextStats ?? payload.context ?? null
+          : payload.context ?? null
       );
 
-      messagesWithInFlight = hasPersistedAssistant
-        ? messagesWithInFlight.map((message) =>
-            message.id === restoringInFlightChat.assistantMessage.id
-              ? restoringInFlightChat.assistantMessage
-              : message
-          )
-        : [...messagesWithInFlight, restoringInFlightChat.assistantMessage];
-    }
-    const restoredProcessMessage = restoringInFlightChat
-      ? null
-      : latestMessageProcess(messagesWithInFlight);
+      if (restoringInFlightChat) {
+        syncVisibleProcessState(restoringInFlightChat);
+      } else if (restoredProcessMessage) {
+        setStreamStatus(messageProcessStatus(restoredProcessMessage));
+        setToolEvents(restoredProcessMessage.toolEvents ?? []);
+        setProcessStartedAt(restoredProcessMessage.processStartedAt ?? null);
+        setProcessFinishedAt(restoredProcessMessage.processFinishedAt ?? null);
+        setProcessNow(restoredProcessMessage.processFinishedAt ?? Date.now());
+      } else {
+        setStreamStatus("");
+        setToolEvents([]);
+        setProcessStartedAt(null);
+        setProcessFinishedAt(null);
+      }
 
-    activeConversationIdRef.current = payload.conversation.id;
-    activeConversationKeyRef.current = payload.conversation.id;
-    setActiveConversationId(payload.conversation.id);
-    setMessages(messagesWithInFlight);
-    setLastContextStats(
-      restoringInFlightChat
-        ? restoringInFlightChat.contextStats ?? payload.context ?? null
-        : payload.context ?? null
-    );
-
-    if (restoringInFlightChat) {
-      syncVisibleProcessState(restoringInFlightChat);
-    } else if (restoredProcessMessage) {
-      setStreamStatus(messageProcessStatus(restoredProcessMessage));
-      setToolEvents(restoredProcessMessage.toolEvents ?? []);
-      setProcessStartedAt(restoredProcessMessage.processStartedAt ?? null);
-      setProcessFinishedAt(restoredProcessMessage.processFinishedAt ?? null);
-      setProcessNow(restoredProcessMessage.processFinishedAt ?? Date.now());
-    } else {
-      setStreamStatus("");
-      setToolEvents([]);
-      setProcessStartedAt(null);
-      setProcessFinishedAt(null);
+      if (payload.conversation.model && payload.conversation.model !== "image2") {
+        setModel(payload.conversation.model);
+      }
+      setImageToolEnabled(false);
+      setSourceImageMessage(null);
+      setWebSearchEnabledForMessage(false);
+    } catch (loadError) {
+      if (requestSeq === conversationLoadRequestSeqRef.current) {
+        setError(
+          loadError instanceof Error ? `加载会话失败：${loadError.message}` : "加载会话失败。"
+        );
+      }
+    } finally {
+      if (requestSeq === conversationLoadRequestSeqRef.current) {
+        setLoadingConversationId((current) => (current === conversationId ? null : current));
+      }
     }
-
-    if (payload.conversation.model && payload.conversation.model !== "image2") {
-      setModel(payload.conversation.model);
-    }
-    setImageToolEnabled(false);
-    setSourceImageMessage(null);
-    setWebSearchEnabledForMessage(false);
   }, []);
 
   const refreshConversations = useCallback(
@@ -801,6 +837,7 @@ export function ChatShell({
     activeConversationIdRef.current = null;
     setActiveLocalConversationKey(nextConversationKey);
     setActiveConversationId(null);
+    setLoadingConversationId(null);
     setMessages([]);
     setPendingAttachments([]);
     setEditingMessage(null);
@@ -919,11 +956,36 @@ export function ChatShell({
     }
   }
 
-  async function openConversation(conversationId: string) {
+  function openConversation(conversationId: string) {
     autoScrollRef.current = true;
+    setError("");
     setOpenConversationMenuId(null);
-    await loadConversation(conversationId);
     setMobileSidebarOpen(false);
+
+    if (conversationId === activeConversationIdRef.current) {
+      return;
+    }
+
+    const nextConversation = conversations.find((conversation) => conversation.id === conversationId);
+    conversationLoadRequestSeqRef.current += 1;
+    activeConversationIdRef.current = conversationId;
+    activeConversationKeyRef.current = conversationId;
+    setActiveConversationId(conversationId);
+    setMessages([]);
+    setLastContextStats(null);
+    setStreamStatus("正在加载会话...");
+    setToolEvents([]);
+    setProcessStartedAt(null);
+    setProcessFinishedAt(null);
+    setImageToolEnabled(false);
+    setSourceImageMessage(null);
+    setWebSearchEnabledForMessage(false);
+
+    if (nextConversation?.model && nextConversation.model !== "image2") {
+      setModel(nextConversation.model);
+    }
+
+    void loadConversation(conversationId);
   }
 
   function toggleSidebar() {
@@ -936,7 +998,7 @@ export function ChatShell({
   }
 
   async function uploadAttachments(files: FileList | null) {
-    if (!files?.length || uploadingAttachments) {
+    if (!files?.length || uploadingAttachments || loading || quotaBlocked || conversationSwitching) {
       return;
     }
 
@@ -978,6 +1040,88 @@ export function ChatShell({
     setPendingAttachments((current) =>
       current.filter((attachment) => attachment.id !== attachmentId)
     );
+  }
+
+  function isFileDrag(event: DragEvent<HTMLElement>) {
+    return Array.from(event.dataTransfer.types).includes("Files");
+  }
+
+  function resetFileDragState() {
+    fileDragDepthRef.current = 0;
+    setDraggingFiles(false);
+  }
+
+  function handleFileDragEnter(event: DragEvent<HTMLElement>) {
+    if (!isFileDrag(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (loading || quotaBlocked || uploadingAttachments || conversationSwitching) {
+      return;
+    }
+
+    fileDragDepthRef.current += 1;
+    setDraggingFiles(true);
+  }
+
+  function handleFileDragOver(event: DragEvent<HTMLElement>) {
+    if (!isFileDrag(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect =
+      loading || quotaBlocked || uploadingAttachments || conversationSwitching ? "none" : "copy";
+  }
+
+  function handleFileDragLeave(event: DragEvent<HTMLElement>) {
+    if (!isFileDrag(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+
+    if (fileDragDepthRef.current === 0) {
+      setDraggingFiles(false);
+    }
+  }
+
+  function handleFileDrop(event: DragEvent<HTMLElement>) {
+    if (!isFileDrag(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    resetFileDragState();
+
+    if (loading) {
+      setError("生成中不能上传附件。");
+      return;
+    }
+
+    if (quotaBlocked) {
+      setError("本月额度已用完，请联系管理员。");
+      return;
+    }
+
+    if (uploadingAttachments) {
+      setError("附件正在上传，请稍后再试。");
+      return;
+    }
+
+    if (conversationSwitching) {
+      setError("会话正在加载，请稍后再试。");
+      return;
+    }
+
+    void uploadAttachments(event.dataTransfer.files);
   }
 
   function stopGeneration() {
@@ -1597,7 +1741,7 @@ export function ChatShell({
           return false;
         }
 
-        const response = await fetch(`/api/conversations/${targetConversationId}`).catch(
+        const response = await fetch(`/api/conversations/${targetConversationId}?context=0`).catch(
           () => null
         );
 
@@ -2006,17 +2150,42 @@ export function ChatShell({
   }
 
   async function deleteMessage(message: MessageView) {
+    const conversationKey = activeConversationKeyRef.current;
+
+    if (isLocalMessage(message)) {
+      setMessages((current) => current.filter((item) => item.id !== message.id));
+      setError("");
+      setStreamStatus("消息已删除。");
+      return;
+    }
+
     const response = await fetch(`/api/messages/${message.id}`, {
       method: "DELETE"
     });
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(payload?.error || "删除消息失败。");
+
+      if (response.status === 404) {
+        if (isViewingConversationKey(conversationKey)) {
+          setMessages((current) => current.filter((item) => item.id !== message.id));
+          setError("");
+          setStreamStatus("消息已从当前会话移除。");
+        }
+        return;
+      }
+
+      if (isViewingConversationKey(conversationKey)) {
+        setError(payload?.error || "删除消息失败。");
+      }
       return;
     }
 
-    setMessages((current) => current.filter((item) => item.id !== message.id));
+    if (isViewingConversationKey(conversationKey)) {
+      setMessages((current) => current.filter((item) => item.id !== message.id));
+      setError("");
+      setStreamStatus("消息已删除。");
+    }
     await refreshConversations(activeConversationId ?? undefined);
   }
 
@@ -2121,7 +2290,7 @@ export function ChatShell({
   }
 
   async function continueGenerating() {
-    if (loading || quotaBlocked) {
+    if (loading || quotaBlocked || conversationSwitching) {
       return;
     }
 
@@ -2188,7 +2357,8 @@ export function ChatShell({
       (!prompt && attachments.length === 0 && !sourceImage) ||
       loading ||
       quotaBlocked ||
-      uploadingAttachments
+      uploadingAttachments ||
+      conversationSwitching
     ) {
       return;
     }
@@ -2496,8 +2666,25 @@ export function ChatShell({
         </div>
       ) : null}
 
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="app-header-enter relative z-30 shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur sm:px-4 sm:py-3">
+      <section
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+        onDragEnter={handleFileDragEnter}
+        onDragLeave={handleFileDragLeave}
+        onDragOver={handleFileDragOver}
+        onDrop={handleFileDrop}
+      >
+        {draggingFiles ? (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-3 z-40 grid place-items-center rounded-[1.25rem] border-2 border-dashed border-[color:var(--claude-accent)] bg-[rgba(255,250,244,0.82)] shadow-[0_24px_80px_rgba(83,69,54,0.18)] backdrop-blur-sm"
+          >
+            <div className="app-status-pill inline-flex items-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/90 px-4 py-2 text-sm font-semibold text-stone-800">
+              <Paperclip className="size-4 text-[color:var(--claude-accent)]" />
+              松开以上传文件
+            </div>
+          </div>
+        ) : null}
+        <header className="app-header-enter relative z-30 shrink-0 border-b border-[color:var(--ios-separator)] bg-[rgba(251,247,239,0.72)] px-3 pb-2 pt-[calc(0.5rem+var(--app-safe-area-top,0px))] backdrop-blur sm:px-4 sm:py-3">
           {!desktopSidebarOpen ? (
             <button
               aria-expanded={desktopSidebarOpen}
@@ -2576,7 +2763,14 @@ export function ChatShell({
           ref={messageScrollRef}
         >
           <div className="mx-auto flex max-w-4xl flex-col gap-7">
-            {messages.length === 0 ? (
+            {conversationSwitching && messages.length === 0 ? (
+              <div className="app-empty-state grid min-h-[54vh] place-items-center text-center">
+                <div className="app-status-pill inline-flex items-center gap-2 rounded-full border border-[color:var(--ios-separator)] bg-white/65 px-4 py-2 text-sm font-medium text-stone-700">
+                  <Loader2 className="size-4 animate-spin text-[color:var(--claude-accent)]" />
+                  加载会话中...
+                </div>
+              </div>
+            ) : messages.length === 0 ? (
               <div className="app-empty-state grid min-h-[54vh] place-items-center text-center">
                 <div>
                   <Sparkles className="mx-auto size-9 text-[color:var(--claude-accent)]" />
@@ -2702,7 +2896,6 @@ export function ChatShell({
             ) : null}
             <div className="ios-panel claude-composer app-composer flex min-h-14 flex-col gap-2 px-2 py-2 shadow-[0_16px_38px_rgba(83,69,54,0.12)] sm:flex-row sm:items-center sm:bg-white/90 sm:px-3 sm:shadow-[0_18px_70px_rgba(83,69,54,0.18)]">
               <input
-                accept=".zip,application/zip,application/x-zip-compressed,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,image/png,image/jpeg,image/webp,image/gif"
                 className="hidden"
                 multiple
                 onChange={(event) => void uploadAttachments(event.target.files)}
@@ -2712,7 +2905,7 @@ export function ChatShell({
               <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0">
                 <button
                   className="app-action-button grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50"
-                  disabled={loading || quotaBlocked || uploadingAttachments}
+                  disabled={loading || quotaBlocked || uploadingAttachments || conversationSwitching}
                   onClick={() => fileInputRef.current?.click()}
                   title="上传文件或图片"
                   type="button"
@@ -2729,7 +2922,7 @@ export function ChatShell({
                       ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                       : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
                   }`}
-                  disabled={loading || quotaBlocked}
+                  disabled={loading || quotaBlocked || conversationSwitching}
                   onClick={() => {
                     const nextImageToolEnabled = !imageToolEnabled;
                     setImageToolEnabled(nextImageToolEnabled);
@@ -2756,7 +2949,7 @@ export function ChatShell({
                           ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
                           : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
                       }`}
-                      disabled={loading || quotaBlocked}
+                      disabled={loading || quotaBlocked || conversationSwitching}
                       onClick={() => {
                         const nextWebSearchEnabled = !webSearchEnabledForMessage;
                         setWebSearchEnabledForMessage(nextWebSearchEnabled);
@@ -2778,6 +2971,7 @@ export function ChatShell({
                 ) : null}
               </div>
               <ComposerInputArea
+                disabled={conversationSwitching}
                 draftFocusToken={composerDraft.focusToken}
                 draftText={composerDraft.text}
                 imageToolEnabled={imageToolEnabled}
@@ -2813,6 +3007,7 @@ export function ChatShell({
 }
 
 const ComposerInputArea = memo(function ComposerInputArea({
+  disabled = false,
   draftFocusToken,
   draftText,
   imageToolEnabled,
@@ -2825,6 +3020,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
   uploadingAttachments,
   webSearchEnabledForMessage
 }: {
+  disabled?: boolean;
   draftFocusToken: number;
   draftText: string;
   imageToolEnabled: boolean;
@@ -2847,6 +3043,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
         ? "输入需要联网查询的问题"
         : "输入消息，或说“画一张”";
   const sendDisabled =
+    disabled ||
     (!loading && !draft.trim() && pendingAttachmentCount === 0 && !sourceImageSelected) ||
     quotaBlocked ||
     uploadingAttachments;
@@ -2885,7 +3082,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
     <div className="flex min-h-9 w-full min-w-0 flex-1 items-center gap-2">
       <textarea
         className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-stone-950 outline-none"
-        disabled={loading || quotaBlocked}
+        disabled={disabled || loading || quotaBlocked}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
@@ -2897,7 +3094,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
         className="app-action-button grid size-9 shrink-0 place-items-center rounded-full bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
         disabled={sendDisabled}
         onClick={() => void submitDraft()}
-        title={loading ? "停止生成" : "发送"}
+        title={loading ? "停止生成" : disabled ? "会话加载中" : "发送"}
         type="button"
       >
         {loading ? <Square className="size-4" /> : <Send className="size-4" />}
@@ -3394,6 +3591,10 @@ function AttachmentIcon({ attachment }: { attachment: AttachmentView }) {
 
   if (attachment.kind === "SPREADSHEET") {
     return <Table2 className="size-4" />;
+  }
+
+  if (attachment.kind === "FILE") {
+    return <FileIcon className="size-4" />;
   }
 
   return <FileText className="size-4" />;

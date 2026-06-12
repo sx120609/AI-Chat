@@ -32,6 +32,13 @@
   --motion-long: 420ms;
   --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --app-safe-area-top: 0px;
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  :root {
+    --app-safe-area-top: env(safe-area-inset-top, 0px);
+  }
 }
 
 * {

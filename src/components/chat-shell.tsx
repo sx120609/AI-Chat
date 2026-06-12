@@ -1176,6 +1176,8 @@ export function ChatShell({
     let streamStatusStarted = false;
     let streamTerminated = false;
     let streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    let routedToImage = false;
+    let persistedConversationId = startingConversationId ?? null;
 
     const getCurrentInFlightChat = () =>
       getInFlightChat(conversationKey)?.assistantMessage.id === localAssistant.id
@@ -1307,8 +1309,10 @@ export function ChatShell({
         }
 
         conversationKey = resolveInFlightConversationKey(conversationKey, nextConversationId);
+        persistedConversationId = nextConversationId;
         const assistantDraft = event.data.assistantMessage as MessageView | undefined;
         const routeIsImage = assistantDraft?.mode === "IMAGE" || Boolean(assistantDraft?.imageUrl);
+        routedToImage = routedToImage || routeIsImage;
 
         if (assistantDraft?.id) {
           const currentInFlight = getInFlightChat(conversationKey);
@@ -1376,6 +1380,10 @@ export function ChatShell({
         const toolEvent = event.data as Partial<ToolEventView>;
 
         if (toolEvent.id && toolEvent.label && toolEvent.type && toolEvent.status) {
+          if (toolEvent.id === "image" || toolEvent.type === "image") {
+            routedToImage = true;
+          }
+
           upsertToolEvent({
             detail: typeof toolEvent.detail === "string" ? toolEvent.detail : undefined,
             finishedAt: typeof toolEvent.finishedAt === "number" ? toolEvent.finishedAt : undefined,
@@ -1546,6 +1554,64 @@ export function ChatShell({
         clearCurrentInFlightChat();
       }
     };
+    const wait = (delayMs: number) =>
+      new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    const syncPersistedImageResult = async () => {
+      const targetConversationId =
+        persistedConversationId ?? (conversationKey.startsWith("local-") ? null : conversationKey);
+
+      if (!targetConversationId) {
+        return false;
+      }
+
+      for (const delayMs of [2000, 4000, 8000, 12000, 16000, 20000, 25000, 30000]) {
+        await wait(delayMs);
+
+        if (controller.signal.aborted) {
+          return false;
+        }
+
+        const response = await fetch(`/api/conversations/${targetConversationId}`).catch(
+          () => null
+        );
+
+        if (!response?.ok) {
+          continue;
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { conversation?: ConversationSummary & { messages: MessageView[] }; context?: ContextStats }
+          | null;
+        const persistedMessages = payload?.conversation?.messages;
+
+        if (!payload?.conversation || !persistedMessages) {
+          continue;
+        }
+
+        const processMessage = latestMessageProcess(persistedMessages);
+
+        if (isViewingConversationKey(targetConversationId)) {
+          setMessages(persistedMessages);
+          setLastContextStats(payload.context ?? null);
+
+          if (processMessage) {
+            setStreamStatus(messageProcessStatus(processMessage));
+            setToolEvents(processMessage.toolEvents ?? []);
+            setProcessStartedAt(processMessage.processStartedAt ?? null);
+            setProcessFinishedAt(processMessage.processFinishedAt ?? null);
+            setProcessNow(processMessage.processFinishedAt ?? Date.now());
+          }
+        }
+
+        if (processMessage?.generationStatus && processMessage.generationStatus !== "running") {
+          await refreshConversations();
+          void refreshMe();
+          return true;
+        }
+      }
+
+      return false;
+    };
 
     try {
       while (true) {
@@ -1625,8 +1691,60 @@ export function ChatShell({
       clearStreamFlushTimer();
       pendingContentDelta = "";
       pendingReasoningDelta = "";
-      const message =
-        streamError instanceof Error ? `流式连接中断：${streamError.message}` : "流式连接中断。";
+      const interruptedImage =
+        routedToImage ||
+        getCurrentInFlightChat()?.assistantMessage.mode === "IMAGE" ||
+        getCurrentInFlightChat()?.assistantMessage.model === "image2";
+      const message = interruptedImage
+        ? "连接中断，后台生图仍在进行，正在同步结果..."
+        : streamError instanceof Error
+          ? `流式连接中断：${streamError.message}`
+          : "流式连接中断。";
+
+      if (interruptedImage) {
+        updateChatAssistantMessage((item) => ({
+          ...item,
+          content: item.content || "生成中...",
+          pending: true
+        }));
+        setChatToolEvents((current) =>
+          mergeToolEvent(current, {
+            detail: message,
+            id: "image",
+            label: "image2",
+            status: "running",
+            type: "image"
+          }, now)
+        );
+        setChatStreamStatus(message);
+        const synced = await syncPersistedImageResult();
+
+        if (!synced) {
+          const fallbackMessage = "连接中断；图片可能仍在后台生成，稍后重新打开会话可查看结果。";
+          updateChatAssistantMessage((item) => ({
+            ...item,
+            content: fallbackMessage,
+            pending: false
+          }));
+          setError(fallbackMessage);
+          setChatToolEvents((current) =>
+            mergeToolEvent(current, {
+              detail: fallbackMessage,
+              id: "image",
+              label: "image2",
+              status: "error",
+              type: "image"
+            }, Date.now())
+          );
+          setChatStreamStatus("生图连接中断。");
+        }
+
+        markGenerationFinished(conversationKey);
+        abortControllersRef.current.delete(conversationKey);
+        clearCurrentInFlightChat();
+        return;
+      }
+
       updateChatAssistantMessage((item) => ({ ...item, content: message, pending: false }));
       if (isViewingInFlightChat()) {
         setError(message);
@@ -2313,7 +2431,7 @@ export function ChatShell({
                 ref={fileInputRef}
                 type="file"
               />
-              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0 sm:rounded-full sm:border sm:border-[color:var(--ios-separator)] sm:bg-white/70 sm:p-1 sm:shadow-sm">
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0">
                 <button
                   className="app-action-button grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50"
                   disabled={loading || quotaBlocked || uploadingAttachments}

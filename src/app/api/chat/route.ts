@@ -73,6 +73,7 @@ const encoder = new TextEncoder();
 const IDLE_TIMEOUT_MS = 300_000;
 const MAX_CONTEXT_HISTORY_MESSAGES = 120;
 const DRAFT_PERSIST_INTERVAL_MS = 1000;
+const SSE_KEEPALIVE_INTERVAL_MS = 15_000;
 
 class UpstreamStreamError extends Error {}
 
@@ -118,6 +119,18 @@ function sse(
   } catch {
     return false;
   }
+}
+
+function startSseKeepAlive(controller: ReadableStreamDefaultController<Uint8Array>) {
+  const timer = setInterval(() => {
+    const ok = sse(controller, "ping", { now: Date.now() });
+
+    if (!ok) {
+      clearInterval(timer);
+    }
+  }, SSE_KEEPALIVE_INTERVAL_MS);
+
+  return () => clearInterval(timer);
 }
 
 type StreamChoice = {
@@ -942,6 +955,7 @@ export async function POST(request: NextRequest) {
     });
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        const stopKeepAlive = startSseKeepAlive(controller);
         let imageEvents = imageInitialEvents;
 
         sse(controller, "meta", {
@@ -1057,6 +1071,7 @@ export async function POST(request: NextRequest) {
             error: message
           });
         } finally {
+          stopKeepAlive();
           try {
             controller.close();
           } catch {
@@ -1320,6 +1335,7 @@ export async function POST(request: NextRequest) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const stopKeepAlive = startSseKeepAlive(controller);
       let assistantContent = "";
       let reasoningContent = "";
       let currentStreamStatus = initialStreamStatus;
@@ -1625,6 +1641,7 @@ export async function POST(request: NextRequest) {
           });
         }
       } finally {
+        stopKeepAlive();
         request.signal.removeEventListener("abort", abortStream);
         try {
           controller.close();

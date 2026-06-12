@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   Loader2,
   LogOut,
+  Maximize2,
   Menu,
   MessageSquarePlus,
   MoreHorizontal,
@@ -174,6 +175,9 @@ function usagePercent(used: number, limit: number) {
 }
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 96;
+const COMPOSER_TEXTAREA_MIN_HEIGHT = 40;
+const COMPOSER_TEXTAREA_MAX_HEIGHT = 152;
+const COMPOSER_FULLSCREEN_THRESHOLD = 92;
 const GENERATION_THINKING_LABEL = "思考中";
 const GENERATION_THINKING_DETAIL = "正在思考并组织回答";
 const GENERATION_THINKING_STATUS = "思考中，正在组织回答...";
@@ -1260,7 +1264,7 @@ export function ChatShell({
     }
 
     if (quotaBlocked) {
-      setError("本月额度已用完，请联系管理员。");
+      setError("余额不足，请联系管理员。");
       return;
     }
 
@@ -1815,7 +1819,7 @@ export function ChatShell({
               type: resultIsImage ? "image" : "generation"
             }, now),
             {
-              detail: "已更新本月用量和费用",
+              detail: "已更新余额和费用",
               id: "usage",
               label: "用量统计",
               status: "done",
@@ -2855,7 +2859,7 @@ export function ChatShell({
                   </p>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs ios-muted">
-                  <span className="min-w-0 truncate">本月费用剩余 {formatCents(usage.remainingCostCents)}</span>
+                  <span className="min-w-0 truncate">余额 {formatCents(usage.remainingCostCents)}</span>
                   {activeModel ? (
                     <ContextBadge
                       contextStats={lastContextStats}
@@ -3006,7 +3010,7 @@ export function ChatShell({
             ) : null}
             {quotaBlocked ? (
               <div className="app-inline-alert mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                本月额度已用完，请联系管理员。
+                余额不足，请联系管理员。
               </div>
             ) : null}
             {editingMessage ? (
@@ -3283,7 +3287,10 @@ const ComposerInputArea = memo(function ComposerInputArea({
   webSearchEnabledForMessage: boolean;
 }) {
   const [draft, setDraft] = useState(draftText);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [fullscreenAvailable, setFullscreenAvailable] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fullscreenTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const placeholder = sourceImageSelected
     ? "描述想如何修改这张图片"
     : imageToolEnabled
@@ -3296,6 +3303,28 @@ const ComposerInputArea = memo(function ComposerInputArea({
     (!loading && !draft.trim() && pendingAttachmentCount === 0 && !sourceImageSelected) ||
     quotaBlocked ||
     uploadingAttachments;
+  const composerDisabled = disabled || loading || quotaBlocked;
+  const fullscreenButtonVisible = fullscreenAvailable && !composerDisabled;
+
+  const resizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = `${COMPOSER_TEXTAREA_MIN_HEIGHT}px`;
+    const contentHeight = textarea.scrollHeight;
+    const nextHeight = Math.min(
+      COMPOSER_TEXTAREA_MAX_HEIGHT,
+      Math.max(COMPOSER_TEXTAREA_MIN_HEIGHT, contentHeight)
+    );
+
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY =
+      contentHeight > COMPOSER_TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
+    setFullscreenAvailable(contentHeight >= COMPOSER_FULLSCREEN_THRESHOLD);
+  }, []);
 
   useEffect(() => {
     setDraft(draftText);
@@ -3304,6 +3333,16 @@ const ComposerInputArea = memo(function ComposerInputArea({
       requestAnimationFrame(() => textareaRef.current?.focus());
     }
   }, [draftFocusToken, draftText]);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [draft, resizeTextarea]);
+
+  useEffect(() => {
+    if (fullscreenOpen) {
+      requestAnimationFrame(() => fullscreenTextareaRef.current?.focus());
+    }
+  }, [fullscreenOpen]);
 
   async function submitDraft() {
     if (loading) {
@@ -3317,6 +3356,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
 
     const currentDraft = draft;
     setDraft("");
+    setFullscreenOpen(false);
     await onSend(currentDraft);
   }
 
@@ -3327,28 +3367,106 @@ const ComposerInputArea = memo(function ComposerInputArea({
     }
   }
 
+  function onFullscreenKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setFullscreenOpen(false);
+      return;
+    }
+
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void submitDraft();
+    }
+  }
+
   return (
-    <div className="flex min-h-10 w-full min-w-0 flex-1 items-center gap-1.5">
-      <textarea
-        className="max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:min-h-9 sm:py-1.5 sm:text-sm"
-        disabled={disabled || loading || quotaBlocked}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder}
-        ref={textareaRef}
-        rows={1}
-        value={draft}
-      />
-      <button
-        className="app-action-button app-glass-primary grid size-10 shrink-0 place-items-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70 sm:size-9"
-        disabled={sendDisabled}
-        onClick={() => void submitDraft()}
-        title={loading ? "停止生成" : disabled ? "会话加载中" : "发送"}
-        type="button"
-      >
-        {loading ? <Square className="size-4" /> : <Send className="size-4" />}
-      </button>
-    </div>
+    <>
+      <div className="flex min-h-10 w-full min-w-0 flex-1 items-end gap-1.5">
+        <div className="relative min-w-0 flex-1">
+          {fullscreenButtonVisible ? (
+            <button
+              className="app-action-button app-glass-control absolute right-1.5 top-1 z-10 grid size-7 place-items-center rounded-full text-stone-500 hover:text-stone-900"
+              onClick={() => setFullscreenOpen(true)}
+              title="全屏输入"
+              type="button"
+            >
+              <Maximize2 className="size-3.5" />
+            </button>
+          ) : null}
+          <textarea
+            className={`min-h-10 w-full min-w-0 resize-none bg-transparent px-2 py-2 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:min-h-9 sm:py-1.5 sm:text-sm ${
+              fullscreenButtonVisible ? "pr-10" : ""
+            }`}
+            disabled={composerDisabled}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={placeholder}
+            ref={textareaRef}
+            rows={1}
+            value={draft}
+          />
+        </div>
+        <button
+          className="app-action-button app-glass-primary grid size-10 shrink-0 place-items-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70 sm:size-9"
+          disabled={sendDisabled}
+          onClick={() => void submitDraft()}
+          title={loading ? "停止生成" : disabled ? "会话加载中" : "发送"}
+          type="button"
+        >
+          {loading ? <Square className="size-4" /> : <Send className="size-4" />}
+        </button>
+      </div>
+      {fullscreenOpen
+        ? createPortal(
+            <div className="app-backdrop-enter fixed inset-0 z-[90] flex bg-[rgba(47,42,36,0.28)] p-3 backdrop-blur-md sm:p-6">
+              <section className="app-dialog-panel mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/55 bg-[rgba(255,250,244,0.94)] shadow-[0_28px_100px_rgba(47,42,36,0.28)]">
+                <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-stone-900">全屏输入</div>
+                  </div>
+                  <button
+                    className="app-action-button app-glass-control grid size-9 shrink-0 place-items-center rounded-full text-stone-600"
+                    onClick={() => setFullscreenOpen(false)}
+                    title="关闭"
+                    type="button"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </header>
+                <textarea
+                  className="min-h-0 flex-1 resize-none bg-transparent px-4 py-4 text-base leading-7 text-stone-950 outline-none placeholder:text-stone-400"
+                  disabled={composerDisabled}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={onFullscreenKeyDown}
+                  placeholder={placeholder}
+                  ref={fullscreenTextareaRef}
+                  value={draft}
+                />
+                <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-[color:var(--ios-separator)] px-4 py-3">
+                  <button
+                    className="app-action-button app-glass-control h-9 rounded-full px-4 text-sm font-medium text-stone-700"
+                    onClick={() => setFullscreenOpen(false)}
+                    type="button"
+                  >
+                    收起
+                  </button>
+                  <button
+                    className="app-action-button app-glass-primary inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-semibold disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70"
+                    disabled={sendDisabled}
+                    onClick={() => void submitDraft()}
+                    type="button"
+                  >
+                    {loading ? <Square className="size-4" /> : <Send className="size-4" />}
+                    {loading ? "停止" : "发送"}
+                  </button>
+                </footer>
+              </section>
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 });
 
@@ -3911,7 +4029,7 @@ function UsageBars({ usage }: { usage: UsageSummary }) {
     <div className="space-y-2 lg:space-y-3">
       <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800 lg:gap-2 lg:text-sm">
         <Gauge className="size-3.5 text-[color:var(--claude-accent)] lg:size-4" />
-        本月费用额度
+        永久余额
       </div>
       <div>
         <div className="mb-0.5 flex items-center justify-between gap-2 text-[11px] ios-muted lg:mb-1 lg:text-xs">
@@ -3930,7 +4048,7 @@ function UsageBars({ usage }: { usage: UsageSummary }) {
           />
         </div>
         <p className="mt-1 text-[10px] leading-4 ios-muted lg:mt-2 lg:text-[11px] lg:leading-5">
-          本月已产生 {formatNumber(usage.messagesUsed)} 条记录 ·{" "}
+          累计产生 {formatNumber(usage.messagesUsed)} 条记录 ·{" "}
           {formatNumber(usage.tokensUsed)} tokens
         </p>
       </div>

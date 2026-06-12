@@ -28,14 +28,6 @@ export function usageCacheKey(userId: string) {
   return usageSummaryCacheKey(userId);
 }
 
-function monthStart(date = new Date()) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function laterDate(a: Date, b: Date) {
-  return a.getTime() > b.getTime() ? a : b;
-}
-
 export async function getUsageSummary(
   userId: string,
   options: { readCache?: boolean } = {}
@@ -58,7 +50,7 @@ export async function getUsageSummary(
     }
   });
 
-  const windowStart = laterDate(monthStart(), user.quotaResetAt);
+  const windowStart = user.quotaResetAt;
   const [usage, messagesUsed] = await Promise.all([
     prisma.usageRecord.aggregate({
       where: {
@@ -103,7 +95,7 @@ export async function assertQuotaAvailable(userId: string, expectedCostCents: nu
   const summary = await getUsageSummary(userId, { readCache: false });
 
   if (summary.costUsedCents + expectedCostCents > summary.monthlyCostLimitCents) {
-    throw new QuotaError("本月费用额度不足。", summary);
+    throw new QuotaError("余额不足。", summary);
   }
 
   return summary;

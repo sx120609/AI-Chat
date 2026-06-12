@@ -365,7 +365,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       setError(payload?.error || "重置失败。");
     } else {
-      setNotice("额度窗口已重置。");
+      setNotice("累计消费已清空。");
       await loadUsers();
     }
 
@@ -955,7 +955,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   monthlyCostLimitCents: value
                 }))
               }
-              placeholder="费用额度（美元）"
+              placeholder="初始余额（美元）"
               value={form.monthlyCostLimitCents}
             />
             <button className="ios-button-primary app-action-button flex items-center justify-center gap-2 px-3" type="submit">
@@ -967,7 +967,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
         <section className="ios-panel motion-lift overflow-hidden">
           <div className="flex items-center justify-between border-b border-[color:var(--ios-separator)] px-4 py-3">
-            <h2 className="text-base font-semibold">用户与额度</h2>
+            <h2 className="text-base font-semibold">用户与余额</h2>
             <button className="ios-icon-button app-action-button" onClick={loadAll} title="刷新" type="button">
               <RefreshCw className="size-4" />
             </button>
@@ -986,8 +986,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <th className="px-4 py-3 font-semibold">用户</th>
                     <th className="px-4 py-3 font-semibold">角色</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
-                    <th className="px-4 py-3 font-semibold">费用额度</th>
-                    <th className="px-4 py-3 font-semibold">本月用量</th>
+                    <th className="px-4 py-3 font-semibold">永久余额</th>
+                    <th className="px-4 py-3 font-semibold">累计消费</th>
                     <th className="px-4 py-3 font-semibold">操作</th>
                   </tr>
                 </thead>
@@ -1045,8 +1045,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="space-y-1 text-xs ios-muted">
+                          <p>已消费 {formatCents(user.usage.costUsedCents)}</p>
                           <p>
-                            费用 {formatCents(user.usage.costUsedCents)} /{" "}
+                            余额 {formatCents(user.usage.remainingCostCents)} /{" "}
                             {formatCents(user.monthlyCostLimitCents)}
                           </p>
                           <p>消息 {formatNumber(user.usage.messagesUsed)} 条</p>
@@ -1072,7 +1073,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                             className="ios-icon-button app-action-button disabled:opacity-50"
                             disabled={savingId === user.id}
                             onClick={() => resetQuota(user.id)}
-                            title="重置额度"
+                            title="清空累计消费"
                             type="button"
                           >
                             <RefreshCw className="size-4" />
@@ -1134,7 +1135,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       </button>
                     </label>
                     <label className="block col-span-2">
-                      <span className="mb-1 block text-xs font-medium ios-muted">费用额度（美元）</span>
+                      <span className="mb-1 block text-xs font-medium ios-muted">永久余额（美元）</span>
                       <CostLimitInput
                         className="ios-input h-9 w-full text-sm"
                         onChange={(value) =>
@@ -1146,8 +1147,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   </div>
 
                   <div className="mt-3 rounded-lg bg-white/60 px-3 py-2 text-xs ios-muted">
+                    <p>已消费 {formatCents(user.usage.costUsedCents)}</p>
                     <p>
-                      费用 {formatCents(user.usage.costUsedCents)} /{" "}
+                      余额 {formatCents(user.usage.remainingCostCents)} /{" "}
                       {formatCents(user.monthlyCostLimitCents)}
                     </p>
                     <p className="mt-1">消息 {formatNumber(user.usage.messagesUsed)} 条</p>
@@ -1175,7 +1177,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       type="button"
                     >
                       <RefreshCw className="size-4" />
-                      重置额度
+                      清空累计
                     </button>
                   </div>
                 </div>

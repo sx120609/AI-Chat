@@ -1839,7 +1839,7 @@ export async function POST(request: NextRequest) {
         );
         upsertProcessToolEvent(
           {
-            detail: "已更新本月用量和费用",
+            detail: "已更新余额和费用",
             finishedAt,
             id: "usage",
             label: "用量统计",

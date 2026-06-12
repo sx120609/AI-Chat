@@ -122,6 +122,30 @@ export type AttachmentView = {
   createdAt: string;
 };
 
+export type SharedMessageView = {
+  id: string;
+  conversationId: string;
+  role: Exclude<MessageRole, "SYSTEM">;
+  content: string;
+  imageUrl?: string | null;
+  model?: string | null;
+  mode: GenerationMode;
+  createdAt: string;
+  attachments?: AttachmentView[];
+  webSources?: WebSearchSource[];
+};
+
+export type SharedConversationView = {
+  id: string;
+  title: string;
+  model: string;
+  mode: GenerationMode;
+  createdAt: string;
+  updatedAt: string;
+  sharedAt: string;
+  messages: SharedMessageView[];
+};
+
 export type AdminUserView = UserView & {
   createdAt: string;
   updatedAt: string;

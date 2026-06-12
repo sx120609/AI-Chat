@@ -496,6 +496,25 @@ button:disabled {
   }
 }
 
+@media (max-width: 639px) {
+  .claude-composer {
+    border-radius: 2rem;
+  }
+
+  .app-composer:focus-within {
+    transform: none;
+  }
+
+  .app-message-actions {
+    opacity: 1;
+    transform: none;
+  }
+
+  .app-sidebar-sheet {
+    animation: app-fade-in var(--motion-base) var(--motion-ease) both;
+  }
+}
+
 .claude-markdown {
   color: inherit;
   overflow-wrap: anywhere;

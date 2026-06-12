@@ -559,7 +559,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                 value={settingsForm.longContextThresholdTokens}
               />
               <span className="mt-1 block text-[11px] ios-muted">
-                默认模型按 {formatNumber(DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens 节省成本；启用 GPT-5.5 1M 后可使用 {formatNumber(MAX_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens。
+                默认模型按 {formatNumber(DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens 节省成本；启用 GPT-5.5-1M 后可使用 {formatNumber(MAX_CONTEXT_WINDOW_LIMIT_TOKENS)} tokens。
               </span>
             </label>
             <label className="flex min-h-10 items-center gap-2 rounded-lg bg-white/70 px-3 text-sm font-medium text-slate-700">

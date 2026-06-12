@@ -37,6 +37,7 @@ model User {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
   conversations         Conversation[]
+  conversationShares    ConversationShare[]
   usageRecords          UsageRecord[]
   attachments           Attachment[]
 }
@@ -61,10 +62,24 @@ model Conversation {
   messages  Message[]
   usage     UsageRecord[]
   attachments Attachment[]
+  share     ConversationShare?
 
   @@index([userId, updatedAt])
   @@index([userId, pinned, updatedAt])
   @@index([userId, archivedAt, updatedAt])
+}
+
+model ConversationShare {
+  id             String       @id @default(cuid())
+  token          String       @unique
+  conversationId String       @unique
+  userId         String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model Message {

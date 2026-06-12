@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  Share2,
   Shield,
   Sparkles,
   Square,
@@ -396,6 +397,7 @@ export function ChatShell({
   const [deleteConversationTarget, setDeleteConversationTarget] =
     useState<ConversationSummary | null>(null);
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
+  const [sharingConversationId, setSharingConversationId] = useState<string | null>(null);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [imageToolEnabled, setImageToolEnabled] = useState(false);
@@ -914,6 +916,40 @@ export function ChatShell({
     setOpenConversationMenuId(null);
     await refreshConversations(updated.id);
     setStreamStatus(updated.pinned ? "会话已固定。" : "已取消固定。");
+  }
+
+  async function shareConversation(conversation: ConversationSummary) {
+    setSharingConversationId(conversation.id);
+    setError("");
+    setOpenConversationMenuId(null);
+
+    try {
+      const response = await fetch(`/api/conversations/${conversation.id}/share`, {
+        method: "POST"
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: string; share?: { url?: string } }
+        | null;
+      const shareUrl = payload?.share?.url;
+
+      if (!response.ok || !shareUrl) {
+        setError(payload?.error || "生成分享链接失败。");
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setStreamStatus("分享链接已复制，可直接发给别人查看。");
+      } catch {
+        setError(`分享链接已生成，但复制失败：${shareUrl}`);
+      }
+    } catch (shareError) {
+      setError(
+        shareError instanceof Error ? `生成分享链接失败：${shareError.message}` : "生成分享链接失败。"
+      );
+    } finally {
+      setSharingConversationId(null);
+    }
   }
 
   function requestDeleteConversation(conversation: ConversationSummary) {
@@ -2359,15 +2395,15 @@ export function ChatShell({
 
   const sidebarContent = (
     <>
-      <div className="border-b border-[color:var(--ios-separator)] p-4">
+      <div className="border-b border-[color:var(--ios-separator)] p-4 max-lg:border-b-0 max-lg:px-6 max-lg:pb-4 max-lg:pr-20 max-lg:pt-[calc(1.25rem+var(--app-safe-area-top,0px))]">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <SiteLogo className="size-8 shrink-0" />
+            <SiteLogo className="hidden size-8 shrink-0 lg:block" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-stone-800">
+              <p className="truncate text-sm font-semibold text-stone-800 max-lg:text-[2rem] max-lg:font-bold max-lg:leading-10">
                 {siteSettings.siteName}
               </p>
-              <p className="mt-1 truncate text-xs ios-muted">{user.email}</p>
+              <p className="mt-1 truncate text-xs ios-muted max-lg:hidden">{user.email}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -2381,7 +2417,7 @@ export function ChatShell({
               <Menu className="size-4" />
             </button>
             <button
-              className={`${sidebarHeaderButtonClass} grid`}
+              className={`${sidebarHeaderButtonClass} hidden lg:grid`}
               onClick={logout}
               title="退出登录"
               type="button"
@@ -2392,7 +2428,7 @@ export function ChatShell({
         </div>
         <div className="mt-4 flex gap-2">
           <button
-            className="ios-button-primary flex h-10 flex-1 items-center justify-center gap-2 px-3 text-sm"
+            className="ios-button-primary flex h-10 flex-1 items-center justify-center gap-2 px-3 text-sm max-lg:h-12 max-lg:rounded-full max-lg:text-base"
             onClick={() => startNewConversation()}
             type="button"
           >
@@ -2401,10 +2437,10 @@ export function ChatShell({
           </button>
         </div>
         <div className="mt-3">
-          <label className="flex h-9 items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-2.5 text-sm text-stone-700">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-2.5 text-sm text-stone-700 max-lg:h-12 max-lg:rounded-full max-lg:px-4">
             <Search className="size-4 shrink-0 text-stone-400" />
             <input
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 max-lg:text-base"
               onChange={(event) => setConversationSearch(event.target.value)}
               placeholder="搜索聊天"
               value={conversationSearch}
@@ -2423,11 +2459,11 @@ export function ChatShell({
         </div>
       </div>
 
-      <div className="border-b border-[color:var(--ios-separator)] p-2.5 lg:p-4">
+      <div className="hidden border-b border-[color:var(--ios-separator)] p-2.5 lg:block lg:p-4">
         <UsageBars usage={usage} />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-6 max-lg:pb-24 max-lg:pt-1">
         {groupedConversations.length === 0 ? (
           <div className="px-3 py-8 text-center text-xs leading-5 ios-muted">
             {conversationSearch.trim() ? "没有找到匹配的聊天。" : "暂无会话。"}
@@ -2435,11 +2471,11 @@ export function ChatShell({
         ) : null}
 
         {groupedConversations.map((group) => (
-          <section className="mb-3" key={group.label}>
-            <div className="bg-[rgba(251,247,239,0.9)] px-2 py-1 text-[11px] font-semibold text-stone-500 backdrop-blur lg:sticky lg:top-0 lg:z-10">
+          <section className="mb-3 max-lg:mb-4" key={group.label}>
+            <div className="bg-[rgba(251,247,239,0.9)] px-2 py-1 text-[11px] font-semibold text-stone-500 backdrop-blur max-lg:bg-transparent max-lg:px-0 max-lg:py-3 max-lg:text-base lg:sticky lg:top-0 lg:z-10">
               {group.label}
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 max-lg:space-y-0">
               {group.conversations.map((conversation) => {
                 const active = conversation.id === activeConversationId;
                 const menuOpen = openConversationMenuId === conversation.id;
@@ -2448,7 +2484,7 @@ export function ChatShell({
 
                 return (
                   <div
-                    className={`app-list-row group relative flex items-center gap-2 rounded-lg px-2 py-2 transition ${
+                    className={`app-list-row group relative flex items-center gap-2 rounded-lg px-2 py-2 transition max-lg:rounded-none max-lg:bg-transparent max-lg:px-0 max-lg:py-3 ${
                       menuOpen ? "z-30" : "z-0"
                     } ${
                       active
@@ -2493,11 +2529,11 @@ export function ChatShell({
                           {running ? (
                             <Loader2 className="size-3.5 shrink-0 animate-spin text-[color:var(--claude-accent)]" />
                           ) : null}
-                          <p className="min-w-0 truncate text-sm font-medium">
+                          <p className="min-w-0 truncate text-sm font-medium max-lg:text-[1.35rem] max-lg:font-bold max-lg:leading-8">
                             {conversation.title}
                           </p>
                         </div>
-                        <p className="mt-0.5 truncate text-xs ios-muted">
+                        <p className="mt-0.5 truncate text-xs ios-muted max-lg:hidden">
                           {conversation.mode === "IMAGE" ? "image2" : conversation.model}
                           {conversation._count ? ` · ${conversation._count.messages} 条消息` : ""}
                           {running ? " · 生成中" : ""}
@@ -2543,6 +2579,15 @@ export function ChatShell({
                         >
                           <Pencil className="size-3.5" />
                           重命名
+                        </button>
+                        <button
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[#f6eadf] disabled:opacity-50"
+                          disabled={sharingConversationId === conversation.id}
+                          onClick={() => void shareConversation(conversation)}
+                          type="button"
+                        >
+                          <Share2 className="size-3.5" />
+                          分享
                         </button>
                         <button
                           className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-red-600 hover:bg-red-50"
@@ -2592,18 +2637,15 @@ export function ChatShell({
             onClick={() => setMobileSidebarOpen(false)}
             type="button"
           />
-          <aside className="ios-glass app-sidebar-sheet absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] flex-col border-r border-[color:var(--ios-separator)] shadow-[18px_0_45px_rgba(83,69,54,0.18)]">
-            <div className="flex items-center justify-between border-b border-[color:var(--ios-separator)] px-4 py-3">
-              <span className="text-sm font-semibold text-stone-800">会话</span>
-              <button
-                className="ios-icon-button"
-                onClick={() => setMobileSidebarOpen(false)}
-                title="关闭"
-                type="button"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
+          <aside className="ios-glass app-sidebar-sheet absolute inset-0 flex flex-col text-stone-950 shadow-none">
+            <button
+              className="ios-icon-button app-action-button absolute right-5 top-[calc(1.4rem+var(--app-safe-area-top,0px))] z-20 size-11 rounded-full"
+              onClick={() => setMobileSidebarOpen(false)}
+              title="关闭"
+              type="button"
+            >
+              <X className="size-5" />
+            </button>
             {sidebarContent}
           </aside>
         </div>
@@ -2640,27 +2682,29 @@ export function ChatShell({
             </button>
           ) : null}
           <div
-            className={`mx-auto flex max-w-5xl items-start justify-between gap-2 sm:items-center sm:gap-3 ${
+            className={`mx-auto max-w-5xl ${
               desktopSidebarOpen ? "" : "lg:pl-10"
             }`}
+            ref={headerControlsRef}
           >
-            <div className="flex min-w-0 flex-1 items-start">
-              <div className="min-w-0 flex-1">
+            <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
+              <button
+                aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
+                className="ios-icon-button app-action-button size-11 shrink-0 rounded-full lg:hidden"
+                onClick={toggleSidebar}
+                title="切换会话列表"
+                type="button"
+              >
+                <Menu className="size-5" />
+              </button>
+
+              <div className="hidden min-w-0 flex-1 lg:block">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <button
-                    aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
-                    className="app-action-button grid size-7 shrink-0 place-items-center rounded-md text-stone-500 transition hover:bg-white/70 hover:text-stone-900 lg:hidden"
-                    onClick={toggleSidebar}
-                    title="切换会话列表"
-                    type="button"
-                  >
-                    <Menu className="size-3.5" />
-                  </button>
                   <p className="truncate text-sm font-semibold text-stone-950">
                     {activeConversation?.title || "新聊天"}
                   </p>
                 </div>
-                <div className="mt-1 hidden flex-wrap items-center gap-2 text-xs ios-muted sm:flex">
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs ios-muted">
                   <span className="min-w-0 truncate">本月费用剩余 {formatCents(usage.remainingCostCents)}</span>
                   {activeModel ? (
                     <ContextBadge
@@ -2669,33 +2713,32 @@ export function ChatShell({
                     />
                   ) : null}
                 </div>
-                {activeModel ? (
-                  <div className="mt-1 flex sm:hidden">
-                    <ContextBadge
-                      compact
-                      contextStats={lastContextStats}
-                      contextWindowTokens={activeModel.contextWindowTokens}
-                    />
-                  </div>
-                ) : null}
               </div>
-            </div>
 
-            <div
-              className="w-[min(15.5rem,62vw)] min-w-[8.5rem] shrink-0 sm:w-auto sm:min-w-0 sm:shrink-0"
-              ref={headerControlsRef}
-            >
-              <ModelReasoningPicker
-                activeModel={activeModel}
-                activeReasoningEffort={activeReasoningEffort}
-                models={chatModels}
-                modelValue={model}
-                onModelChange={setModel}
-                onOpenChange={setModelPickerOpen}
-                onReasoningChange={setReasoningEffort}
-                open={modelPickerOpen}
-                reasoningValue={reasoningEffort}
-              />
+              <div className="min-w-0 justify-self-center lg:shrink-0 lg:justify-self-auto">
+                <div className="w-[min(13.5rem,56vw)] lg:w-auto">
+                  <ModelReasoningPicker
+                    activeModel={activeModel}
+                    activeReasoningEffort={activeReasoningEffort}
+                    models={chatModels}
+                    modelValue={model}
+                    onModelChange={setModel}
+                    onOpenChange={setModelPickerOpen}
+                    onReasoningChange={setReasoningEffort}
+                    open={modelPickerOpen}
+                    reasoningValue={reasoningEffort}
+                  />
+                </div>
+              </div>
+
+              <button
+                className="ios-icon-button app-action-button size-11 shrink-0 rounded-full lg:hidden"
+                onClick={() => startNewConversation()}
+                title="新聊天"
+                type="button"
+              >
+                <MessageSquarePlus className="size-5" />
+              </button>
             </div>
           </div>
         </header>
@@ -2744,7 +2787,7 @@ export function ChatShell({
           </div>
         </div>
 
-        <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[rgba(247,243,234,0.86)] px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
+        <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[rgba(247,243,234,0.86)] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
           <div className="mx-auto max-w-3xl">
             {activeModel ? (
               <ContextNotice
@@ -2837,7 +2880,7 @@ export function ChatShell({
                 ))}
               </div>
             ) : null}
-            <div className="ios-panel claude-composer app-composer flex min-h-14 flex-col gap-2 px-2 py-2 shadow-[0_16px_38px_rgba(83,69,54,0.12)] sm:flex-row sm:items-center sm:bg-white/90 sm:px-3 sm:shadow-[0_18px_70px_rgba(83,69,54,0.18)]">
+            <div className="ios-panel claude-composer app-composer flex min-h-14 items-center gap-1.5 px-2 py-2 shadow-[0_16px_38px_rgba(83,69,54,0.12)] sm:gap-2 sm:bg-white/90 sm:px-3 sm:shadow-[0_18px_70px_rgba(83,69,54,0.18)]">
               <input
                 className="hidden"
                 multiple
@@ -2845,9 +2888,9 @@ export function ChatShell({
                 ref={fileInputRef}
                 type="file"
               />
-              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0">
+              <div className="flex shrink-0 items-center gap-1">
                 <button
-                  className="app-action-button grid size-9 shrink-0 place-items-center rounded-full border border-[color:var(--ios-separator)] bg-white/55 text-stone-600 transition hover:bg-white/80 disabled:opacity-50"
+                  className="app-action-button grid size-10 shrink-0 place-items-center rounded-full text-stone-600 transition hover:bg-white/70 disabled:opacity-50 sm:size-9 sm:border sm:border-[color:var(--ios-separator)] sm:bg-white/55 sm:text-stone-600 sm:hover:bg-white/80"
                   disabled={loading || quotaBlocked || uploadingAttachments || conversationSwitching}
                   onClick={() => fileInputRef.current?.click()}
                   title="上传文件或图片"
@@ -2860,10 +2903,10 @@ export function ChatShell({
                   )}
                 </button>
                 <button
-                  className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
+                  className={`app-action-button grid size-10 shrink-0 place-items-center rounded-full transition sm:size-9 sm:border ${
                     imageToolEnabled
                       ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                      : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
+                      : "border-[color:var(--ios-separator)] text-stone-600 hover:bg-white/70 sm:bg-white/55 sm:text-stone-600 sm:hover:bg-white/80"
                   }`}
                   disabled={loading || quotaBlocked || conversationSwitching}
                   onClick={() => {
@@ -2887,10 +2930,10 @@ export function ChatShell({
                   <div className="relative flex min-w-0 shrink-0 items-center">
                     <button
                       aria-pressed={webSearchEnabledForMessage}
-                      className={`app-action-button grid size-9 place-items-center rounded-full border transition ${
+                      className={`app-action-button grid size-10 place-items-center rounded-full transition sm:size-9 sm:border ${
                         webSearchEnabledForMessage
                           ? "border-[color:var(--claude-accent)] bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]"
-                          : "border-[color:var(--ios-separator)] bg-white/55 text-stone-600 hover:bg-white/80"
+                          : "border-[color:var(--ios-separator)] text-stone-600 hover:bg-white/70 sm:bg-white/55 sm:text-stone-600 sm:hover:bg-white/80"
                       }`}
                       disabled={loading || quotaBlocked || conversationSwitching}
                       onClick={() => {
@@ -2984,7 +3027,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
       ? "描述要生成的图片"
       : webSearchEnabledForMessage
         ? "输入需要联网查询的问题"
-        : "输入消息，或说“画一张”";
+        : "问问 AI";
   const sendDisabled =
     disabled ||
     (!loading && !draft.trim() && pendingAttachmentCount === 0 && !sourceImageSelected) ||
@@ -3022,9 +3065,9 @@ const ComposerInputArea = memo(function ComposerInputArea({
   }
 
   return (
-    <div className="flex min-h-9 w-full min-w-0 flex-1 items-center gap-2">
+    <div className="flex min-h-10 w-full min-w-0 flex-1 items-center gap-1.5">
       <textarea
-        className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 text-stone-950 outline-none"
+        className="max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:min-h-9 sm:py-1.5 sm:text-sm"
         disabled={disabled || loading || quotaBlocked}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={onKeyDown}
@@ -3034,7 +3077,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
         value={draft}
       />
       <button
-        className="app-action-button grid size-9 shrink-0 place-items-center rounded-full bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300"
+        className="app-action-button grid size-10 shrink-0 place-items-center rounded-full bg-[color:var(--claude-accent)] text-white transition hover:bg-[color:var(--claude-accent-dark)] disabled:bg-stone-300 sm:size-9"
         disabled={sendDisabled}
         onClick={() => void submitDraft()}
         title={loading ? "停止生成" : disabled ? "会话加载中" : "发送"}
@@ -3198,7 +3241,7 @@ function ModelReasoningPicker({
       <button
         aria-expanded={open}
         aria-label="选择模型和思考强度"
-        className={`app-action-button flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-xs font-medium backdrop-blur transition sm:min-w-60 sm:px-3.5 ${
+        className={`app-action-button flex h-11 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3.5 text-left text-base font-semibold backdrop-blur transition sm:h-9 sm:min-w-60 sm:px-3.5 sm:text-xs sm:font-medium ${
           open
             ? "border-stone-300 bg-white text-stone-950 shadow-[0_0_0_3px_rgba(120,113,108,0.10)]"
             : "border-black/10 bg-white/70 text-stone-800 shadow-[0_8px_28px_rgba(83,69,54,0.08)] hover:border-stone-300 hover:bg-white/95"
@@ -3213,8 +3256,8 @@ function ModelReasoningPicker({
         type="button"
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)]">
-            <Sparkles className="size-3" />
+          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#f3d8ca] text-[color:var(--claude-accent-dark)] sm:size-5">
+            <Sparkles className="size-3.5 sm:size-3" />
           </span>
           <span className="min-w-0 truncate text-stone-950">
             <span className="sm:hidden">{modelLabel}</span>
@@ -3226,7 +3269,7 @@ function ModelReasoningPicker({
           </span>
         </span>
         <ChevronDown
-          className={`size-3.5 shrink-0 text-stone-500 transition ${open ? "rotate-180" : ""}`}
+          className={`size-4 shrink-0 text-stone-500 transition sm:size-3.5 ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -3340,13 +3383,19 @@ function ProcessTimelinePanel({
   startedAt: number;
   status: string;
 }) {
-  const [expanded, setExpanded] = useState(true);
   const active = !finishedAt;
+  const [expanded, setExpanded] = useState(active);
   const elapsed = formatElapsedDuration((finishedAt ?? now) - startedAt);
   const latestRunningEvent = [...events].reverse().find((event) => event.status === "running");
 
+  useEffect(() => {
+    if (active) {
+      setExpanded(true);
+    }
+  }, [active]);
+
   return (
-    <div className="app-reveal mb-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-xs text-stone-700">
+    <div className="app-reveal mb-2 rounded-2xl border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-xs text-stone-700 sm:mb-3 sm:rounded-lg">
       <button
         className="flex w-full items-center justify-between gap-3 text-left"
         onClick={() => setExpanded((current) => !current)}

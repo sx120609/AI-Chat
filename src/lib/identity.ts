@@ -1,14 +1,21 @@
+import { modelIdentityLabel, normalizeModelDisplayLabel } from "@/lib/system-prompt";
+
 export function sanitizeIdentityLeak(content: string, modelLabel: string | null | undefined) {
-  const model = modelLabel?.trim();
+  const model = normalizeModelDisplayLabel(modelLabel?.trim() || "");
 
   if (!model || !content) {
     return content;
   }
 
+  const identity = modelIdentityLabel(model);
+
   return content
+    .replace(/我是\s*GPT[-\s]?5\.1/gi, `我是${identity}`)
+    .replace(/I am\s*GPT[-\s]?5\.1/gi, `I am ${identity}`)
+    .replace(/我是\s*GPT[-\s]?5\.5[\s-]*1M/gi, `我是${identity}`)
+    .replace(/I am\s*GPT[-\s]?5\.5[\s-]*1M/gi, `I am ${identity}`)
     .replace(/GPT[-\s]?5\.1/gi, model)
-    .replace(/我是\s*GPT[-\s]?5\.1/gi, `我是 ${model}`)
-    .replace(/I am\s*GPT[-\s]?5\.1/gi, `I am ${model}`)
+    .replace(/GPT[-\s]?5\.5[\s-]*1M/gi, model)
     .replace(/运行在\s*Codex CLI\s*里(?:的)?编程助手/gi, "团队网页聊天平台上的 AI 助手")
     .replace(/running (?:in|inside|on)\s*Codex CLI/gi, "running in this team web chat")
     .replace(/Codex CLI\s*(?:coding|programming)? assistant/gi, "team web chat assistant");

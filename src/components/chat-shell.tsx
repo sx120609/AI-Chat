@@ -2727,8 +2727,8 @@ export function ChatShell({
 
   const sidebarContent = (
     <>
-      <div className="border-b border-[color:var(--ios-separator)] p-4 max-lg:border-b-0 max-lg:px-5 max-lg:pb-3 max-lg:pr-16 max-lg:pt-[calc(1rem+var(--app-safe-area-top,0px))]">
-        <div className="flex items-center justify-between gap-3">
+      <div className="border-b border-[color:var(--ios-separator)] p-4 max-lg:border-b-0 max-lg:px-0 max-lg:pb-3 max-lg:pt-[calc(1rem+var(--app-safe-area-top,0px))]">
+        <div className="flex items-center justify-between gap-3 max-lg:px-5 max-lg:pr-16">
           <div className="flex min-w-0 items-center gap-2">
             <SiteLogo className="hidden size-8 shrink-0 lg:block" />
             <div className="min-w-0">
@@ -2758,17 +2758,9 @@ export function ChatShell({
             </button>
           </div>
         </div>
-        <div className="mt-4 flex gap-2 max-lg:mt-5">
+        <div className="mt-4 hidden gap-2 lg:flex">
           <button
-            className="app-action-button app-glass-primary hidden h-10 flex-1 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition active:scale-[0.99] lg:flex"
-            onClick={() => startNewConversation()}
-            type="button"
-          >
-            <MessageSquarePlus className="size-4" />
-            新聊天
-          </button>
-          <button
-            className="app-action-button flex h-11 flex-1 items-center gap-3 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-800 shadow-[0_12px_34px_rgba(18,42,35,0.1),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99] lg:hidden"
+            className="app-action-button app-glass-primary flex h-10 flex-1 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition active:scale-[0.99]"
             onClick={() => startNewConversation()}
             type="button"
           >
@@ -2776,11 +2768,40 @@ export function ChatShell({
             新聊天
           </button>
         </div>
-        <div className="mt-3">
+        <div className="mt-3 hidden lg:block">
           <label className="app-glass-control flex h-9 items-center gap-2 rounded-xl px-2.5 text-sm text-stone-700 max-lg:h-11 max-lg:rounded-2xl max-lg:px-3.5">
             <Search className="size-4 shrink-0 text-stone-400" />
             <input
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 max-lg:text-[15px]"
+              onChange={(event) => setConversationSearch(event.target.value)}
+              placeholder="搜索聊天"
+              value={conversationSearch}
+            />
+            {conversationSearch ? (
+              <button
+                className="grid size-5 shrink-0 place-items-center rounded-md text-stone-400 hover:bg-stone-200/70 hover:text-stone-700"
+                onClick={() => setConversationSearch("")}
+                title="清空搜索"
+                type="button"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </label>
+        </div>
+        <div className="mx-5 mt-5 grid grid-cols-2 gap-2 lg:hidden" data-mobile-sidebar-actions>
+          <button
+            className="app-action-button flex h-11 min-w-0 items-center justify-center gap-2 rounded-2xl border border-white/50 bg-white/45 px-3 text-[15px] font-semibold text-stone-800 shadow-[0_12px_34px_rgba(18,42,35,0.1),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-[0.99]"
+            onClick={() => startNewConversation()}
+            type="button"
+          >
+            <MessageSquarePlus className="size-4 shrink-0" />
+            <span className="min-w-0 truncate">新聊天</span>
+          </button>
+          <label className="app-glass-control flex h-11 min-w-0 items-center gap-2 rounded-2xl px-3.5 text-[15px] font-semibold text-stone-700">
+            <Search className="size-4 shrink-0 text-stone-400" />
+            <input
+              className="min-w-0 flex-1 bg-transparent text-[15px] font-semibold outline-none placeholder:text-stone-400"
               onChange={(event) => setConversationSearch(event.target.value)}
               placeholder="搜索聊天"
               value={conversationSearch}
@@ -2807,7 +2828,10 @@ export function ChatShell({
         />
       </div>
 
-      <div className="mx-5 mb-2 mt-1 rounded-2xl border border-white/45 bg-white/36 px-3 py-2 shadow-[0_10px_30px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.68)] backdrop-blur-xl lg:hidden">
+      <div
+        className="mx-5 mb-2 mt-1 rounded-2xl border border-white/45 bg-white/36 px-3 py-2 shadow-[0_10px_30px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.68)] backdrop-blur-xl lg:hidden"
+        data-mobile-quota-card
+      >
         <UsageBars
           compact
           onRecharge={() => setPaymentDialogOpen(true)}

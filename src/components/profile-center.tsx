@@ -20,6 +20,13 @@ import { DocumentTitle } from "@/components/document-title";
 import { SiteConfirmDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
 import { formatCents, formatNumber } from "@/lib/format";
+import {
+  parsePersonalizationSettings,
+  serializePersonalizationSettings,
+  type BaseStyle,
+  type PersonalizationLevel,
+  type PersonalizationSettings
+} from "@/lib/personalization";
 import type { SiteSettingsView, UsageSummary, UserApiKeyView, UserView } from "@/types/gateway";
 
 type ProfileCenterProps = {
@@ -37,10 +44,99 @@ function groupLabel(group: string) {
   return group === "VIP" ? "VIP" : "普通";
 }
 
+type SelectOption<T extends string> = {
+  label: string;
+  value: T;
+};
+
+const BASE_STYLE_OPTIONS: SelectOption<BaseStyle>[] = [
+  { label: "默认", value: "default" },
+  { label: "简洁直接", value: "concise" },
+  { label: "均衡", value: "balanced" },
+  { label: "详细深入", value: "detailed" }
+];
+
+const LEVEL_OPTIONS: SelectOption<PersonalizationLevel>[] = [
+  { label: "默认", value: "default" },
+  { label: "少一点", value: "low" },
+  { label: "适中", value: "medium" },
+  { label: "更多", value: "high" }
+];
+
+function PreferenceSelect<T extends string>({
+  ariaLabel,
+  label,
+  onChange,
+  options,
+  value
+}: {
+  ariaLabel?: string;
+  label?: string;
+  onChange: (value: T) => void;
+  options: SelectOption<T>[];
+  value: T;
+}) {
+  return (
+    <label className="flex min-h-12 items-center justify-between gap-4">
+      {label ? <span className="text-sm font-medium text-stone-900">{label}</span> : null}
+      <select
+        aria-label={ariaLabel || label}
+        className="ios-input ml-auto h-10 w-36 shrink-0 bg-white/72 px-3 text-sm font-semibold"
+        onChange={(event) => onChange(event.target.value as T)}
+        value={value}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function ToggleRow({
+  checked,
+  description,
+  label,
+  onChange
+}: {
+  checked: boolean;
+  description?: string;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex min-h-16 items-center justify-between gap-4 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-stone-950">{label}</p>
+        {description ? <p className="mt-1 text-sm leading-5 ios-muted">{description}</p> : null}
+      </div>
+      <button
+        aria-checked={checked}
+        className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+          checked ? "bg-[color:var(--claude-accent)]" : "bg-stone-200"
+        }`}
+        onClick={() => onChange(!checked)}
+        role="switch"
+        type="button"
+      >
+        <span
+          className={`absolute top-1 size-5 rounded-full bg-white shadow-sm transition ${
+            checked ? "left-6" : "left-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 export function ProfileCenter({ initialUser, initialUsage, siteSettings }: ProfileCenterProps) {
   const [user, setUser] = useState(initialUser);
   const [name, setName] = useState(initialUser.name);
-  const [aiStylePrompt, setAiStylePrompt] = useState(initialUser.aiStylePrompt || "");
+  const [personalization, setPersonalization] = useState<PersonalizationSettings>(() =>
+    parsePersonalizationSettings(initialUser.aiStylePrompt)
+  );
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [apiKeyName, setApiKeyName] = useState("个人 API Key");
@@ -79,6 +175,33 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
     void loadApiKeys();
   }, [loadApiKeys]);
 
+  function updatePersonalization(patch: Partial<PersonalizationSettings>) {
+    setPersonalization((current) => ({
+      ...current,
+      ...patch
+    }));
+  }
+
+  function updateTrait(key: keyof PersonalizationSettings["traits"], value: PersonalizationLevel) {
+    setPersonalization((current) => ({
+      ...current,
+      traits: {
+        ...current.traits,
+        [key]: value
+      }
+    }));
+  }
+
+  function updateAbout(key: keyof PersonalizationSettings["about"], value: string) {
+    setPersonalization((current) => ({
+      ...current,
+      about: {
+        ...current.about,
+        [key]: value
+      }
+    }));
+  }
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSavingProfile(true);
@@ -88,7 +211,10 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
     const response = await fetch("/api/profile", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ aiStylePrompt, name })
+      body: JSON.stringify({
+        aiStylePrompt: serializePersonalizationSettings(personalization),
+        name
+      })
     });
     const payload = (await response.json().catch(() => null)) as
       | { error?: string; user?: UserView }
@@ -98,6 +224,7 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
       setError(payload?.error || "保存个人资料失败。");
     } else {
       setUser(payload.user);
+      setPersonalization(parsePersonalizationSettings(payload.user.aiStylePrompt));
       setNotice("个人资料已保存。");
     }
 
@@ -213,11 +340,13 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
     setNotice("API Key 已复制。");
   }
 
+  const personalizationPayloadSize = serializePersonalizationSettings(personalization).length;
+
   return (
-    <main className="ios-page app-shell app-route-enter min-h-dvh px-4 py-4 text-stone-950 sm:px-6">
+    <main className="ios-page app-shell app-route-enter flex flex-col text-stone-950">
       <DocumentTitle title={`个人中心 - ${siteSettings.siteName}`} />
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-        <header className="app-header-center app-fade-in flex items-center justify-between gap-3 py-2">
+      <header className="app-header-center app-fade-in shrink-0 px-4 pb-2 pt-[calc(0.75rem+var(--app-safe-area-top,0px))] sm:px-6 sm:py-4">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <SiteLogo className="size-9 shrink-0" />
             <div className="min-w-0">
@@ -234,240 +363,357 @@ export function ProfileCenter({ initialUser, initialUsage, siteSettings }: Profi
             <ArrowLeft className="size-4" />
             返回聊天
           </Link>
-        </header>
-
-        {notice ? <div className="app-inline-alert rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{notice}</div> : null}
-        {error ? <div className="app-inline-alert rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-
-        <section className="ios-panel motion-lift grid gap-3 p-4 md:grid-cols-3">
-          <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-lg bg-white/75 text-[color:var(--claude-accent)]">
-              <UserRound className="size-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{user.name}</p>
-              <p className="truncate text-xs ios-muted">{user.email}</p>
-            </div>
-          </div>
-          <div className="rounded-lg bg-white/55 px-3 py-2 text-sm">
-            <p className="text-xs ios-muted">用户组</p>
-            <p className="mt-1 font-semibold">{groupLabel(user.userGroup)}</p>
-          </div>
-          <div className="rounded-lg bg-white/55 px-3 py-2 text-sm">
-            <p className="text-xs ios-muted">余额</p>
-            <p className="mt-1 font-semibold">
-              {formatCents(initialUsage.remainingCostCents)} / {formatCents(initialUsage.monthlyCostLimitCents)}
-            </p>
-            <p className="mt-1 text-xs ios-muted">
-              已用 {formatCents(initialUsage.costUsedCents)} · {formatNumber(initialUsage.tokensUsed)} tokens
-            </p>
-          </div>
-        </section>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <form className="ios-panel motion-lift p-4" onSubmit={saveProfile}>
-            <div className="mb-4 flex items-center gap-2">
-              <UserRound className="size-4 text-[color:var(--claude-accent)]" />
-              <h2 className="text-base font-semibold">个人资料</h2>
-            </div>
-            <div className="grid gap-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium ios-muted">昵称</span>
-                <input
-                  className="ios-input w-full"
-                  onChange={(event) => setName(event.target.value)}
-                  value={name}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium ios-muted">邮箱</span>
-                <input className="ios-input w-full opacity-70" disabled value={user.email} />
-              </label>
-              <button
-                className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
-                disabled={savingProfile}
-                type="submit"
-              >
-                {savingProfile ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                保存资料
-              </button>
-            </div>
-          </form>
-
-          <form className="ios-panel motion-lift p-4" onSubmit={changePassword}>
-            <div className="mb-4 flex items-center gap-2">
-              <Lock className="size-4 text-[color:var(--claude-accent)]" />
-              <h2 className="text-base font-semibold">修改密码</h2>
-            </div>
-            <div className="grid gap-3">
-              <input
-                className="ios-input"
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                placeholder="当前密码"
-                type="password"
-                value={currentPassword}
-              />
-              <input
-                className="ios-input"
-                minLength={8}
-                onChange={(event) => setNewPassword(event.target.value)}
-                placeholder="新密码"
-                type="password"
-                value={newPassword}
-              />
-              <button
-                className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
-                disabled={savingPassword}
-                type="submit"
-              >
-                {savingPassword ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-                更新密码
-              </button>
-            </div>
-          </form>
         </div>
+      </header>
 
-        <form className="ios-panel motion-lift p-4" onSubmit={saveProfile}>
-          <div className="mb-4 flex items-center gap-2">
-            <Sparkles className="size-4 text-[color:var(--claude-accent)]" />
-            <h2 className="text-base font-semibold">AI 风格</h2>
-          </div>
-          <textarea
-            className="ios-input min-h-36 w-full resize-y leading-6"
-            maxLength={3000}
-            onChange={(event) => setAiStylePrompt(event.target.value)}
-            placeholder="例如：回答更简洁、偏技术细节、先给结论、使用轻松语气..."
-            value={aiStylePrompt}
-          />
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-xs ios-muted">{aiStylePrompt.length}/3000</p>
-            <button
-              className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
-              disabled={savingProfile}
-              type="submit"
-            >
-              {savingProfile ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-              保存风格
-            </button>
-          </div>
-        </form>
-
-        <section className="ios-panel motion-lift overflow-hidden">
-          <div className="flex items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
-            <div className="flex items-center gap-2">
-              <KeyRound className="size-4 text-[color:var(--claude-accent)]" />
-              <h2 className="text-base font-semibold">个人 API</h2>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pt-3">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+          {notice ? (
+            <div className="app-inline-alert rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+              {notice}
             </div>
-            <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-stone-600">
-              {canCreateApiKey ? "VIP 可用" : "需 VIP"}
-            </span>
-          </div>
-
-          <div className="grid gap-4 p-4">
-            <div className="rounded-lg border border-[color:var(--app-border)] bg-white/55 px-3 py-2 text-sm text-stone-700">
-              Base URL：<span className="font-semibold">{origin ? `${origin}/api/v1` : "/api/v1"}</span>
-              <span className="mx-2 text-stone-300">/</span>
-              兼容地址：<span className="font-semibold">{origin ? `${origin}/v1` : "/v1"}</span>
+          ) : null}
+          {error ? (
+            <div className="app-inline-alert rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
             </div>
+          ) : null}
 
-            <form className="grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={createApiKey}>
-              <input
-                className="ios-input"
-                disabled={!canCreateApiKey}
-                onChange={(event) => setApiKeyName(event.target.value)}
-                placeholder="Key 名称"
-                value={apiKeyName}
-              />
-              <button
-                className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
-                disabled={!canCreateApiKey || creatingKey}
-                type="submit"
-              >
-                {creatingKey ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                创建 Key
-              </button>
+          <section className="ios-panel motion-lift grid gap-3 p-4 md:grid-cols-3">
+            <div className="flex items-center gap-3">
+              <div className="grid size-10 place-items-center rounded-lg bg-white/75 text-[color:var(--claude-accent)]">
+                <UserRound className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{user.name}</p>
+                <p className="truncate text-xs ios-muted">{user.email}</p>
+              </div>
+            </div>
+            <div className="rounded-lg bg-white/55 px-3 py-2 text-sm">
+              <p className="text-xs ios-muted">用户组</p>
+              <p className="mt-1 font-semibold">{groupLabel(user.userGroup)}</p>
+            </div>
+            <div className="rounded-lg bg-white/55 px-3 py-2 text-sm">
+              <p className="text-xs ios-muted">余额</p>
+              <p className="mt-1 font-semibold">
+                {formatCents(initialUsage.remainingCostCents)} / {formatCents(initialUsage.monthlyCostLimitCents)}
+              </p>
+              <p className="mt-1 text-xs ios-muted">
+                已用 {formatCents(initialUsage.costUsedCents)} · {formatNumber(initialUsage.tokensUsed)} tokens
+              </p>
+            </div>
+          </section>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <form className="ios-panel motion-lift p-4" onSubmit={saveProfile}>
+              <div className="mb-4 flex items-center gap-2">
+                <UserRound className="size-4 text-[color:var(--claude-accent)]" />
+                <h2 className="text-base font-semibold">个人资料</h2>
+              </div>
+              <div className="grid gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium ios-muted">昵称</span>
+                  <input
+                    className="ios-input w-full"
+                    onChange={(event) => setName(event.target.value)}
+                    value={name}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium ios-muted">邮箱</span>
+                  <input className="ios-input w-full opacity-70" disabled value={user.email} />
+                </label>
+                <button
+                  className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
+                  disabled={savingProfile}
+                  type="submit"
+                >
+                  {savingProfile ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  保存资料
+                </button>
+              </div>
             </form>
 
-            {createdApiKey ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                <p className="font-semibold">只显示一次</p>
-                <div className="mt-2 flex gap-2">
-                  <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-white/80 px-2 py-2 text-xs">
-                    {createdApiKey}
-                  </code>
-                  <button
-                    className="ios-icon-button app-action-button shrink-0"
-                    onClick={copyCreatedKey}
-                    title="复制"
-                    type="button"
-                  >
-                    <Copy className="size-4" />
-                  </button>
+            <form className="ios-panel motion-lift p-4" onSubmit={changePassword}>
+              <div className="mb-4 flex items-center gap-2">
+                <Lock className="size-4 text-[color:var(--claude-accent)]" />
+                <h2 className="text-base font-semibold">修改密码</h2>
+              </div>
+              <div className="grid gap-3">
+                <input
+                  className="ios-input"
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder="当前密码"
+                  type="password"
+                  value={currentPassword}
+                />
+                <input
+                  className="ios-input"
+                  minLength={8}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="新密码"
+                  type="password"
+                  value={newPassword}
+                />
+                <button
+                  className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
+                  disabled={savingPassword}
+                  type="submit"
+                >
+                  {savingPassword ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                  更新密码
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <form className="ios-panel motion-lift overflow-hidden" onSubmit={saveProfile}>
+            <div className="flex items-center gap-2 border-b border-[color:var(--ios-separator)] px-4 py-4">
+              <Sparkles className="size-4 text-[color:var(--claude-accent)]" />
+              <h2 className="text-base font-semibold">个性化</h2>
+            </div>
+
+            <div className="divide-y divide-[color:var(--ios-separator)]">
+              <div className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div>
+                  <p className="text-sm font-semibold text-stone-950">基本风格和语调</p>
+                  <p className="mt-1 text-sm leading-5 ios-muted">设置 AI 回复你的风格和语调。</p>
+                </div>
+                <PreferenceSelect
+                  ariaLabel="基本风格和语调"
+                  onChange={(value) => updatePersonalization({ baseStyle: value })}
+                  options={BASE_STYLE_OPTIONS}
+                  value={personalization.baseStyle}
+                />
+              </div>
+
+              <div className="px-4 py-4">
+                <p className="text-sm font-semibold text-stone-950">特征</p>
+                <p className="mt-1 text-sm leading-5 ios-muted">在基本风格和语调的基础上选择额外的自定义项。</p>
+                <div className="mt-3 grid gap-2">
+                  <PreferenceSelect
+                    label="温和体贴"
+                    onChange={(value) => updateTrait("warmth", value)}
+                    options={LEVEL_OPTIONS}
+                    value={personalization.traits.warmth}
+                  />
+                  <PreferenceSelect
+                    label="热情洋溢"
+                    onChange={(value) => updateTrait("enthusiasm", value)}
+                    options={LEVEL_OPTIONS}
+                    value={personalization.traits.enthusiasm}
+                  />
+                  <PreferenceSelect
+                    label="标题和列表"
+                    onChange={(value) => updateTrait("structure", value)}
+                    options={LEVEL_OPTIONS}
+                    value={personalization.traits.structure}
+                  />
+                  <PreferenceSelect
+                    label="表情符号"
+                    onChange={(value) => updateTrait("emoji", value)}
+                    options={LEVEL_OPTIONS}
+                    value={personalization.traits.emoji}
+                  />
                 </div>
               </div>
-            ) : null}
 
-            {loadingKeys ? (
-              <div className="grid min-h-24 place-items-center text-stone-500">
-                <Loader2 className="size-5 animate-spin" />
+              <ToggleRow
+                checked={personalization.quickAnswers}
+                description="优先先给出直接答案，再根据问题补充必要细节。"
+                label="快速回答"
+                onChange={(checked) => updatePersonalization({ quickAnswers: checked })}
+              />
+
+              <div className="grid gap-2 px-4 py-4">
+                <label className="text-sm font-semibold text-stone-950" htmlFor="custom-instructions">
+                  自定义指令
+                </label>
+                <textarea
+                  className="ios-input min-h-20 w-full resize-y py-3 text-sm leading-6"
+                  id="custom-instructions"
+                  maxLength={900}
+                  onChange={(event) => updatePersonalization({ customInstructions: event.target.value })}
+                  placeholder="其他行为、风格和语调偏好设置"
+                  value={personalization.customInstructions}
+                />
               </div>
-            ) : apiKeys.length === 0 ? (
-              <div className="rounded-lg bg-white/45 px-3 py-8 text-center text-sm ios-muted">
-                暂无 API Key
+
+              <div className="px-4 py-4">
+                <h3 className="text-sm font-semibold text-stone-950">关于你</h3>
               </div>
-            ) : (
-              <div className="grid gap-2">
-                {apiKeys.map((key) => (
-                  <div
-                    className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
-                    key={key.id}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          className="ios-input h-9 max-w-xs text-sm"
-                          onBlur={(event) => {
-                            if (event.target.value.trim() && event.target.value.trim() !== key.name) {
-                              void updateApiKey(key, { name: event.target.value.trim() });
-                            }
-                          }}
-                          defaultValue={key.name}
-                        />
-                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${key.active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"}`}>
-                          {key.active ? "启用" : "停用"}
-                        </span>
-                      </div>
-                      <p className="mt-2 truncate text-xs ios-muted">
-                        {key.keyPrefix}... · 创建 {new Date(key.createdAt).toLocaleString()}
-                        {key.lastUsedAt ? ` · 最近使用 ${new Date(key.lastUsedAt).toLocaleString()}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                        disabled={savingKeyId === key.id}
-                        onClick={() => void updateApiKey(key, { active: !key.active })}
-                        type="button"
-                      >
-                        <Shield className="size-4" />
-                        {key.active ? "停用" : "启用"}
-                      </button>
-                      <button
-                        className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
-                        disabled={savingKeyId === key.id}
-                        onClick={() => setDeleteKeyId(key.id)}
-                        title="删除"
-                        type="button"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
+
+              <div className="grid gap-4 px-4 py-4">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold text-stone-950">昵称</span>
+                  <input
+                    className="ios-input w-full"
+                    maxLength={80}
+                    onChange={(event) => updateAbout("nickname", event.target.value)}
+                    placeholder="AI 应该怎么称呼你？"
+                    value={personalization.about.nickname}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold text-stone-950">职业</span>
+                  <input
+                    className="ios-input w-full"
+                    maxLength={120}
+                    onChange={(event) => updateAbout("occupation", event.target.value)}
+                    placeholder="家庭主妇、产品经理、开发者..."
+                    value={personalization.about.occupation}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold text-stone-950">你的详情</span>
+                  <textarea
+                    className="ios-input min-h-20 w-full resize-y py-3 text-sm leading-6"
+                    maxLength={900}
+                    onChange={(event) => updateAbout("details", event.target.value)}
+                    placeholder="需要记住的兴趣、价值观或偏好"
+                    value={personalization.about.details}
+                  />
+                </label>
+              </div>
+
+              <ToggleRow
+                checked={personalization.memoryEnabled}
+                description="把上面的昵称、职业和详情加入你的回答上下文。"
+                label="记忆"
+                onChange={(checked) => updatePersonalization({ memoryEnabled: checked })}
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
+                <p className="text-xs ios-muted">{personalizationPayloadSize}/3000</p>
+                <button
+                  className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
+                  disabled={savingProfile}
+                  type="submit"
+                >
+                  {savingProfile ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  保存个性化
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <section className="ios-panel motion-lift overflow-hidden">
+            <div className="flex items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
+              <div className="flex items-center gap-2">
+                <KeyRound className="size-4 text-[color:var(--claude-accent)]" />
+                <h2 className="text-base font-semibold">个人 API</h2>
+              </div>
+              <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-stone-600">
+                {canCreateApiKey ? "VIP 可用" : "需 VIP"}
+              </span>
+            </div>
+
+            <div className="grid gap-4 p-4">
+              <div className="rounded-lg border border-[color:var(--app-border)] bg-white/55 px-3 py-2 text-sm text-stone-700">
+                Base URL：<span className="font-semibold">{origin ? `${origin}/api/v1` : "/api/v1"}</span>
+                <span className="mx-2 text-stone-300">/</span>
+                兼容地址：<span className="font-semibold">{origin ? `${origin}/v1` : "/v1"}</span>
+              </div>
+
+              <form className="grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={createApiKey}>
+                <input
+                  className="ios-input"
+                  disabled={!canCreateApiKey}
+                  onChange={(event) => setApiKeyName(event.target.value)}
+                  placeholder="Key 名称"
+                  value={apiKeyName}
+                />
+                <button
+                  className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
+                  disabled={!canCreateApiKey || creatingKey}
+                  type="submit"
+                >
+                  {creatingKey ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  创建 Key
+                </button>
+              </form>
+
+              {createdApiKey ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <p className="font-semibold">只显示一次</p>
+                  <div className="mt-2 flex gap-2">
+                    <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-white/80 px-2 py-2 text-xs">
+                      {createdApiKey}
+                    </code>
+                    <button
+                      className="ios-icon-button app-action-button shrink-0"
+                      onClick={copyCreatedKey}
+                      title="复制"
+                      type="button"
+                    >
+                      <Copy className="size-4" />
+                    </button>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
+                </div>
+              ) : null}
+
+              {loadingKeys ? (
+                <div className="grid min-h-24 place-items-center text-stone-500">
+                  <Loader2 className="size-5 animate-spin" />
+                </div>
+              ) : apiKeys.length === 0 ? (
+                <div className="rounded-lg bg-white/45 px-3 py-8 text-center text-sm ios-muted">
+                  暂无 API Key
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  {apiKeys.map((key) => (
+                    <div
+                      className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
+                      key={key.id}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            className="ios-input h-9 max-w-xs text-sm"
+                            onBlur={(event) => {
+                              if (event.target.value.trim() && event.target.value.trim() !== key.name) {
+                                void updateApiKey(key, { name: event.target.value.trim() });
+                              }
+                            }}
+                            defaultValue={key.name}
+                          />
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${key.active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                            {key.active ? "启用" : "停用"}
+                          </span>
+                        </div>
+                        <p className="mt-2 truncate text-xs ios-muted">
+                          {key.keyPrefix}... · 创建 {new Date(key.createdAt).toLocaleString()}
+                          {key.lastUsedAt ? ` · 最近使用 ${new Date(key.lastUsedAt).toLocaleString()}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                          disabled={savingKeyId === key.id}
+                          onClick={() => void updateApiKey(key, { active: !key.active })}
+                          type="button"
+                        >
+                          <Shield className="size-4" />
+                          {key.active ? "停用" : "启用"}
+                        </button>
+                        <button
+                          className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
+                          disabled={savingKeyId === key.id}
+                          onClick={() => setDeleteKeyId(key.id)}
+                          title="删除"
+                          type="button"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
 
       <SiteConfirmDialog

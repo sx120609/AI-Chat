@@ -39,6 +39,7 @@ import {
   normalizeReasoningEffort
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
+import { formatPersonalizationForPrompt } from "@/lib/personalization";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
 import { normalizePromptClock, resolveSystemPrompt } from "@/lib/system-prompt";
 import { planMessageTools } from "@/lib/tool-router";
@@ -1306,7 +1307,7 @@ export async function POST(request: NextRequest) {
     modelLabel: model.label,
     promptClock
   });
-  const userStylePrompt = user.aiStylePrompt.trim();
+  const userStylePrompt = formatPersonalizationForPrompt(user.aiStylePrompt);
   const systemPrompt = [baseSystemPrompt, userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : ""]
     .filter(Boolean)
     .join("\n\n");

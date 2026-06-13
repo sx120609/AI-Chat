@@ -242,7 +242,7 @@ https://your-site.example/api/v1/models
 https://your-site.example/v1/models
 ```
 
-调用时使用个人中心生成的 Key。个人中心会展示当前启用的模型 ID；这些模型也可通过 `/models` 查询。Key 会加密保存，创建后可在个人中心重复复制；旧版本创建的 Key 会在下次成功调用 API 后自动回填加密明文。个人 API 选项卡内置“如何使用”教程，可直接复制 Codex CLI、OpenCode、Claude Code Router / switch 类工具的配置，并可下载或复制一键导入命令。
+调用时使用个人中心生成的 Key。个人中心会展示当前启用的模型 ID；这些模型也可通过 `/models` 查询。Key 会加密保存，创建后可在个人中心重复复制；旧版本创建的 Key 会在下次成功调用 API 后自动回填加密明文。个人 API 选项卡内置“如何使用”教程，可直接复制 Codex CLI、OpenCode、Claude Code Router / switch 类工具的配置，并可下载配置文件或复制一键安装/导入命令。
 
 Codex CLI 的模型下拉读取本地 model catalog，不会只因为 provider 指向本服务就自动展示 `/v1/models` 返回的模型。个人 API 教程会为 Codex 生成 `config.toml`、`model-catalogs/lowiq.json` 和一键安装命令；运行后，`GPT-5.3-Codex-Spark` 等当前启用的 API 模型会进入 Codex 的模型选择列表。
 

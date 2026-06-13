@@ -399,6 +399,52 @@ function buildOpenCodeAuth(apiKey: string) {
   });
 }
 
+function buildOpenCodeImportCommand({
+  auth,
+  config,
+  os
+}: {
+  auth: string;
+  config: string;
+  os: ApiGuideOs;
+}) {
+  const encodedAuth = encodeBase64(auth);
+  const encodedConfig = encodeBase64(config);
+
+  if (!encodedAuth || !encodedConfig) {
+    return "";
+  }
+
+  if (os === "windows") {
+    return [
+      '$projectConfig = Join-Path (Get-Location) "opencode.json"',
+      '$authDir = Join-Path $env:LOCALAPPDATA "opencode"',
+      '$authPath = Join-Path $authDir "auth.json"',
+      "New-Item -ItemType Directory -Force -Path $authDir | Out-Null",
+      '$utf8 = [Text.UTF8Encoding]::new($false)',
+      `[IO.File]::WriteAllText($projectConfig, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encodedConfig}")), $utf8)`,
+      `[IO.File]::WriteAllText($authPath, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encodedAuth}")), $utf8)`,
+      'Write-Host "OpenCode config written to $projectConfig"',
+      'Write-Host "OpenCode auth written to $authPath"'
+    ].join("; ");
+  }
+
+  return [
+    "python3 - <<'PY'",
+    "import base64, pathlib",
+    `config = base64.b64decode(${JSON.stringify(encodedConfig)}).decode()`,
+    `auth = base64.b64decode(${JSON.stringify(encodedAuth)}).decode()`,
+    'project_config = pathlib.Path.cwd() / "opencode.json"',
+    'auth_path = pathlib.Path.home() / ".local/share/opencode/auth.json"',
+    "auth_path.parent.mkdir(parents=True, exist_ok=True)",
+    'project_config.write_text(config, encoding="utf-8")',
+    'auth_path.write_text(auth, encoding="utf-8")',
+    'print(f"Wrote {project_config}")',
+    'print(f"Wrote {auth_path}")',
+    "PY"
+  ].join("\n");
+}
+
 function buildClaudeRouterConfig({
   apiKey,
   baseUrl,
@@ -458,7 +504,8 @@ function buildClaudeRouterImportCommand({
     return [
       '$dir = Join-Path $env:USERPROFILE ".claude-code-router"',
       "New-Item -ItemType Directory -Force -Path $dir | Out-Null",
-      `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encoded}")) | Set-Content -Path (Join-Path $dir "config.json") -Encoding UTF8`,
+      '$utf8 = [Text.UTF8Encoding]::new($false)',
+      `[IO.File]::WriteAllText((Join-Path $dir "config.json"), [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encoded}")), $utf8)`,
       "ccr restart"
     ].join("; ");
   }
@@ -473,6 +520,26 @@ function buildClaudeRouterImportCommand({
     "PY",
     "ccr restart || true"
   ].join("\n");
+}
+
+function buildClaudeRouterSetupCommand({
+  config,
+  os
+}: {
+  config: string;
+  os: ApiGuideOs;
+}) {
+  const importCommand = buildClaudeRouterImportCommand({ config, os });
+
+  if (!importCommand) {
+    return "";
+  }
+
+  if (os === "windows") {
+    return ["npm install -g @musistudio/claude-code-router", importCommand, "ccr code"].join("; ");
+  }
+
+  return ["npm install -g @musistudio/claude-code-router", importCommand, "ccr code"].join("\n");
 }
 
 function PreferenceSelect<T extends string>({
@@ -630,12 +697,25 @@ function ApiGuideDialog({
     [baseUrl, models, siteName]
   );
   const openCodeAuth = useMemo(() => buildOpenCodeAuth(keyValue), [keyValue]);
+  const openCodeImportCommand = useMemo(
+    () =>
+      buildOpenCodeImportCommand({
+        auth: openCodeAuth,
+        config: openCodeConfig,
+        os
+      }),
+    [openCodeAuth, openCodeConfig, os]
+  );
   const claudeRouterConfig = useMemo(
     () => buildClaudeRouterConfig({ apiKey: keyValue, baseUrl, models, siteName }),
     [baseUrl, keyValue, models, siteName]
   );
   const claudeRouterImportCommand = useMemo(
     () => buildClaudeRouterImportCommand({ config: claudeRouterConfig, os }),
+    [claudeRouterConfig, os]
+  );
+  const claudeRouterSetupCommand = useMemo(
+    () => buildClaudeRouterSetupCommand({ config: claudeRouterConfig, os }),
     [claudeRouterConfig, os]
   );
   const activeTool = apiGuideTools.find((item) => item.id === tool) ?? apiGuideTools[0];
@@ -782,11 +862,35 @@ function ApiGuideDialog({
 
             {tool === "opencode" ? (
               <>
-                <p className="text-sm leading-6 text-stone-700">
-                  OpenCode 使用 OpenAI-compatible provider。配置写入项目根目录的
-                  <code className="mx-1 rounded bg-white/70 px-1">opencode.json</code>
-                  或全局配置，Key 可放入 OpenCode 的 auth 文件。
-                </p>
+                <div className="grid gap-3 rounded-xl border border-[color:var(--app-border)] bg-white/55 p-3 text-sm text-stone-700 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                  <div>
+                    <p className="font-semibold text-stone-950">OpenCode 项目导入</p>
+                    <p className="mt-1 ios-muted">
+                      在目标项目目录执行命令，会写入 <code>opencode.json</code> 和 OpenCode auth。
+                    </p>
+                  </div>
+                  <button
+                    className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                    onClick={() => onDownload("opencode.json", openCodeConfig)}
+                    type="button"
+                  >
+                    <Download className="size-4" />
+                    下载配置
+                  </button>
+                  <button
+                    className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                    onClick={() => void onCopy(openCodeImportCommand, "OpenCode 一键导入命令已复制。")}
+                    type="button"
+                  >
+                    <Terminal className="size-4" />
+                    复制导入命令
+                  </button>
+                </div>
+                <ApiCodeBlock
+                  label={os === "windows" ? "PowerShell 一键导入命令" : "Shell 一键导入命令"}
+                  onCopy={(value) => onCopy(value, "OpenCode 一键导入命令已复制。")}
+                  value={openCodeImportCommand}
+                />
                 <ApiCodeBlock
                   label="opencode.json"
                   onCopy={onCopy}
@@ -806,7 +910,7 @@ function ApiGuideDialog({
                   <div>
                     <p className="font-semibold text-stone-950">Claude Code Router / Switch 导入</p>
                     <p className="mt-1 ios-muted">
-                      会写入 <code>~/.claude-code-router/config.json</code>，然后用 <code>ccr code</code> 启动。
+                      安装依赖、写入配置、重启服务，然后用 <code>ccr code</code> 启动。
                     </p>
                   </div>
                   <button
@@ -820,14 +924,19 @@ function ApiGuideDialog({
                   <button
                     className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
                     onClick={() =>
-                      void onCopy(claudeRouterImportCommand, "Claude Router 一键导入命令已复制。")
+                      void onCopy(claudeRouterSetupCommand, "Claude Router 一键安装命令已复制。")
                     }
                     type="button"
                   >
                     <Terminal className="size-4" />
-                    复制导入命令
+                    复制安装命令
                   </button>
                 </div>
+                <ApiCodeBlock
+                  label={os === "windows" ? "PowerShell 一键安装命令" : "Shell 一键安装命令"}
+                  onCopy={(value) => onCopy(value, "Claude Router 一键安装命令已复制。")}
+                  value={claudeRouterSetupCommand}
+                />
                 <ApiCodeBlock
                   label="~/.claude-code-router/config.json"
                   onCopy={onCopy}

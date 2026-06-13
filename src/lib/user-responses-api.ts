@@ -19,6 +19,7 @@ import {
 } from "@/lib/upstream";
 
 const decoder = new TextDecoder();
+const streamEncoder = new TextEncoder();
 
 function numberFromUsage(value: unknown) {
   const parsed = typeof value === "string" ? Number(value) : value;
@@ -181,6 +182,41 @@ function promptEstimateFromBody(body: Record<string, unknown>) {
   return Math.max(1, estimateTokens(JSON.stringify(body.input ?? body.messages ?? body)));
 }
 
+function maybeDefinedEntries(entries: Array<[string, unknown]>) {
+  return Object.fromEntries(entries.filter(([, value]) => value !== undefined && value !== null));
+}
+
+function textFromMessageContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((part) => {
+      const object = jsonObject(part);
+
+      if (!object) {
+        return "";
+      }
+
+      if (typeof object.text === "string") {
+        return object.text;
+      }
+
+      if (typeof object.content === "string") {
+        return object.content;
+      }
+
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 function gatewayInstructions({
   body,
   model,
@@ -232,6 +268,175 @@ function upstreamRequestBody({
     ...body,
     ...(instructions ? { instructions } : {}),
     model: model.upstreamId || model.id
+  };
+}
+
+function chatCompletionRequestToResponsesBody({
+  body,
+  model,
+  settings,
+  userStylePrompt
+}: {
+  body: Record<string, unknown>;
+  model: ChatModelConfig;
+  settings: AiRuntimeSettings;
+  userStylePrompt: string;
+}) {
+  const messages = Array.isArray(body.messages) ? body.messages : null;
+
+  if (!messages) {
+    return null;
+  }
+
+  const instructionMessages: string[] = [];
+  const input = messages
+    .map((message) => {
+      const object = jsonObject(message);
+
+      if (!object) {
+        return null;
+      }
+
+      const role = typeof object.role === "string" ? object.role : "user";
+      const content = object.content ?? "";
+
+      if (role === "system" || role === "developer") {
+        const text = textFromMessageContent(content).trim();
+
+        if (text) {
+          instructionMessages.push(text);
+        }
+
+        return null;
+      }
+
+      return {
+        role: role === "assistant" ? "assistant" : "user",
+        content
+      };
+    })
+    .filter(Boolean);
+
+  const callerInstructions = [
+    typeof body.instructions === "string" ? body.instructions.trim() : "",
+    ...instructionMessages
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return upstreamRequestBody({
+    body: maybeDefinedEntries([
+      ["input", input.length ? input : messages],
+      ["instructions", callerInstructions],
+      ["stream", body.stream],
+      ["temperature", body.temperature],
+      ["top_p", body.top_p],
+      ["metadata", body.metadata],
+      ["tools", body.tools],
+      ["tool_choice", body.tool_choice],
+      ["parallel_tool_calls", body.parallel_tool_calls],
+      ["reasoning", body.reasoning],
+      ["max_output_tokens", body.max_completion_tokens ?? body.max_tokens]
+    ]),
+    model,
+    settings,
+    userStylePrompt
+  });
+}
+
+function chatUsageFromResponsesUsage({
+  completionTokensEstimate,
+  promptTokensEstimate,
+  upstreamUsage
+}: {
+  completionTokensEstimate: number;
+  promptTokensEstimate: number;
+  upstreamUsage?: UpstreamUsage;
+}) {
+  const promptTokens =
+    numberFromUsage(upstreamUsage?.prompt_tokens) ||
+    numberFromUsage(upstreamUsage?.input_tokens) ||
+    promptTokensEstimate;
+  const completionTokens =
+    numberFromUsage(upstreamUsage?.completion_tokens) ||
+    numberFromUsage(upstreamUsage?.output_tokens) ||
+    completionTokensEstimate;
+
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: numberFromUsage(upstreamUsage?.total_tokens) || promptTokens + completionTokens
+  };
+}
+
+function chatCompletionResponse({
+  body,
+  completionText,
+  id,
+  model,
+  promptTokensEstimate,
+  upstreamUsage
+}: {
+  body: Record<string, unknown>;
+  completionText: string;
+  id?: string;
+  model: ChatModelConfig;
+  promptTokensEstimate: number;
+  upstreamUsage?: UpstreamUsage;
+}) {
+  const completionTokensEstimate = Math.max(1, estimateTokens(completionText));
+
+  return {
+    id: id || `chatcmpl_${Date.now()}`,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model: typeof body.model === "string" ? body.model : model.id,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: completionText
+        },
+        finish_reason: "stop"
+      }
+    ],
+    usage: chatUsageFromResponsesUsage({
+      completionTokensEstimate,
+      promptTokensEstimate,
+      upstreamUsage
+    })
+  };
+}
+
+function chatCompletionChunk({
+  content,
+  finishReason,
+  id,
+  model,
+  role
+}: {
+  content?: string;
+  finishReason?: string | null;
+  id: string;
+  model: string;
+  role?: "assistant";
+}) {
+  return {
+    id,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: maybeDefinedEntries([
+          ["role", role],
+          ["content", content]
+        ]),
+        finish_reason: finishReason ?? null
+      }
+    ]
   };
 }
 
@@ -324,6 +529,26 @@ function mockResponsesBody(body: Record<string, unknown>, model: ChatModelConfig
       total_tokens: promptEstimateFromBody(body) + estimateTokens(text)
     }
   };
+}
+
+function mockChatCompletionBody(
+  body: Record<string, unknown>,
+  model: ChatModelConfig,
+  promptTokensEstimate: number
+) {
+  const text = "Mock response from personal API.";
+
+  return chatCompletionResponse({
+    body,
+    completionText: text,
+    model,
+    promptTokensEstimate,
+    upstreamUsage: {
+      input_tokens: promptTokensEstimate,
+      output_tokens: estimateTokens(text),
+      total_tokens: promptTokensEstimate + estimateTokens(text)
+    }
+  });
 }
 
 export async function handleUserResponsesRequest(request: NextRequest) {
@@ -506,6 +731,245 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     status: response.status,
     headers: passthroughHeaders(response)
   });
+}
+
+export async function handleUserChatCompletionsRequest(request: NextRequest) {
+  const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
+
+  if (!authenticated) {
+    return jsonError("无效的 API Key，或当前账号不是 VIP 用户组。", 401);
+  }
+
+  let body: Record<string, unknown>;
+
+  try {
+    const parsed = await request.json();
+    const object = jsonObject(parsed);
+
+    if (!object) {
+      return jsonError("请求体必须是 JSON 对象。", 400);
+    }
+
+    body = object;
+  } catch {
+    return jsonError("请求体必须是有效 JSON。", 400);
+  }
+
+  const settings = await getAiRuntimeSettings();
+  const model = findEnabledModel(body.model, settings.chatModels);
+
+  if (!model) {
+    return jsonError("模型不可用或未启用。", 400);
+  }
+
+  const userStylePrompt = formatPersonalizationForPrompt(authenticated.user.aiStylePrompt);
+  const upstreamBody = chatCompletionRequestToResponsesBody({
+    body,
+    model,
+    settings,
+    userStylePrompt
+  });
+
+  if (!upstreamBody) {
+    return jsonError("Chat Completions 请求必须包含 messages 数组。", 400);
+  }
+
+  const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
+  const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
+
+  try {
+    await assertQuotaAvailable(authenticated.user.id, expectedCostCents);
+  } catch (error) {
+    if (error instanceof QuotaError) {
+      return jsonError(error.message, error.status, { usage: error.summary });
+    }
+
+    throw error;
+  }
+
+  if (settings.mockResponses) {
+    const payload = mockChatCompletionBody(body, model, promptTokensEstimate);
+    const usage = payload.usage;
+
+    await recordUserApiUsage({
+      completionTokensEstimate: usage.completion_tokens,
+      model,
+      promptTokensEstimate,
+      upstreamUsage: {
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        total_tokens: usage.total_tokens
+      },
+      userId: authenticated.user.id
+    });
+
+    return Response.json(payload);
+  }
+
+  try {
+    assertUpstreamConfigured(settings);
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
+  }
+
+  const response = await fetch(`${settings.apiBaseUrl}/responses`, {
+    method: "POST",
+    headers: upstreamHeaders(settings),
+    body: JSON.stringify(upstreamBody),
+    signal: request.signal
+  });
+
+  if (!response.ok || !response.body) {
+    const text = await response.text();
+
+    return new Response(text || "上游 API 调用失败。", {
+      status: response.status,
+      headers: passthroughHeaders(response)
+    });
+  }
+
+  const responseModel = typeof body.model === "string" ? body.model : model.id;
+
+  if (body.stream === true) {
+    const id = `chatcmpl_${Date.now()}`;
+    let buffer = "";
+    let upstreamUsage: UpstreamUsage | undefined;
+    let outputText = "";
+    const reader = response.body.getReader();
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          controller.enqueue(
+            streamEncoder.encode(
+              `data: ${JSON.stringify(
+                chatCompletionChunk({ id, model: responseModel, role: "assistant" })
+              )}\n\n`
+            )
+          );
+
+          while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+              break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+
+            let boundary = buffer.indexOf("\n\n");
+
+            while (boundary >= 0) {
+              const event = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+
+              for (const line of event.split(/\r?\n/)) {
+                if (!line.startsWith("data:")) {
+                  continue;
+                }
+
+                const data = line.slice(5).trim();
+
+                if (!data || data === "[DONE]") {
+                  continue;
+                }
+
+                try {
+                  const payload = JSON.parse(data);
+                  const delta = outputTextFromPayload(payload);
+                  upstreamUsage = parseUsage(payload) ?? upstreamUsage;
+
+                  if (delta) {
+                    outputText += delta;
+                    controller.enqueue(
+                      streamEncoder.encode(
+                        `data: ${JSON.stringify(
+                          chatCompletionChunk({ content: delta, id, model: responseModel })
+                        )}\n\n`
+                      )
+                    );
+                  }
+                } catch {
+                  // Ignore non-JSON SSE data from custom providers.
+                }
+              }
+
+              boundary = buffer.indexOf("\n\n");
+            }
+          }
+
+          await recordUserApiUsage({
+            completionTokensEstimate: Math.max(1, estimateTokens(outputText)),
+            model,
+            promptTokensEstimate,
+            upstreamUsage,
+            userId: authenticated.user.id
+          });
+
+          controller.enqueue(
+            streamEncoder.encode(
+              `data: ${JSON.stringify(
+                chatCompletionChunk({ finishReason: "stop", id, model: responseModel })
+              )}\n\n`
+            )
+          );
+          controller.enqueue(streamEncoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      cancel() {
+        reader.cancel().catch(() => undefined);
+      }
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "cache-control": "no-cache, no-transform",
+        "content-type": "text/event-stream; charset=utf-8",
+        "x-accel-buffering": "no"
+      }
+    });
+  }
+
+  const text = await response.text();
+  let payload: unknown = text;
+
+  try {
+    payload = JSON.parse(text) as unknown;
+  } catch {
+    // Some compatible providers return plain text for successful calls.
+  }
+
+  const upstreamUsage = parseUsage(payload);
+  const completionText = outputTextFromPayload(payload) || (typeof payload === "string" ? payload : "");
+  const completionTokensEstimate = Math.max(1, estimateTokens(completionText));
+
+  await recordUserApiUsage({
+    completionTokensEstimate,
+    model,
+    promptTokensEstimate,
+    upstreamUsage,
+    userId: authenticated.user.id
+  });
+
+  const responseId =
+    jsonObject(payload) && typeof jsonObject(payload)?.id === "string"
+      ? (jsonObject(payload)?.id as string)
+      : undefined;
+
+  return Response.json(
+    chatCompletionResponse({
+      body,
+      completionText,
+      id: responseId,
+      model,
+      promptTokensEstimate,
+      upstreamUsage
+    })
+  );
 }
 
 export async function handleUserModelsRequest(request: NextRequest) {

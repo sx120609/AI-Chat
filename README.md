@@ -231,16 +231,18 @@ SMTP 支持 465 这类隐式 SSL/TLS，也支持 587 这类 STARTTLS。`SMTP_SEC
 
 管理员可在“用户”选项卡把账号设置为 `VIP` 用户组。只有 VIP 用户可以在个人中心创建个人 API Key。个人 API 使用同一个账号余额与用量统计，不会单独分配额度。
 
-兼容 Responses API 与模型列表的入口：
+兼容 Responses API、Chat Completions 与模型列表的入口：
 
 ```text
 https://your-site.example/api/v1/responses
 https://your-site.example/v1/responses
+https://your-site.example/api/v1/chat/completions
+https://your-site.example/v1/chat/completions
 https://your-site.example/api/v1/models
 https://your-site.example/v1/models
 ```
 
-调用时使用个人中心生成的 Key。个人中心会展示当前启用的模型 ID；这些模型也可通过 `/models` 查询。Key 会加密保存，创建后可在个人中心重复复制；旧版本创建的 Key 会在下次成功调用 API 后自动回填加密明文。
+调用时使用个人中心生成的 Key。个人中心会展示当前启用的模型 ID；这些模型也可通过 `/models` 查询。Key 会加密保存，创建后可在个人中心重复复制；旧版本创建的 Key 会在下次成功调用 API 后自动回填加密明文。个人 API 选项卡内置“如何使用”教程，可直接复制 Codex CLI、OpenCode、Claude Code Router / switch 类工具的配置，并可下载或复制 Claude Router 一键导入命令。
 
 ```bash
 curl https://your-site.example/api/v1/responses \
@@ -250,11 +252,18 @@ curl https://your-site.example/api/v1/responses \
 ```
 
 ```bash
+curl https://your-site.example/v1/chat/completions \
+  -H "Authorization: Bearer sk-user-..." \
+  -H "Content-Type: application/json" \
+  -d '{"model":"GPT-5.5","messages":[{"role":"user","content":"你好"}],"stream":false}'
+```
+
+```bash
 curl https://your-site.example/v1/models \
   -H "Authorization: Bearer sk-user-..."
 ```
 
-个人 API 会注入后台“身份与系统提示词”和用户自己的个性化风格，再保留调用方传入的 `instructions`，用于纠正上游兼容网关可能返回的 Codex CLI 等身份设定。
+个人 API 会注入后台“身份与系统提示词”和用户自己的个性化风格，再保留调用方传入的 `instructions`；Chat Completions 入口会把 `system` / `developer` 消息并入同一套注入逻辑，用于纠正上游兼容网关可能返回的 Codex CLI 等身份设定。
 
 ## 易支付充值
 

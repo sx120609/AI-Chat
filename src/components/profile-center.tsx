@@ -2,8 +2,12 @@
 
 import {
   ArrowLeft,
+  BookOpen,
+  Braces,
   Check,
   Copy,
+  Download,
+  FileCode2,
   KeyRound,
   Loader2,
   Lock,
@@ -11,11 +15,13 @@ import {
   Save,
   Shield,
   Sparkles,
+  Terminal,
   Trash2,
-  UserRound
+  UserRound,
+  X
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DocumentTitle } from "@/components/document-title";
 import { SiteConfirmDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
@@ -48,6 +54,8 @@ type ApiKeysPayload = {
 };
 
 type ProfileTab = "overview" | "personalization" | "security" | "api";
+type ApiGuideTool = "codex" | "opencode" | "claude-router";
+type ApiGuideOs = "unix" | "windows";
 
 function groupLabel(group: string) {
   return group === "VIP" ? "VIP" : "普通";
@@ -103,6 +111,209 @@ const profileTabs: Array<{
     icon: KeyRound
   }
 ];
+
+const apiGuideTools: Array<{
+  id: ApiGuideTool;
+  label: string;
+  description: string;
+  icon: typeof Terminal;
+}> = [
+  {
+    id: "codex",
+    label: "Codex CLI",
+    description: "Responses API",
+    icon: Terminal
+  },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    description: "OpenAI-compatible",
+    icon: FileCode2
+  },
+  {
+    id: "claude-router",
+    label: "Claude Router / Switch",
+    description: "Claude Code Router",
+    icon: Braces
+  }
+];
+
+const apiGuideOsOptions: Array<{
+  id: ApiGuideOs;
+  label: string;
+}> = [
+  { id: "unix", label: "macOS / Linux" },
+  { id: "windows", label: "Windows" }
+];
+
+function jsonConfig(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
+function encodeBase64(text: string) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+
+  return window.btoa(binary);
+}
+
+function buildCodexConfig({
+  baseUrl,
+  model,
+  siteName
+}: {
+  baseUrl: string;
+  model: string;
+  siteName: string;
+}) {
+  return [
+    'model_provider = "lowiq"',
+    `model = "${model}"`,
+    `review_model = "${model}"`,
+    'model_reasoning_effort = "high"',
+    'disable_response_storage = true',
+    'network_access = "enabled"',
+    'windows_wsl_setup_acknowledged = true',
+    "",
+    "[model_providers.lowiq]",
+    `name = "${siteName || "AI Gateway"}"`,
+    `base_url = "${baseUrl}"`,
+    'wire_api = "responses"',
+    'requires_openai_auth = true',
+    "",
+    "[features]",
+    "goals = true"
+  ].join("\n");
+}
+
+function buildOpenCodeConfig({
+  baseUrl,
+  models,
+  siteName
+}: {
+  baseUrl: string;
+  models: ChatModelView[];
+  siteName: string;
+}) {
+  const modelEntries = Object.fromEntries(
+    models.map((model) => [
+      model.id,
+      {
+        name: model.label || model.id,
+        limit: { context: model.contextWindowTokens }
+      }
+    ])
+  );
+  const primaryModel = models[0]?.id || "gpt-5.5";
+
+  return jsonConfig({
+    $schema: "https://opencode.ai/config.json",
+    model: `lowiq/${primaryModel}`,
+    provider: {
+      lowiq: {
+        npm: "@ai-sdk/openai-compatible",
+        name: siteName || "AI Gateway",
+        options: {
+          baseURL: baseUrl
+        },
+        models: modelEntries
+      }
+    }
+  });
+}
+
+function buildOpenCodeAuth(apiKey: string) {
+  return jsonConfig({
+    lowiq: {
+      type: "api",
+      key: apiKey
+    }
+  });
+}
+
+function buildClaudeRouterConfig({
+  apiKey,
+  baseUrl,
+  models,
+  siteName
+}: {
+  apiKey: string;
+  baseUrl: string;
+  models: ChatModelView[];
+  siteName: string;
+}) {
+  const modelIds = models.map((model) => model.id);
+  const primaryModel = modelIds[0] || "gpt-5.5";
+  const smallModel =
+    models.find((model) => /mini|flash|lite|small/i.test(`${model.id} ${model.label}`))?.id ||
+    primaryModel;
+  const longContextModel =
+    [...models].sort((left, right) => right.contextWindowTokens - left.contextWindowTokens)[0]?.id ||
+    primaryModel;
+
+  return jsonConfig({
+    LOG: true,
+    API_TIMEOUT_MS: 600000,
+    Providers: [
+      {
+        name: "lowiq",
+        api_base_url: `${baseUrl}/chat/completions`,
+        api_key: apiKey,
+        models: modelIds.length ? modelIds : [primaryModel]
+      }
+    ],
+    Router: {
+      default: `lowiq,${primaryModel}`,
+      background: `lowiq,${smallModel}`,
+      think: `lowiq,${primaryModel}`,
+      longContext: `lowiq,${longContextModel}`,
+      longContextThreshold: 60000
+    },
+    comment: `${siteName || "AI Gateway"} personal API`
+  });
+}
+
+function buildClaudeRouterImportCommand({
+  config,
+  os
+}: {
+  config: string;
+  os: ApiGuideOs;
+}) {
+  const encoded = encodeBase64(config);
+
+  if (!encoded) {
+    return "";
+  }
+
+  if (os === "windows") {
+    return [
+      '$dir = Join-Path $env:USERPROFILE ".claude-code-router"',
+      "New-Item -ItemType Directory -Force -Path $dir | Out-Null",
+      `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encoded}")) | Set-Content -Path (Join-Path $dir "config.json") -Encoding UTF8`,
+      "ccr restart"
+    ].join("; ");
+  }
+
+  return [
+    "mkdir -p ~/.claude-code-router && python3 - <<'PY'",
+    "import base64, pathlib",
+    `config = base64.b64decode("${encoded}").decode("utf-8")`,
+    'path = pathlib.Path.home() / ".claude-code-router" / "config.json"',
+    "path.write_text(config, encoding='utf-8')",
+    "print(f'Wrote {path}')",
+    "PY",
+    "ccr restart || true"
+  ].join("\n");
+}
 
 function PreferenceSelect<T extends string>({
   ariaLabel,
@@ -172,6 +383,254 @@ function ToggleRow({
   );
 }
 
+function ApiCodeBlock({
+  label,
+  onCopy,
+  value
+}: {
+  label: string;
+  onCopy: (value: string) => void | Promise<void>;
+  value: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 text-slate-100 shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2">
+        <span className="min-w-0 truncate font-mono text-xs text-slate-300">{label}</span>
+        <button
+          className="app-action-button inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-semibold text-slate-100 transition hover:bg-white/15"
+          onClick={() => void onCopy(value)}
+          type="button"
+        >
+          <Copy className="size-3.5" />
+          复制
+        </button>
+      </div>
+      <pre className="max-h-[22rem] overflow-auto p-4 text-xs leading-5">
+        <code>{value}</code>
+      </pre>
+    </div>
+  );
+}
+
+function ApiGuideDialog({
+  apiKey,
+  models,
+  onClose,
+  onCopy,
+  onDownload,
+  open,
+  origin,
+  siteName
+}: {
+  apiKey?: string | null;
+  models: ChatModelView[];
+  onClose: () => void;
+  onCopy: (value: string, message?: string) => void | Promise<void>;
+  onDownload: (fileName: string, content: string) => void;
+  open: boolean;
+  origin: string;
+  siteName: string;
+}) {
+  const [tool, setTool] = useState<ApiGuideTool>("codex");
+  const [os, setOs] = useState<ApiGuideOs>("unix");
+  const baseUrl = origin ? `${origin}/v1` : "/v1";
+  const keyValue = apiKey || "sk-user-在这里替换成你的 API Key";
+  const primaryModel = models[0]?.id || "gpt-5.5";
+  const codexConfig = useMemo(
+    () => buildCodexConfig({ baseUrl, model: primaryModel, siteName }),
+    [baseUrl, primaryModel, siteName]
+  );
+  const codexAuth = useMemo(
+    () =>
+      jsonConfig({
+        OPENAI_API_KEY: keyValue
+      }),
+    [keyValue]
+  );
+  const openCodeConfig = useMemo(
+    () => buildOpenCodeConfig({ baseUrl, models, siteName }),
+    [baseUrl, models, siteName]
+  );
+  const openCodeAuth = useMemo(() => buildOpenCodeAuth(keyValue), [keyValue]);
+  const claudeRouterConfig = useMemo(
+    () => buildClaudeRouterConfig({ apiKey: keyValue, baseUrl, models, siteName }),
+    [baseUrl, keyValue, models, siteName]
+  );
+  const claudeRouterImportCommand = useMemo(
+    () => buildClaudeRouterImportCommand({ config: claudeRouterConfig, os }),
+    [claudeRouterConfig, os]
+  );
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-stone-950/35 px-3 pb-3 pt-[calc(0.75rem+var(--app-safe-area-top,0px))] backdrop-blur-sm sm:items-center sm:p-6">
+      <button aria-label="关闭教程" className="absolute inset-0" onClick={onClose} type="button" />
+      <section
+        aria-modal="true"
+        className="app-modal-panel relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] text-stone-950 shadow-[0_26px_90px_rgba(18,42,35,0.24)] ring-1 ring-white/70"
+        role="dialog"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4 sm:px-6">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold leading-7">使用 API 密钥</h2>
+            <p className="mt-1 text-sm ios-muted">
+              选择工具后复制配置。包含明文 Key 的配置只放在自己的设备上。
+            </p>
+          </div>
+          <button
+            className="ios-icon-button app-action-button shrink-0"
+            onClick={onClose}
+            title="关闭"
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          {!apiKey ? (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+              还没有可查看的 API Key。先创建一个新 Key，或使用一次旧 Key 后再回来复制真实配置。
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2 border-b border-[color:var(--ios-separator)] pb-3">
+            {apiGuideTools.map((item) => {
+              const Icon = item.icon;
+              const selected = item.id === tool;
+
+              return (
+                <button
+                  className={`app-action-button flex h-11 items-center gap-2 rounded-xl px-3 text-sm font-semibold transition ${
+                    selected
+                      ? "bg-[color:var(--claude-accent)] text-white shadow-sm"
+                      : "bg-white/55 text-stone-700 hover:bg-white/75"
+                  }`}
+                  key={item.id}
+                  onClick={() => setTool(item.id)}
+                  type="button"
+                >
+                  <Icon className="size-4" />
+                  <span>{item.label}</span>
+                  <span className={selected ? "hidden text-white/75 sm:inline" : "hidden ios-muted sm:inline"}>
+                    {item.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {apiGuideOsOptions.map((item) => (
+              <button
+                className={`app-action-button h-9 rounded-xl px-3 text-sm font-semibold transition ${
+                  item.id === os
+                    ? "bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]"
+                    : "bg-white/55 text-stone-600 hover:bg-white/75"
+                }`}
+                key={item.id}
+                onClick={() => setOs(item.id)}
+                type="button"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-4">
+            {tool === "codex" ? (
+              <>
+                <p className="text-sm leading-6 text-stone-700">
+                  Codex CLI 使用 Responses API。把配置放到 Codex 配置目录，模型名称使用下方“支持的模型”里的 ID。
+                </p>
+                <ApiCodeBlock
+                  label={os === "windows" ? "%USERPROFILE%\\.codex\\config.toml" : "~/.codex/config.toml"}
+                  onCopy={onCopy}
+                  value={codexConfig}
+                />
+                <ApiCodeBlock
+                  label={os === "windows" ? "%USERPROFILE%\\.codex\\auth.json" : "~/.codex/auth.json"}
+                  onCopy={onCopy}
+                  value={codexAuth}
+                />
+              </>
+            ) : null}
+
+            {tool === "opencode" ? (
+              <>
+                <p className="text-sm leading-6 text-stone-700">
+                  OpenCode 使用 OpenAI-compatible provider。配置写入项目根目录的
+                  <code className="mx-1 rounded bg-white/70 px-1">opencode.json</code>
+                  或全局配置，Key 可放入 OpenCode 的 auth 文件。
+                </p>
+                <ApiCodeBlock
+                  label="opencode.json"
+                  onCopy={onCopy}
+                  value={openCodeConfig}
+                />
+                <ApiCodeBlock
+                  label={os === "windows" ? "%LOCALAPPDATA%\\opencode\\auth.json" : "~/.local/share/opencode/auth.json"}
+                  onCopy={onCopy}
+                  value={openCodeAuth}
+                />
+              </>
+            ) : null}
+
+            {tool === "claude-router" ? (
+              <>
+                <div className="grid gap-3 rounded-xl border border-[color:var(--app-border)] bg-white/55 p-3 text-sm text-stone-700 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                  <div>
+                    <p className="font-semibold text-stone-950">Claude Code Router / Switch 导入</p>
+                    <p className="mt-1 ios-muted">
+                      会写入 <code>~/.claude-code-router/config.json</code>，然后用 <code>ccr code</code> 启动。
+                    </p>
+                  </div>
+                  <button
+                    className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                    onClick={() => onDownload("claude-code-router-config.json", claudeRouterConfig)}
+                    type="button"
+                  >
+                    <Download className="size-4" />
+                    下载配置
+                  </button>
+                  <button
+                    className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                    onClick={() =>
+                      void onCopy(claudeRouterImportCommand, "Claude Router 一键导入命令已复制。")
+                    }
+                    type="button"
+                  >
+                    <Terminal className="size-4" />
+                    复制导入命令
+                  </button>
+                </div>
+                <ApiCodeBlock
+                  label="~/.claude-code-router/config.json"
+                  onCopy={onCopy}
+                  value={claudeRouterConfig}
+                />
+                <ApiCodeBlock
+                  label={os === "windows" ? "PowerShell 一键导入命令" : "Shell 一键导入命令"}
+                  onCopy={(value) => onCopy(value, "Claude Router 一键导入命令已复制。")}
+                  value={claudeRouterImportCommand}
+                />
+                <ApiCodeBlock
+                  label="启动命令"
+                  onCopy={onCopy}
+                  value={["npm install -g @musistudio/claude-code-router", "ccr restart", "ccr code"].join("\n")}
+                />
+              </>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettings }: ProfileCenterProps) {
   const [user, setUser] = useState(initialUser);
   const [name, setName] = useState(initialUser.name);
@@ -186,6 +645,8 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
   const [canCreateApiKey, setCanCreateApiKey] = useState(user.userGroup === "VIP");
   const [origin, setOrigin] = useState("");
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
+  const [apiGuideOpen, setApiGuideOpen] = useState(false);
+  const [apiGuideKeyId, setApiGuideKeyId] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(true);
@@ -215,6 +676,21 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
     setOrigin(window.location.origin);
     void loadApiKeys();
   }, [loadApiKeys]);
+
+  const revealableApiKeys = useMemo(() => apiKeys.filter((key) => key.apiKey), [apiKeys]);
+  const selectedGuideApiKey = useMemo(
+    () =>
+      revealableApiKeys.find((key) => key.id === apiGuideKeyId) ??
+      revealableApiKeys[0] ??
+      null,
+    [apiGuideKeyId, revealableApiKeys]
+  );
+
+  function openApiGuide(key?: UserApiKeyView) {
+    setApiGuideKeyId(key?.apiKey ? key.id : revealableApiKeys[0]?.id ?? null);
+    setApiGuideOpen(true);
+    setError("");
+  }
 
   function updatePersonalization(patch: Partial<PersonalizationSettings>) {
     setPersonalization((current) => ({
@@ -370,14 +846,38 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
     setDeleteKeyId(null);
   }
 
+  async function copyText(value: string, message = "已复制。") {
+    if (!value) {
+      return;
+    }
+
+    await navigator.clipboard?.writeText(value);
+    setNotice(message);
+    setError("");
+  }
+
   async function copyApiKey(apiKey: string | null | undefined) {
     if (!apiKey) {
       setError("这个 Key 是旧版本创建的，无法查看明文。请重新创建一个。");
       return;
     }
 
-    await navigator.clipboard?.writeText(apiKey);
-    setNotice("API Key 已复制。");
+    await copyText(apiKey, "API Key 已复制。");
+  }
+
+  function downloadTextFile(fileName: string, content: string) {
+    const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setNotice("配置文件已下载。");
+    setError("");
   }
 
   const personalizationPayloadSize = serializePersonalizationSettings(personalization).length;
@@ -683,9 +1183,19 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                 <KeyRound className="size-4 text-[color:var(--claude-accent)]" />
                 <h2 className="text-base font-semibold">个人 API</h2>
               </div>
-              <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-stone-600">
-                {canCreateApiKey ? "VIP 可用" : "需 VIP"}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm"
+                  onClick={() => openApiGuide()}
+                  type="button"
+                >
+                  <BookOpen className="size-4" />
+                  如何使用
+                </button>
+                <span className="hidden rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-stone-600 sm:inline-flex">
+                  {canCreateApiKey ? "VIP 可用" : "需 VIP"}
+                </span>
+              </div>
             </div>
 
             <div className="grid gap-4 p-4">
@@ -697,6 +1207,7 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                 </div>
                 <div className="grid gap-1 text-xs ios-muted sm:grid-cols-2">
                   <span>Responses：{origin ? `${origin}/v1/responses` : "/v1/responses"}</span>
+                  <span>Chat Completions：{origin ? `${origin}/v1/chat/completions` : "/v1/chat/completions"}</span>
                   <span>Models：{origin ? `${origin}/v1/models` : "/v1/models"}</span>
                 </div>
               </div>
@@ -795,7 +1306,16 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                         </button>
                       </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                        <button
+                          className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                          disabled={!key.apiKey}
+                          onClick={() => openApiGuide(key)}
+                          type="button"
+                        >
+                          <BookOpen className="size-4" />
+                          教程
+                        </button>
                         <button
                           className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
                           disabled={savingKeyId === key.id}
@@ -833,6 +1353,16 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
         open={Boolean(deleteKeyId)}
         title="删除 API Key"
         tone="danger"
+      />
+      <ApiGuideDialog
+        apiKey={selectedGuideApiKey?.apiKey}
+        models={apiModels}
+        onClose={() => setApiGuideOpen(false)}
+        onCopy={copyText}
+        onDownload={downloadTextFile}
+        open={apiGuideOpen}
+        origin={origin}
+        siteName={siteSettings.siteName}
       />
     </main>
   );

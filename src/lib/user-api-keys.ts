@@ -1,5 +1,4 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "crypto";
-import { notifyApiKeyUsage } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { canUsePersonalApi } from "@/lib/user-groups";
 
@@ -164,13 +163,6 @@ export async function authenticateUserApiKey(authorization: string | null) {
       }
     })
     .catch(() => undefined);
-  await notifyApiKeyUsage({
-    apiKeyId: matched.id,
-    keyName: matched.name,
-    keyPrefix: matched.keyPrefix,
-    previousLastUsedAt: matched.lastUsedAt,
-    userId: matched.userId
-  }).catch(() => undefined);
 
   return {
     apiKey: matched,

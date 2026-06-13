@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ProfileCenter } from "@/components/profile-center";
 import { getCurrentUser, serializeCurrentUser } from "@/lib/auth";
-import { getEnabledApiModels, getEnabledChatModels } from "@/lib/models";
+import { getEnabledApiModels } from "@/lib/models";
 import { getUsageSummary } from "@/lib/quota";
 import { getSiteSettings } from "@/lib/site-settings";
 import { getAiRuntimeSettings } from "@/lib/upstream";
@@ -33,7 +33,6 @@ export default async function ProfilePage() {
       initialUser={serializeCurrentUser(user)}
       initialUsage={usage}
       apiModels={getEnabledApiModels(aiSettings.chatModels)}
-      chatModels={getEnabledChatModels(aiSettings.chatModels)}
       siteSettings={siteSettings}
     />
   );

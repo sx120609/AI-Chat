@@ -47,7 +47,6 @@ import {
   isChatModel,
   normalizeReasoningEffort
 } from "@/lib/models";
-import { maybeNotifyLowBalance } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { formatPersonalizationForPrompt, parsePersonalizationSettings } from "@/lib/personalization";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
@@ -1365,7 +1364,6 @@ export async function POST(request: NextRequest) {
             });
 
             const usage = await getUsageSummary(user.id, { readCache: false });
-            await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
             const assistantMessage = temporaryMessageForClient({
               content: "Image generated",
               estimatedCostCents,
@@ -1654,7 +1652,6 @@ export async function POST(request: NextRequest) {
           });
 
           const usage = await getUsageSummary(user.id, { readCache: false });
-          await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
           sse(controller, "tool", imageEvents.find((event) => event.id === "image"));
           sse(controller, "done", {
             assistantMessage: imageMessageForResponse(assistantMessage),
@@ -2159,7 +2156,6 @@ export async function POST(request: NextRequest) {
             upstreamUsage
           });
           const usage = await getUsageSummary(user.id, { readCache: false });
-          await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
 
           sse(controller, "done", {
             assistantMessage,
@@ -2617,7 +2613,6 @@ export async function POST(request: NextRequest) {
           upstreamUsage
         });
         const usage = await getUsageSummary(user.id, { readCache: false });
-        await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
         const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
         const remainingReasoningContent =
           visibleReasoningContent && visibleReasoningContent !== streamedReasoningContent

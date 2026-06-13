@@ -30,12 +30,6 @@ export type PersonalizationSettings = {
     defaultReasoningEffort: "low" | "medium" | "high" | "xhigh";
     defaultModel: string;
   };
-  notifications: {
-    balanceLow: boolean;
-    apiKeyUsage: boolean;
-    taskComplete: boolean;
-    email: boolean;
-  };
   apps: {
     webSearch: boolean;
     fileLibrary: boolean;
@@ -87,12 +81,6 @@ function defaultPersonalizationSettings(): PersonalizationSettings {
       defaultReasoningEffort: "medium",
       defaultModel: ""
     },
-    notifications: {
-      balanceLow: true,
-      apiKeyUsage: false,
-      taskComplete: false,
-      email: false
-    },
     apps: {
       webSearch: true,
       fileLibrary: true,
@@ -119,8 +107,6 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
     input.about && typeof input.about === "object" ? input.about : {};
   const toolPreferences: Partial<PersonalizationSettings["toolPreferences"]> =
     input.toolPreferences && typeof input.toolPreferences === "object" ? input.toolPreferences : {};
-  const notifications: Partial<PersonalizationSettings["notifications"]> =
-    input.notifications && typeof input.notifications === "object" ? input.notifications : {};
   const apps: Partial<PersonalizationSettings["apps"]> =
     input.apps && typeof input.apps === "object" ? input.apps : {};
   const legacyMemoryEnabled =
@@ -186,22 +172,6 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
         defaults.toolPreferences.defaultReasoningEffort
       ),
       defaultModel: cleanText(toolPreferences.defaultModel, 80)
-    },
-    notifications: {
-      balanceLow:
-        typeof notifications.balanceLow === "boolean"
-          ? notifications.balanceLow
-          : defaults.notifications.balanceLow,
-      apiKeyUsage:
-        typeof notifications.apiKeyUsage === "boolean"
-          ? notifications.apiKeyUsage
-          : defaults.notifications.apiKeyUsage,
-      taskComplete:
-        typeof notifications.taskComplete === "boolean"
-          ? notifications.taskComplete
-          : defaults.notifications.taskComplete,
-      email:
-        typeof notifications.email === "boolean" ? notifications.email : defaults.notifications.email
     },
     apps: {
       webSearch: typeof apps.webSearch === "boolean" ? apps.webSearch : defaults.apps.webSearch,

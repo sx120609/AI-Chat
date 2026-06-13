@@ -3,13 +3,11 @@
 import {
   ArrowLeft,
   Archive,
-  Bell,
   BookOpen,
   Bot,
   Braces,
   ChevronRight,
   Check,
-  Clock3,
   Copy,
   Database,
   Download,
@@ -27,7 +25,6 @@ import {
   RotateCcw,
   Save,
   Shield,
-  SlidersHorizontal,
   Sparkles,
   Terminal,
   Trash2,
@@ -50,7 +47,6 @@ import {
 } from "@/lib/personalization";
 import type {
   ChatModelView,
-  ReasoningEffort,
   SiteSettingsView,
   UsageSummary,
   UserApiKeyView,
@@ -60,7 +56,6 @@ import type {
 
 type ProfileCenterProps = {
   apiModels: ChatModelView[];
-  chatModels: ChatModelView[];
   initialUser: UserView;
   initialUsage: UsageSummary;
   siteSettings: SiteSettingsView;
@@ -171,32 +166,11 @@ type UsageBreakdownPayload = {
   };
 };
 
-type UserTaskView = {
-  id: string;
-  title: string;
-  prompt: string;
-  projectId?: string | null;
-  projectName?: string | null;
-  schedule: string;
-  timezone: string;
-  enabled: boolean;
-  nextRunAt?: string | null;
-  lastRunAt?: string | null;
-  lastStatus: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type TasksPayload = {
-  tasks: UserTaskView[];
-};
-
 type UserProjectView = {
   counts?: {
     attachments: number;
     conversations: number;
     memories: number;
-    tasks: number;
   };
   id: string;
   name: string;
@@ -209,22 +183,6 @@ type UserProjectView = {
 
 type ProjectsPayload = {
   projects: UserProjectView[];
-};
-
-type UserNotificationView = {
-  id: string;
-  type: string;
-  title: string;
-  body: string;
-  metadata?: Record<string, unknown>;
-  readAt?: string | null;
-  emailedAt?: string | null;
-  createdAt: string;
-};
-
-type NotificationsPayload = {
-  notifications: UserNotificationView[];
-  unreadCount: number;
 };
 
 type AppConnectorStatus = "connected" | "disconnected" | "needs_setup";
@@ -260,7 +218,6 @@ type ProfileTab =
   | "overview"
   | "personalization"
   | "memory"
-  | "tools"
   | "apps"
   | "data"
   | "security"
@@ -272,7 +229,6 @@ type DataControlAction =
   | "deactivate_account"
   | "clear_shared_links";
 type InstructionPreset = "concise" | "professional" | "teaching" | "code" | "life";
-type TaskPreset = "balance" | "daily" | "learning" | "reminder";
 type ApiGuideTool = "codex" | "opencode" | "claude-router";
 type ApiGuideOs = "unix" | "windows";
 const LOWIQ_API_KEY_ENV = "LOWIQ_API_KEY";
@@ -286,34 +242,6 @@ function memorySourceLabel(source: string) {
   return source === "chat" ? "聊天保存" : "手动添加";
 }
 
-function projectMemoryScopeLabel(scope: string) {
-  if (scope === "project") {
-    return "仅项目范围";
-  }
-
-  if (scope === "off") {
-    return "不引用记忆";
-  }
-
-  return "引用账号记忆";
-}
-
-function taskScheduleLabel(schedule: string) {
-  if (schedule === "daily") {
-    return "每天";
-  }
-
-  if (schedule === "weekly") {
-    return "每周";
-  }
-
-  if (schedule === "monthly") {
-    return "每月";
-  }
-
-  return "一次";
-}
-
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -324,90 +252,6 @@ function formatBytes(bytes: number) {
   }
 
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function localDateTimeInputValue(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-
-  return [
-    date.getFullYear(),
-    "-",
-    pad(date.getMonth() + 1),
-    "-",
-    pad(date.getDate()),
-    "T",
-    pad(date.getHours()),
-    ":",
-    pad(date.getMinutes())
-  ].join("");
-}
-
-function nextPresetRunAt(preset: TaskPreset) {
-  const next = new Date();
-
-  if (preset === "daily") {
-    next.setHours(18, 0, 0, 0);
-
-    if (next.getTime() <= Date.now()) {
-      next.setDate(next.getDate() + 1);
-    }
-
-    return localDateTimeInputValue(next);
-  }
-
-  if (preset === "learning") {
-    next.setDate(next.getDate() + 1);
-    next.setHours(20, 0, 0, 0);
-
-    return localDateTimeInputValue(next);
-  }
-
-  if (preset === "balance") {
-    next.setDate(next.getDate() + 1);
-    next.setHours(9, 0, 0, 0);
-
-    return localDateTimeInputValue(next);
-  }
-
-  next.setHours(next.getHours() + 1, 0, 0, 0);
-
-  return localDateTimeInputValue(next);
-}
-
-function nextScheduleRunAt(schedule: string) {
-  const next = new Date();
-
-  if (schedule === "daily") {
-    next.setHours(18, 0, 0, 0);
-
-    if (next.getTime() <= Date.now()) {
-      next.setDate(next.getDate() + 1);
-    }
-
-    return localDateTimeInputValue(next);
-  }
-
-  if (schedule === "weekly") {
-    next.setDate(next.getDate() + 7);
-    next.setHours(9, 0, 0, 0);
-
-    return localDateTimeInputValue(next);
-  }
-
-  if (schedule === "monthly") {
-    next.setMonth(next.getMonth() + 1);
-    next.setHours(9, 0, 0, 0);
-
-    return localDateTimeInputValue(next);
-  }
-
-  next.setHours(next.getHours() + 1, 0, 0, 0);
-
-  return localDateTimeInputValue(next);
-}
-
-function resolveChatModelId(value: string, models: ChatModelView[]) {
-  return models.find((model) => model.id === value || model.upstreamId === value)?.id ?? "";
 }
 
 type SelectOption<T extends string> = {
@@ -437,26 +281,6 @@ const LEVEL_OPTIONS: SelectOption<PersonalizationLevel>[] = [
   { label: "更多", value: "high" }
 ];
 
-const REASONING_OPTIONS: SelectOption<ReasoningEffort>[] = [
-  { label: "低", value: "low" },
-  { label: "中", value: "medium" },
-  { label: "高", value: "high" },
-  { label: "极高", value: "xhigh" }
-];
-
-const MEMORY_SCOPE_OPTIONS = [
-  { label: "引用账号记忆", value: "account" },
-  { label: "仅项目范围", value: "project" },
-  { label: "不引用记忆", value: "off" }
-];
-
-const TASK_SCHEDULE_OPTIONS = [
-  { label: "一次", value: "once" },
-  { label: "每天", value: "daily" },
-  { label: "每周", value: "weekly" },
-  { label: "每月", value: "monthly" }
-];
-
 const INSTRUCTION_PRESETS: Array<{
   id: InstructionPreset;
   label: string;
@@ -478,53 +302,6 @@ const APP_SETTING_OPTIONS: Array<{
   { icon: FileIcon, key: "fileLibrary", label: "文件库" },
   { icon: PlugZap, key: "mcpConnectors", label: "第三方 MCP" },
   { icon: Bot, key: "knowledgeBase", label: "知识库" }
-];
-
-const TASK_PRESETS: Array<{
-  description: string;
-  icon: typeof Clock3;
-  id: TaskPreset;
-  label: string;
-  schedule: string;
-  title: string;
-  prompt: string;
-}> = [
-  {
-    id: "reminder",
-    icon: Bell,
-    label: "定时提示",
-    description: "一次性提醒",
-    schedule: "once",
-    title: "定时提示",
-    prompt: "请在这个时间提醒我：把这里改成你要提醒的事情。"
-  },
-  {
-    id: "daily",
-    icon: Clock3,
-    label: "每日总结",
-    description: "每天复盘",
-    schedule: "daily",
-    title: "每日总结",
-    prompt: "请帮我总结今天的重点、完成事项、待跟进事项，并给出明天最重要的 3 个优先事项。"
-  },
-  {
-    id: "learning",
-    icon: BookOpen,
-    label: "定期学习",
-    description: "每周计划",
-    schedule: "weekly",
-    title: "每周学习计划",
-    prompt: "请为我安排本周的学习计划：给出主题、每日小任务、练习方式和复盘问题。"
-  },
-  {
-    id: "balance",
-    icon: Database,
-    label: "余额提醒",
-    description: "每周检查",
-    schedule: "weekly",
-    title: "余额与用量检查",
-    prompt: "请提醒我检查本月 AI 使用量和余额情况，并列出需要关注的模型消耗、API 使用和图片生成开销。"
-  }
 ];
 
 const profileTabs: Array<{
@@ -550,12 +327,6 @@ const profileTabs: Array<{
     label: "记忆",
     description: "保存、引用与归档",
     icon: Database
-  },
-  {
-    id: "tools",
-    label: "工具",
-    description: "搜索、模型与安全模式",
-    icon: SlidersHorizontal
   },
   {
     id: "apps",
@@ -1655,7 +1426,6 @@ function ApiGuideDialog({
 
 export function ProfileCenter({
   apiModels,
-  chatModels,
   initialUser,
   initialUsage,
   siteSettings
@@ -1678,23 +1448,11 @@ export function ProfileCenter({
   const [fileLibraryHasMore, setFileLibraryHasMore] = useState(false);
   const [fileLibraryTotal, setFileLibraryTotal] = useState(0);
   const [usageBreakdown, setUsageBreakdown] = useState<UsageBreakdownPayload | null>(null);
-  const [tasks, setTasks] = useState<UserTaskView[]>([]);
   const [projects, setProjects] = useState<UserProjectView[]>([]);
-  const [notifications, setNotifications] = useState<UserNotificationView[]>([]);
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [connectors, setConnectors] = useState<AppConnectorView[]>([]);
   const [connectorDrafts, setConnectorDrafts] = useState<
     Partial<Record<keyof PersonalizationSettings["apps"], ConnectorDraft>>
   >({});
-  const [taskTitle, setTaskTitle] = useState("每日总结");
-  const [taskPrompt, setTaskPrompt] = useState("请帮我总结今天的重点，并给出明天的优先事项。");
-  const [taskSchedule, setTaskSchedule] = useState("daily");
-  const [taskNextRunAt, setTaskNextRunAt] = useState(() => nextScheduleRunAt("daily"));
-  const [taskProjectId, setTaskProjectId] = useState("");
-  const [projectName, setProjectName] = useState("工作项目");
-  const [projectInstructions, setProjectInstructions] = useState("");
-  const [projectMemoryScope, setProjectMemoryScope] = useState("account");
-  const [projectDefaultModel, setProjectDefaultModel] = useState("");
   const [fileProjectFilter, setFileProjectFilter] = useState("");
   const [newMemoryContent, setNewMemoryContent] = useState("");
   const [newMemoryProjectId, setNewMemoryProjectId] = useState("");
@@ -1717,19 +1475,12 @@ export function ProfileCenter({
   const [loadingMemories, setLoadingMemories] = useState(true);
   const [loadingDataLists, setLoadingDataLists] = useState(true);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
-  const [loadingTasks, setLoadingTasks] = useState(true);
-  const [loadingProjects, setLoadingProjects] = useState(true);
-  const [loadingNotifications, setLoadingNotifications] = useState(true);
   const [loadingConnectors, setLoadingConnectors] = useState(true);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
   const [savingDataAction, setSavingDataAction] = useState(false);
   const [savingArchivedConversationId, setSavingArchivedConversationId] = useState<string | null>(null);
   const [savingFileId, setSavingFileId] = useState<string | null>(null);
   const [savingSharedLinkId, setSavingSharedLinkId] = useState<string | null>(null);
-  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
-  const [runningDueTasks, setRunningDueTasks] = useState(false);
-  const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
-  const [savingNotificationId, setSavingNotificationId] = useState<string | null>(null);
   const [savingConnectorProvider, setSavingConnectorProvider] = useState<string | null>(null);
   const [savingMemory, setSavingMemory] = useState(false);
   const [creatingKey, setCreatingKey] = useState(false);
@@ -1847,24 +1598,7 @@ export function ProfileCenter({
     setLoadingMoreFiles(false);
   }, [fileLibrary.length, fileLibraryHasMore, fileLibraryTotal, loadingMoreFiles]);
 
-  const loadTasks = useCallback(async () => {
-    setLoadingTasks(true);
-    const response = await fetch("/api/profile/tasks");
-    const payload = (await response.json().catch(() => null)) as
-      | (TasksPayload & { error?: string })
-      | null;
-
-    if (response.ok && payload) {
-      setTasks(payload.tasks);
-    } else {
-      setError(payload?.error || "读取任务失败。");
-    }
-
-    setLoadingTasks(false);
-  }, []);
-
   const loadProjects = useCallback(async () => {
-    setLoadingProjects(true);
     const response = await fetch("/api/profile/projects");
     const payload = (await response.json().catch(() => null)) as
       | (ProjectsPayload & { error?: string })
@@ -1875,25 +1609,6 @@ export function ProfileCenter({
     } else {
       setError(payload?.error || "读取项目偏好失败。");
     }
-
-    setLoadingProjects(false);
-  }, []);
-
-  const loadNotifications = useCallback(async () => {
-    setLoadingNotifications(true);
-    const response = await fetch("/api/profile/notifications");
-    const payload = (await response.json().catch(() => null)) as
-      | (NotificationsPayload & { error?: string })
-      | null;
-
-    if (response.ok && payload) {
-      setNotifications(payload.notifications);
-      setUnreadNotificationCount(payload.unreadCount);
-    } else {
-      setError(payload?.error || "读取通知失败。");
-    }
-
-    setLoadingNotifications(false);
   }, []);
 
   const loadConnectors = useCallback(async () => {
@@ -1919,17 +1634,13 @@ export function ProfileCenter({
     void loadConnectors();
     void loadDataLists();
     void loadMemories();
-    void loadNotifications();
     void loadProjects();
-    void loadTasks();
   }, [
     loadApiKeys,
     loadConnectors,
     loadDataLists,
     loadMemories,
-    loadNotifications,
-    loadProjects,
-    loadTasks
+    loadProjects
   ]);
 
   const revealableApiKeys = useMemo(() => apiKeys.filter((key) => key.apiKey), [apiKeys]);
@@ -1953,10 +1664,6 @@ export function ProfileCenter({
     () => new Map(connectors.map((connector) => [connector.provider, connector])),
     [connectors]
   );
-  const activeConnectors = useMemo(
-    () => connectors.filter((connector) => connector.enabled && connector.status === "connected"),
-    [connectors]
-  );
   const visibleFileLibrary = useMemo(
     () => {
       if (fileProjectFilter === "__account__") {
@@ -1968,13 +1675,6 @@ export function ProfileCenter({
         : fileLibrary;
     },
     [fileLibrary, fileProjectFilter]
-  );
-  const modelOptions = useMemo<SelectOption<string>[]>(
-    () => [
-      { label: "跟随默认", value: "" },
-      ...chatModels.map((model) => ({ label: model.label || model.id, value: model.id }))
-    ],
-    [chatModels]
   );
   const dataActionCopy: Record<DataControlAction, { confirmLabel: string; description: string; title: string }> = {
     archive_chats: {
@@ -2004,7 +1704,6 @@ export function ProfileCenter({
     }
   };
   const lowBalanceWarning =
-    personalization.notifications.balanceLow &&
     initialUsage.monthlyCostLimitCents > 0 &&
     initialUsage.remainingCostCents / initialUsage.monthlyCostLimitCents <= 0.15;
 
@@ -2044,32 +1743,6 @@ export function ProfileCenter({
       ...current,
       about: {
         ...current.about,
-        [key]: value
-      }
-    }));
-  }
-
-  function updateToolPreference<K extends keyof PersonalizationSettings["toolPreferences"]>(
-    key: K,
-    value: PersonalizationSettings["toolPreferences"][K]
-  ) {
-    setPersonalization((current) => ({
-      ...current,
-      toolPreferences: {
-        ...current.toolPreferences,
-        [key]: value
-      }
-    }));
-  }
-
-  function updateNotification<K extends keyof PersonalizationSettings["notifications"]>(
-    key: K,
-    value: PersonalizationSettings["notifications"][K]
-  ) {
-    setPersonalization((current) => ({
-      ...current,
-      notifications: {
-        ...current.notifications,
         [key]: value
       }
     }));
@@ -2565,223 +2238,6 @@ export function ProfileCenter({
     setSavingFileId(null);
   }
 
-  function openProjectFiles(projectId: string) {
-    setFileProjectFilter(projectId);
-    setActiveTab("data");
-    setNotice("");
-    setError("");
-  }
-
-  async function createTask(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingTaskId("new");
-    setNotice("");
-    setError("");
-
-    const response = await fetch("/api/profile/tasks", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        title: taskTitle,
-        prompt: taskPrompt,
-        projectId: taskProjectId || null,
-        schedule: taskSchedule,
-        nextRunAt: taskNextRunAt || null,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Hong_Kong"
-      })
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; task?: UserTaskView }
-      | null;
-
-    if (!response.ok || !payload?.task) {
-      setError(payload?.error || "创建任务失败。");
-    } else {
-      setTasks((current) => [payload.task as UserTaskView, ...current]);
-      setTaskNextRunAt(nextScheduleRunAt(taskSchedule));
-      setNotice("任务已创建。");
-    }
-
-    setSavingTaskId(null);
-  }
-
-  function applyTaskPreset(preset: (typeof TASK_PRESETS)[number]) {
-    setTaskTitle(preset.title);
-    setTaskPrompt(preset.prompt);
-    setTaskSchedule(preset.schedule);
-    setTaskNextRunAt(nextPresetRunAt(preset.id));
-    setNotice(`${preset.label} 模板已填入。`);
-    setError("");
-  }
-
-  async function updateTask(task: UserTaskView, patch: Partial<UserTaskView>) {
-    setSavingTaskId(task.id);
-    setNotice("");
-    setError("");
-
-    const response = await fetch(`/api/profile/tasks/${task.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(patch)
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; task?: UserTaskView }
-      | null;
-
-    if (!response.ok || !payload?.task) {
-      setError(payload?.error || "更新任务失败。");
-    } else {
-      setTasks((current) => current.map((item) => (item.id === task.id ? payload.task! : item)));
-      setNotice("任务已更新。");
-    }
-
-    setSavingTaskId(null);
-  }
-
-  async function deleteTask(taskId: string) {
-    setSavingTaskId(taskId);
-    setNotice("");
-    setError("");
-
-    const response = await fetch(`/api/profile/tasks/${taskId}`, {
-      method: "DELETE"
-    });
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-
-    if (!response.ok) {
-      setError(payload?.error || "删除任务失败。");
-    } else {
-      setTasks((current) => current.filter((task) => task.id !== taskId));
-      setNotice("任务已删除。");
-    }
-
-    setSavingTaskId(null);
-  }
-
-  async function runTask(taskId: string) {
-    setSavingTaskId(taskId);
-    setNotice("");
-    setError("");
-
-    const response = await fetch(`/api/profile/tasks/${taskId}/run`, {
-      method: "POST"
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { conversationId?: string; error?: string; usage?: UsageSummary }
-      | null;
-
-    if (!response.ok) {
-      setError(payload?.error || "运行任务失败。");
-    } else {
-      await loadTasks();
-      await loadNotifications();
-      setNotice(payload?.conversationId ? "任务已运行，并已创建聊天结果。" : "任务已运行。");
-    }
-
-    setSavingTaskId(null);
-  }
-
-  async function runDueTasksNow() {
-    setRunningDueTasks(true);
-    setNotice("");
-    setError("");
-
-    const response = await fetch("/api/profile/tasks/run-due", {
-      method: "POST"
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { due?: number; error?: string; failed?: number; ran?: number; skipped?: number }
-      | null;
-
-    if (!response.ok) {
-      setError(payload?.error || "运行到期任务失败。");
-    } else {
-      await loadTasks();
-      await loadNotifications();
-      setNotice(
-        `到期任务已处理：运行 ${payload?.ran ?? 0} 个，跳过 ${payload?.skipped ?? 0} 个，失败 ${payload?.failed ?? 0} 个。`
-      );
-    }
-
-    setRunningDueTasks(false);
-  }
-
-  async function updateNotificationRead(notification: UserNotificationView, read: boolean) {
-    setSavingNotificationId(notification.id);
-    setNotice("");
-    setError("");
-
-    const response = await fetch(`/api/profile/notifications/${notification.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ read })
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; notification?: UserNotificationView }
-      | null;
-
-    if (!response.ok || !payload?.notification) {
-      setError(payload?.error || "更新通知失败。");
-    } else {
-      setNotifications((current) =>
-        current.map((item) => (item.id === notification.id ? payload.notification! : item))
-      );
-      setUnreadNotificationCount((current) =>
-        read ? Math.max(0, current - (notification.readAt ? 0 : 1)) : current + (notification.readAt ? 1 : 0)
-      );
-      setNotice(read ? "通知已标记为已读。" : "通知已标记为未读。");
-    }
-
-    setSavingNotificationId(null);
-  }
-
-  async function deleteNotification(notification: UserNotificationView) {
-    setSavingNotificationId(notification.id);
-    setNotice("");
-    setError("");
-
-    const response = await fetch(`/api/profile/notifications/${notification.id}`, {
-      method: "DELETE"
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; id?: string }
-      | null;
-
-    if (!response.ok) {
-      setError(payload?.error || "删除通知失败。");
-    } else {
-      setNotifications((current) => current.filter((item) => item.id !== notification.id));
-      setUnreadNotificationCount((current) =>
-        notification.readAt ? current : Math.max(0, current - 1)
-      );
-      setNotice("通知已删除。");
-    }
-
-    setSavingNotificationId(null);
-  }
-
-  async function markAllNotificationsRead() {
-    setSavingNotificationId("all");
-    setNotice("");
-    setError("");
-
-    const response = await fetch("/api/profile/notifications/read-all", {
-      method: "POST"
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; updated?: number }
-      | null;
-
-    if (!response.ok) {
-      setError(payload?.error || "标记通知失败。");
-    } else {
-      await loadNotifications();
-      setNotice(`已标记 ${payload?.updated ?? 0} 条通知为已读。`);
-    }
-
-    setSavingNotificationId(null);
-  }
-
   function updateConnectorDraft(
     provider: keyof PersonalizationSettings["apps"],
     patch: Partial<ConnectorDraft>
@@ -2847,84 +2303,6 @@ export function ProfileCenter({
     }
 
     setSavingConnectorProvider(null);
-  }
-
-  async function createProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingProjectId("new");
-    setNotice("");
-    setError("");
-
-    const response = await fetch("/api/profile/projects", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: projectName,
-        instructions: projectInstructions,
-        defaultModel: projectDefaultModel,
-        memoryScope: projectMemoryScope
-      })
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; project?: UserProjectView }
-      | null;
-
-    if (!response.ok || !payload?.project) {
-      setError(payload?.error || "创建项目偏好失败。");
-    } else {
-      setProjects((current) => [payload.project as UserProjectView, ...current]);
-      setProjectInstructions("");
-      setProjectDefaultModel("");
-      setNotice("项目偏好已创建。");
-    }
-
-    setSavingProjectId(null);
-  }
-
-  async function updateProject(project: UserProjectView, patch: Partial<UserProjectView>) {
-    setSavingProjectId(project.id);
-    setNotice("");
-    setError("");
-
-    const response = await fetch(`/api/profile/projects/${project.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(patch)
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; project?: UserProjectView }
-      | null;
-
-    if (!response.ok || !payload?.project) {
-      setError(payload?.error || "更新项目偏好失败。");
-    } else {
-      setProjects((current) =>
-        current.map((item) => (item.id === project.id ? payload.project! : item))
-      );
-      setNotice("项目偏好已更新。");
-    }
-
-    setSavingProjectId(null);
-  }
-
-  async function deleteProject(projectId: string) {
-    setSavingProjectId(projectId);
-    setNotice("");
-    setError("");
-
-    const response = await fetch(`/api/profile/projects/${projectId}`, {
-      method: "DELETE"
-    });
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-
-    if (!response.ok) {
-      setError(payload?.error || "删除项目偏好失败。");
-    } else {
-      setProjects((current) => current.filter((project) => project.id !== projectId));
-      setNotice("项目偏好已删除。");
-    }
-
-    setSavingProjectId(null);
   }
 
   async function copyText(value: string, message = "已复制。") {
@@ -3576,388 +2954,6 @@ export function ProfileCenter({
             </form>
           ) : null}
 
-          {activeTab === "tools" ? (
-            <form className="ios-panel motion-lift overflow-hidden" onSubmit={saveProfile}>
-              <div className="flex items-center gap-2 border-b border-[color:var(--ios-separator)] px-4 py-4">
-                <SlidersHorizontal className="size-4 text-[color:var(--claude-accent)]" />
-                <h2 className="text-base font-semibold">工具偏好</h2>
-              </div>
-
-              <div className="divide-y divide-[color:var(--ios-separator)]">
-                <ToggleRow
-                  checked={personalization.toolPreferences.securityMode}
-                  description="开启后默认关闭联网、图片生成和文件分析，只保留更克制的纯聊天体验。"
-                  label="隐私 / 安全模式"
-                  onChange={(checked) =>
-                    updateToolPreference("securityMode", checked)
-                  }
-                />
-                <ToggleRow
-                  checked={personalization.toolPreferences.webSearchDefault}
-                  description="新消息默认打开联网搜索；安全模式开启时聊天页会自动关闭。"
-                  label="默认启用联网搜索"
-                  onChange={(checked) => updateToolPreference("webSearchDefault", checked)}
-                />
-                <ToggleRow
-                  checked={personalization.toolPreferences.imageGenerationEnabled}
-                  description="控制聊天页是否默认允许图片生成入口。"
-                  label="启用图片生成"
-                  onChange={(checked) => updateToolPreference("imageGenerationEnabled", checked)}
-                />
-                <ToggleRow
-                  checked={personalization.toolPreferences.fileAnalysisEnabled}
-                  description="控制上传文件后是否默认允许进入文件分析流程。"
-                  label="启用文件分析"
-                  onChange={(checked) => updateToolPreference("fileAnalysisEnabled", checked)}
-                />
-
-                <div className="grid gap-3 px-4 py-4 sm:grid-cols-2">
-                  <PreferenceSelect
-                    label="默认推理强度"
-                    onChange={(value) => updateToolPreference("defaultReasoningEffort", value)}
-                    options={REASONING_OPTIONS}
-                    value={personalization.toolPreferences.defaultReasoningEffort}
-                  />
-                  <PreferenceSelect
-                    label="默认模型"
-                    onChange={(value) => updateToolPreference("defaultModel", value)}
-                    options={modelOptions}
-                    value={resolveChatModelId(personalization.toolPreferences.defaultModel, chatModels)}
-                  />
-                </div>
-
-                <div className="px-4 py-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <PlugZap className="size-4 text-[color:var(--claude-accent)]" />
-                    <h3 className="text-sm font-semibold text-stone-950">应用 / 连接器</h3>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/45 px-4 py-3">
-                    <div>
-                      <p className="text-sm font-semibold text-stone-950">
-                        {activeConnectors.length} 个连接器已授权
-                      </p>
-                      <p className="mt-1 text-sm ios-muted">
-                        搜索、文件源、第三方 MCP 和知识库授权状态在应用页统一管理。
-                      </p>
-                    </div>
-                    <button
-                      className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm"
-                      onClick={() => setActiveTab("apps")}
-                      type="button"
-                    >
-                      <PlugZap className="size-4" />
-                      管理应用
-                    </button>
-                  </div>
-                </div>
-
-                <div className="px-4 py-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <FolderOpen className="size-4 text-[color:var(--claude-accent)]" />
-                    <h3 className="text-sm font-semibold text-stone-950">项目级偏好</h3>
-                  </div>
-                  <form className="grid gap-3 rounded-lg bg-white/50 p-3" onSubmit={createProject}>
-                    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-                      <input
-                        className="ios-input"
-                        maxLength={80}
-                        onChange={(event) => setProjectName(event.target.value)}
-                        placeholder="项目名称"
-                        value={projectName}
-                      />
-                      <select
-                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
-                        onChange={(event) => setProjectMemoryScope(event.target.value)}
-                        value={projectMemoryScope}
-                      >
-                        {MEMORY_SCOPE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
-                        onChange={(event) => setProjectDefaultModel(event.target.value)}
-                        value={projectDefaultModel}
-                      >
-                        {modelOptions.map((option) => (
-                          <option key={option.value || "default"} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <textarea
-                      className="ios-input min-h-20 w-full resize-y py-3 text-sm leading-6"
-                      maxLength={2000}
-                      onChange={(event) => setProjectInstructions(event.target.value)}
-                      placeholder="这个项目里的专属指令、上下文、工作方式"
-                      value={projectInstructions}
-                    />
-                    <button
-                      className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60 sm:w-max"
-                      disabled={savingProjectId === "new"}
-                      type="submit"
-                    >
-                      {savingProjectId === "new" ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                      创建项目偏好
-                    </button>
-                  </form>
-
-                  <div className="mt-3 grid gap-2">
-                    {loadingProjects ? (
-                      <div className="grid min-h-20 place-items-center text-stone-500">
-                        <Loader2 className="size-5 animate-spin" />
-                      </div>
-                    ) : projects.length === 0 ? (
-                      <div className="rounded-lg bg-white/45 px-3 py-6 text-center text-sm ios-muted">
-                        暂无项目级偏好。
-                      </div>
-                    ) : (
-                      projects.map((project) => (
-                        <div
-                          className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
-                          key={project.id}
-                        >
-                          <div className="min-w-0">
-                            <input
-                              className="ios-input h-9 max-w-md text-sm"
-                              defaultValue={project.name}
-                              onBlur={(event) => {
-                                const name = event.target.value.trim();
-
-                                if (name && name !== project.name) {
-                                  void updateProject(project, { name });
-                                }
-                              }}
-                            />
-                            <textarea
-                              className="ios-input mt-2 min-h-16 w-full resize-y py-2 text-xs leading-5"
-                              defaultValue={project.instructions}
-                              maxLength={2000}
-                              onBlur={(event) => {
-                                const instructions = event.target.value.trim();
-
-                                if (instructions !== project.instructions) {
-                                  void updateProject(project, { instructions });
-                                }
-                              }}
-                              placeholder="未设置专属指令"
-                            />
-                            <p className="mt-2 text-xs ios-muted">
-                              记忆范围 {projectMemoryScopeLabel(project.memoryScope)} · 默认模型 {project.defaultModel || "跟随默认"} · 更新 {new Date(project.updatedAt).toLocaleString()}
-                            </p>
-                            <p className="mt-2 flex flex-wrap items-center gap-2 text-xs ios-muted">
-                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
-                                {project.counts?.conversations ?? 0} 个聊天
-                              </span>
-                              <button
-                                className="app-action-button rounded-full bg-white/80 px-2 py-1 font-semibold text-[color:var(--claude-accent)] hover:bg-white"
-                                onClick={() => openProjectFiles(project.id)}
-                                title="查看这个项目的文件"
-                                type="button"
-                              >
-                                {project.counts?.attachments ?? 0} 个文件
-                              </button>
-                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
-                                {project.counts?.memories ?? 0} 条记忆
-                              </span>
-                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
-                                {project.counts?.tasks ?? 0} 个任务
-                              </span>
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-start gap-2 md:justify-end">
-                            <select
-                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
-                              disabled={savingProjectId === project.id}
-                              onChange={(event) =>
-                                void updateProject(project, { memoryScope: event.target.value })
-                              }
-                              title="记忆范围"
-                              value={project.memoryScope}
-                            >
-                              {MEMORY_SCOPE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <select
-                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
-                              disabled={savingProjectId === project.id}
-                              onChange={(event) =>
-                                void updateProject(project, { defaultModel: event.target.value })
-                              }
-                              value={resolveChatModelId(project.defaultModel, chatModels)}
-                            >
-                              {modelOptions.map((option) => (
-                                <option key={option.value || "default"} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
-                              disabled={savingProjectId === project.id}
-                              onClick={() => void deleteProject(project.id)}
-                              title="删除项目偏好"
-                              type="button"
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="px-4 py-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Bell className="size-4 text-[color:var(--claude-accent)]" />
-                    <h3 className="text-sm font-semibold text-stone-950">通知</h3>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <ToggleRow
-                      checked={personalization.notifications.balanceLow}
-                      description="余额接近上限时提醒。"
-                      label="余额不足"
-                      onChange={(checked) => updateNotification("balanceLow", checked)}
-                    />
-                    <ToggleRow
-                      checked={personalization.notifications.apiKeyUsage}
-                      description="个人 API Key 使用异常时提醒。"
-                      label="API Key 使用"
-                      onChange={(checked) => updateNotification("apiKeyUsage", checked)}
-                    />
-                    <ToggleRow
-                      checked={personalization.notifications.taskComplete}
-                      description="后台任务或提醒完成时通知。"
-                      label="任务完成"
-                      onChange={(checked) => updateNotification("taskComplete", checked)}
-                    />
-                    <ToggleRow
-                      checked={personalization.notifications.email}
-                      description="允许通过邮箱接收重要通知。"
-                      label="邮件通知"
-                      onChange={(checked) => updateNotification("email", checked)}
-                    />
-                  </div>
-                  <div className="mt-4 rounded-lg border border-[color:var(--ios-separator)] bg-white/45">
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
-                      <div>
-                        <h4 className="text-sm font-semibold text-stone-950">通知中心</h4>
-                        <p className="mt-1 text-xs ios-muted">
-                          {unreadNotificationCount > 0
-                            ? `${unreadNotificationCount} 条未读`
-                            : "暂无未读通知"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                          disabled={loadingNotifications}
-                          onClick={() => void loadNotifications()}
-                          type="button"
-                        >
-                          <RotateCcw className="size-4" />
-                          刷新
-                        </button>
-                        <button
-                          className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                          disabled={savingNotificationId === "all" || unreadNotificationCount === 0}
-                          onClick={() => void markAllNotificationsRead()}
-                          type="button"
-                        >
-                          {savingNotificationId === "all" ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Check className="size-4" />
-                          )}
-                          全部已读
-                        </button>
-                      </div>
-                    </div>
-                    {loadingNotifications ? (
-                      <p className="px-4 py-6 text-center text-sm ios-muted">正在读取通知...</p>
-                    ) : notifications.length === 0 ? (
-                      <p className="px-4 py-6 text-center text-sm ios-muted">暂无通知</p>
-                    ) : (
-                      <div className="divide-y divide-[color:var(--ios-separator)]">
-                        {notifications.slice(0, 12).map((notification) => (
-                          <div
-                            className="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
-                            key={notification.id}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-sm font-semibold text-stone-950">{notification.title}</p>
-                                {!notification.readAt ? (
-                                  <span className="rounded-full bg-[color:var(--claude-accent)] px-2 py-0.5 text-[11px] font-semibold text-white">
-                                    未读
-                                  </span>
-                                ) : null}
-                                {notification.emailedAt ? (
-                                  <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-600">
-                                    已邮件通知
-                                  </span>
-                                ) : null}
-                              </div>
-                              <p className="mt-1 text-sm leading-5 text-stone-700">{notification.body}</p>
-                              <p className="mt-2 text-xs ios-muted">
-                                {new Date(notification.createdAt).toLocaleString()}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                                disabled={savingNotificationId === notification.id}
-                                onClick={() => void updateNotificationRead(notification, !notification.readAt)}
-                                type="button"
-                              >
-                                {savingNotificationId === notification.id ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : notification.readAt ? (
-                                  <RotateCcw className="size-4" />
-                                ) : (
-                                  <Check className="size-4" />
-                                )}
-                                {notification.readAt ? "标为未读" : "标为已读"}
-                              </button>
-                              <button
-                                className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
-                                disabled={savingNotificationId === notification.id}
-                                onClick={() => void deleteNotification(notification)}
-                                title="删除通知"
-                                type="button"
-                              >
-                                <Trash2 className="size-4" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
-                  <p className="text-xs ios-muted">这些开关会影响聊天页默认工具、提醒和项目体验。</p>
-                  <button
-                    className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
-                    disabled={savingProfile}
-                    type="submit"
-                  >
-                    {savingProfile ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                    保存工具偏好
-                  </button>
-                </div>
-              </div>
-            </form>
-          ) : null}
-
           {activeTab === "apps" ? (
             <section className="ios-panel motion-lift overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
@@ -4516,215 +3512,6 @@ export function ProfileCenter({
                 </div>
               </section>
 
-              <section className="ios-panel motion-lift overflow-hidden">
-                <div className="flex items-center gap-2 border-b border-[color:var(--ios-separator)] px-4 py-4">
-                  <Clock3 className="size-4 text-[color:var(--claude-accent)]" />
-                  <h2 className="text-base font-semibold">任务 / 提醒</h2>
-                  <button
-                    className="ios-button-secondary app-action-button ml-auto flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                    disabled={runningDueTasks}
-                    onClick={() => void runDueTasksNow()}
-                    type="button"
-                  >
-                    {runningDueTasks ? <Loader2 className="size-4 animate-spin" /> : <Clock3 className="size-4" />}
-                    运行到期
-                  </button>
-                </div>
-                <div className="grid gap-4 p-4">
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    {TASK_PRESETS.map((preset) => {
-                      const PresetIcon = preset.icon;
-
-                      return (
-                        <button
-                          className="app-action-button flex min-h-16 items-center justify-between gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-left transition hover:bg-white"
-                          key={preset.id}
-                          onClick={() => applyTaskPreset(preset)}
-                          type="button"
-                        >
-                          <span className="flex min-w-0 items-center gap-3">
-                            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/80 text-[color:var(--claude-accent)]">
-                              <PresetIcon className="size-4" />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block text-sm font-semibold text-stone-950">{preset.label}</span>
-                              <span className="block truncate text-xs ios-muted">{preset.description}</span>
-                            </span>
-                          </span>
-                          <Plus className="size-4 shrink-0 text-stone-400" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <form className="grid gap-3 rounded-lg bg-white/50 p-3" onSubmit={createTask}>
-                    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-                      <input
-                        className="ios-input"
-                        maxLength={80}
-                        onChange={(event) => setTaskTitle(event.target.value)}
-                        placeholder="任务标题"
-                        value={taskTitle}
-                      />
-                      <select
-                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
-                        onChange={(event) => {
-                          setTaskSchedule(event.target.value);
-                          setTaskNextRunAt(nextScheduleRunAt(event.target.value));
-                        }}
-                        value={taskSchedule}
-                      >
-                        {TASK_SCHEDULE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
-                        onChange={(event) => setTaskProjectId(event.target.value)}
-                        value={taskProjectId}
-                      >
-                        <option value="">账号默认</option>
-                        {projects.map((project) => (
-                          <option key={project.id} value={project.id}>
-                            {project.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <textarea
-                      className="ios-input min-h-20 w-full resize-y py-3 text-sm leading-6"
-                      maxLength={4000}
-                      onChange={(event) => setTaskPrompt(event.target.value)}
-                      placeholder="任务提示词"
-                      value={taskPrompt}
-                    />
-                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                      <input
-                        className="ios-input"
-                        onChange={(event) => setTaskNextRunAt(event.target.value)}
-                        type="datetime-local"
-                        value={taskNextRunAt}
-                      />
-                      <button
-                        className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
-                        disabled={savingTaskId === "new"}
-                        type="submit"
-                      >
-                        {savingTaskId === "new" ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                        创建任务
-                      </button>
-                    </div>
-                  </form>
-
-                  {loadingTasks ? (
-                    <div className="grid min-h-20 place-items-center text-stone-500">
-                      <Loader2 className="size-5 animate-spin" />
-                    </div>
-                  ) : tasks.length === 0 ? (
-                    <div className="rounded-lg bg-white/45 px-3 py-8 text-center text-sm ios-muted">
-                      暂无任务。
-                    </div>
-                  ) : (
-                    <div className="grid gap-2">
-                      {tasks.map((task) => (
-                        <div
-                          className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
-                          key={task.id}
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-stone-950">{task.title}</p>
-                            <p className="mt-1 line-clamp-2 text-xs ios-muted">{task.prompt}</p>
-                            <p className="mt-2 flex flex-wrap items-center gap-2 text-xs ios-muted">
-                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
-                                {taskScheduleLabel(task.schedule)}
-                              </span>
-                              <span>{task.enabled ? "已启用" : "已停用"}</span>
-                              <span>{task.projectName ? `项目：${task.projectName}` : "账号默认"}</span>
-                              <span>{task.timezone}</span>
-                              {task.nextRunAt ? <span>下次 {new Date(task.nextRunAt).toLocaleString()}</span> : null}
-                              {task.lastRunAt ? <span>上次 {new Date(task.lastRunAt).toLocaleString()}</span> : null}
-                              {task.lastStatus !== "pending" ? <span>状态 {task.lastStatus}</span> : null}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-start gap-2 md:justify-end">
-                            <select
-                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
-                              disabled={savingTaskId === task.id}
-                              onChange={(event) =>
-                                void updateTask(task, { schedule: event.target.value })
-                              }
-                              title="运行频率"
-                              value={task.schedule}
-                            >
-                              {TASK_SCHEDULE_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              className="ios-input h-9 min-w-48 px-3 text-sm disabled:opacity-60"
-                              defaultValue={
-                                task.nextRunAt ? localDateTimeInputValue(new Date(task.nextRunAt)) : ""
-                              }
-                              disabled={savingTaskId === task.id}
-                              key={`${task.id}-${task.nextRunAt ?? "empty"}`}
-                              onBlur={(event) =>
-                                void updateTask(task, { nextRunAt: event.target.value || null })
-                              }
-                              title="下次运行时间"
-                              type="datetime-local"
-                            />
-                            <select
-                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
-                              disabled={savingTaskId === task.id}
-                              onChange={(event) =>
-                                void updateTask(task, { projectId: event.target.value || null })
-                              }
-                              value={task.projectId ?? ""}
-                            >
-                              <option value="">账号默认</option>
-                              {projects.map((project) => (
-                                <option key={project.id} value={project.id}>
-                                  {project.name}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                              disabled={savingTaskId === task.id}
-                              onClick={() => void runTask(task.id)}
-                              type="button"
-                            >
-                              <Sparkles className="size-4" />
-                              运行
-                            </button>
-                            <button
-                              className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                              disabled={savingTaskId === task.id}
-                              onClick={() => void updateTask(task, { enabled: !task.enabled })}
-                              type="button"
-                            >
-                              <Shield className="size-4" />
-                              {task.enabled ? "停用" : "启用"}
-                            </button>
-                            <button
-                              className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
-                              disabled={savingTaskId === task.id}
-                              onClick={() => void deleteTask(task.id)}
-                              title="删除任务"
-                              type="button"
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
             </div>
           ) : null}
 

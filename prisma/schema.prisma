@@ -47,9 +47,7 @@ model User {
   paymentOrders        PaymentOrder[]
   apiKeys              UserApiKey[]
   memories             UserMemory[]
-  tasks                UserTask[]
   projects             UserProject[]
-  notifications        UserNotification[]
   appConnectors        UserAppConnector[]
 }
 
@@ -72,28 +70,6 @@ model UserMemory {
   @@index([userId, projectId, archivedAt, updatedAt])
 }
 
-model UserTask {
-  id          String    @id @default(cuid())
-  userId      String
-  projectId   String?
-  title       String
-  prompt      String
-  schedule    String    @default("once")
-  timezone    String    @default("Asia/Hong_Kong")
-  nextRunAt   DateTime?
-  enabled     Boolean   @default(true)
-  lastRunAt   DateTime?
-  lastStatus  String    @default("pending")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project     UserProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-
-  @@index([userId, enabled, nextRunAt])
-  @@index([userId, projectId, enabled, nextRunAt])
-  @@index([userId, createdAt])
-}
-
 model UserProject {
   id            String   @id @default(cuid())
   userId        String
@@ -107,7 +83,6 @@ model UserProject {
   memories      UserMemory[]
   conversations Conversation[]
   attachments   Attachment[]
-  tasks         UserTask[]
 
   @@index([userId, updatedAt])
 }
@@ -127,22 +102,6 @@ model UserApiKey {
 
   @@index([userId, createdAt])
   @@index([keyPrefix])
-}
-
-model UserNotification {
-  id           String    @id @default(cuid())
-  userId       String
-  type         String
-  title        String
-  body         String    @default("")
-  metadataJson String    @default("{}")
-  readAt       DateTime?
-  emailedAt    DateTime?
-  createdAt    DateTime  @default(now())
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, readAt, createdAt])
-  @@index([userId, type, createdAt])
 }
 
 model UserAppConnector {

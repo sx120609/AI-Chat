@@ -20,7 +20,6 @@ import {
   type PersistedToolEvent
 } from "@/lib/message-process";
 import { estimateImageCostCents } from "@/lib/models";
-import { maybeNotifyLowBalance } from "@/lib/notifications";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
@@ -545,7 +544,6 @@ export async function POST(request: NextRequest) {
     });
 
     const usage = await getUsageSummary(user.id, { readCache: false });
-    await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
 
     return NextResponse.json({
       conversationId: conversation.id,

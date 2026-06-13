@@ -7,7 +7,6 @@ import {
   getEnabledChatModels,
   type ChatModelConfig
 } from "@/lib/models";
-import { maybeNotifyLowBalance } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, QuotaError } from "@/lib/quota";
 import { resolveApiIdentityPrompt } from "@/lib/system-prompt";
@@ -786,7 +785,6 @@ async function recordUserApiUsage({
       userAgent: audit?.userAgent ?? ""
     }
   });
-  await maybeNotifyLowBalance(userId).catch(() => undefined);
 }
 
 function passthroughHeaders(response: Response) {

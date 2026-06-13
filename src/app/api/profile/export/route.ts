@@ -24,10 +24,8 @@ export async function GET(request: NextRequest) {
     attachments,
     conversations,
     memories,
-    notifications,
     projects,
     sharedLinks,
-    tasks,
     user,
     usageRecords
   ] = await Promise.all([
@@ -101,10 +99,6 @@ export async function GET(request: NextRequest) {
       where: { userId: currentUser.id },
       orderBy: { updatedAt: "desc" }
     }),
-    prisma.userNotification.findMany({
-      where: { userId: currentUser.id },
-      orderBy: { createdAt: "desc" }
-    }),
     prisma.userProject.findMany({
       where: { userId: currentUser.id },
       orderBy: { updatedAt: "desc" }
@@ -119,10 +113,6 @@ export async function GET(request: NextRequest) {
         createdAt: true,
         updatedAt: true
       }
-    }),
-    prisma.userTask.findMany({
-      where: { userId: currentUser.id },
-      orderBy: { createdAt: "desc" }
     }),
     prisma.user.findUnique({
       where: { id: currentUser.id },
@@ -173,10 +163,8 @@ export async function GET(request: NextRequest) {
     attachments,
     conversations,
     memories,
-    notifications,
     projects,
     sharedLinks,
-    tasks,
     usageRecords
   });
 }

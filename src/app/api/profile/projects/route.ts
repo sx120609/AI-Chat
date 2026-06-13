@@ -20,7 +20,6 @@ function projectToView(project: {
     attachments?: number;
     conversations?: number;
     memories?: number;
-    tasks?: number;
   };
   createdAt: Date;
   defaultModel: string;
@@ -39,8 +38,7 @@ function projectToView(project: {
     counts: {
       attachments: project._count?.attachments ?? 0,
       conversations: project._count?.conversations ?? 0,
-      memories: project._count?.memories ?? 0,
-      tasks: project._count?.tasks ?? 0
+      memories: project._count?.memories ?? 0
     },
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString()
@@ -86,8 +84,7 @@ export async function GET(request: NextRequest) {
         select: {
           attachments: true,
           conversations: true,
-          memories: true,
-          tasks: true
+          memories: true
         }
       }
     },
@@ -147,8 +144,7 @@ export async function POST(request: NextRequest) {
         select: {
           attachments: true,
           conversations: true,
-          memories: true,
-          tasks: true
+          memories: true
         }
       }
     }

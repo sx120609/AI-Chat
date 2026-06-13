@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -15,6 +15,15 @@ type SiteConfirmDialogProps = {
   open: boolean;
   title: string;
   tone?: "default" | "danger";
+};
+
+type SiteNoticeDialogProps = {
+  buttonLabel?: string;
+  description?: string;
+  onClose: () => void;
+  open: boolean;
+  title: string;
+  tone?: "error" | "success";
 };
 
 export function SiteConfirmDialog({
@@ -60,7 +69,7 @@ export function SiteConfirmDialog({
   const danger = tone === "danger";
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-end justify-center px-3 pb-3 pt-[calc(0.75rem+var(--app-safe-area-top,0px))] sm:items-center sm:p-6">
+    <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto px-4 py-[calc(1rem+var(--app-safe-area-top,0px))] sm:p-6">
       <button
         aria-label="关闭弹窗"
         className="app-backdrop-enter absolute inset-0 bg-stone-950/28 backdrop-blur-[2px]"
@@ -70,7 +79,7 @@ export function SiteConfirmDialog({
       />
       <section
         aria-modal="true"
-        className="app-dialog-panel app-modal-panel relative w-full max-w-[26rem] overflow-hidden rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-4 text-stone-950 shadow-[0_24px_80px_rgba(18,42,35,0.2)] ring-1 ring-white/70 sm:p-5"
+        className="app-dialog-panel app-modal-panel relative max-h-[calc(100dvh-2rem)] w-full max-w-[26rem] overflow-y-auto rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-4 text-stone-950 shadow-[0_24px_80px_rgba(18,42,35,0.2)] ring-1 ring-white/70 sm:p-5"
         role="dialog"
       >
         <div className="flex items-start gap-3">
@@ -125,6 +134,97 @@ export function SiteConfirmDialog({
             {confirmLabel}
           </button>
         </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+export function SiteNoticeDialog({
+  buttonLabel = "知道了",
+  description,
+  onClose,
+  open,
+  title,
+  tone = "success"
+}: SiteNoticeDialogProps) {
+  const [mounted, setMounted] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  if (!mounted || !open) {
+    return null;
+  }
+
+  const error = tone === "error";
+
+  return createPortal(
+    <div className="fixed inset-0 z-[85] grid place-items-center overflow-y-auto px-4 py-[calc(1rem+var(--app-safe-area-top,0px))] sm:p-6">
+      <button
+        aria-label="关闭提示"
+        className="app-backdrop-enter absolute inset-0 bg-stone-950/24 backdrop-blur-[2px]"
+        onClick={onClose}
+        type="button"
+      />
+      <section
+        aria-modal="true"
+        className="app-dialog-panel app-modal-panel relative max-h-[calc(100dvh-2rem)] w-full max-w-[24rem] overflow-y-auto rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] p-4 text-stone-950 shadow-[0_24px_80px_rgba(18,42,35,0.2)] ring-1 ring-white/70 sm:p-5"
+        role="dialog"
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-full ${
+              error ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            {error ? <AlertTriangle className="size-4" /> : <CheckCircle2 className="size-4" />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-base font-semibold leading-6 text-stone-950">{title}</h2>
+              <button
+                className="app-action-button grid size-8 shrink-0 place-items-center rounded-full text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
+                onClick={onClose}
+                title="关闭"
+                type="button"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            {description ? (
+              <p className="mt-2 text-sm leading-6 text-stone-600">{description}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <button
+          className="ios-button-primary app-action-button mt-5 flex h-10 w-full items-center justify-center px-4 text-sm"
+          onClick={onClose}
+          ref={closeButtonRef}
+          type="button"
+        >
+          {buttonLabel}
+        </button>
       </section>
     </div>,
     document.body

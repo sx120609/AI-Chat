@@ -19,6 +19,7 @@ type RoutePlanBody = {
   content?: string;
   imageToolRequested?: boolean;
   model?: string;
+  projectId?: string | null;
   reuseUserMessageId?: string;
   sourceImageMessageId?: string;
   disableMemoryWrite?: boolean;
@@ -65,7 +66,49 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  if (!isChatModel(body.model, aiSettings.chatModels)) {
+  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+  const securityMode = personalizationSettings.toolPreferences.securityMode;
+  const fileAccessEnabled =
+    personalizationSettings.apps.fileLibrary &&
+    personalizationSettings.toolPreferences.fileAnalysisEnabled;
+  const webSearchRuntimeEnabled = personalizationSettings.apps.webSearch && !securityMode;
+  const requestedAttachmentIds = uniqueAttachmentIds(body.attachmentIds);
+  const temporaryChat = body.temporary === true || securityMode;
+
+  if (securityMode) {
+    if (requestedAttachmentIds.length > 0 || body.sourceImageMessageId) {
+      return jsonError("隐私 / 安全模式已关闭文件和图片输入。", 403);
+    }
+
+    if (body.imageToolRequested) {
+      return jsonError("隐私 / 安全模式已关闭图片生成。", 403);
+    }
+  }
+
+  if (!fileAccessEnabled && requestedAttachmentIds.length > 0) {
+    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+  }
+
+  const requestedProjectId =
+    typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
+  const requestedProject = requestedProjectId
+    ? await prisma.userProject.findFirst({
+        where: { id: requestedProjectId, userId: user.id },
+        select: {
+          id: true,
+          defaultModel: true,
+          memoryScope: true
+        }
+      })
+    : null;
+
+  if (requestedProjectId && !requestedProject) {
+    return jsonError("项目不存在。", 404);
+  }
+
+  const requestedModel = body.model || requestedProject?.defaultModel || undefined;
+
+  if (!isChatModel(requestedModel, aiSettings.chatModels)) {
     return jsonError("模型不在允许列表中。", 400);
   }
 
@@ -79,7 +122,17 @@ export async function POST(request: NextRequest) {
           }
         },
         include: {
-          attachments: true
+          attachments: true,
+          conversation: {
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  memoryScope: true
+                }
+              }
+            }
+          }
         }
       })
     : null;
@@ -88,7 +141,7 @@ export async function POST(request: NextRequest) {
     return jsonError("要继续的用户消息不存在。", 404);
   }
 
-  const attachmentIds = reusedUserMessage ? [] : uniqueAttachmentIds(body.attachmentIds);
+  const attachmentIds = reusedUserMessage ? [] : requestedAttachmentIds;
   const content =
     body.content?.trim() ||
     reusedUserMessage?.content ||
@@ -121,29 +174,46 @@ export async function POST(request: NextRequest) {
   }
 
   const effectiveAttachments = reusedUserMessage ? reusedUserMessage.attachments : attachments;
+
+  if (!fileAccessEnabled && effectiveAttachments.length > 0) {
+    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+  }
+
   const promptClock = normalizePromptClock({
     date: body.clientDate,
     time: body.clientTime,
     timeZone: body.clientTimeZone
   });
-  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+  const effectiveProject = reusedUserMessage?.conversation.project ?? requestedProject;
+  const projectMemoryScope = effectiveProject?.memoryScope ?? "account";
+  const projectAllowsMemory = projectMemoryScope !== "off";
   const memoryWriteEnabled =
     personalizationSettings.savedMemoryEnabled &&
-    personalizationSettings.chatHistoryMemoryEnabled &&
-    body.temporary !== true &&
+    projectAllowsMemory &&
+    !temporaryChat &&
     body.disableMemoryWrite !== true;
   const plan = await planMessageTools({
     attachmentCount: effectiveAttachments.length,
-    forceSearch: body.useWebSearch === true,
+    forceSearch: webSearchRuntimeEnabled && body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
     memoryEnabled: memoryWriteEnabled,
     prompt: content,
     promptClock,
-    settings: aiSettings,
+    settings: webSearchRuntimeEnabled ? aiSettings : { ...aiSettings, webSearchEnabled: false },
     signal: request.signal,
     sourceImageSelected: Boolean(body.sourceImageMessageId)
   });
+
+  if (plan.tool === "image") {
+    if (securityMode) {
+      return jsonError("隐私 / 安全模式已关闭图片生成。", 403);
+    }
+
+    if (!personalizationSettings.toolPreferences.imageGenerationEnabled) {
+      return jsonError("图片生成已在个人中心关闭。", 403);
+    }
+  }
 
   return NextResponse.json({ plan });
 }

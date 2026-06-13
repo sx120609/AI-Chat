@@ -22,21 +22,31 @@ type RouteContext = {
 };
 
 type UpdateConversationBody = {
+  archived?: boolean;
   pinned?: boolean;
+  projectId?: string | null;
   title?: string;
 };
 
 function serializeConversation<
   T extends {
+    archivedAt?: Date | null;
     createdAt: Date;
     pinned?: boolean;
+    project?: { name: string } | null;
+    projectId?: string | null;
     updatedAt: Date;
   }
 >(conversation: T) {
+  const { archivedAt, project, ...rest } = conversation;
+
   return {
-    ...conversation,
+    ...rest,
+    archivedAt: archivedAt?.toISOString() ?? null,
     createdAt: conversation.createdAt.toISOString(),
     pinned: Boolean(conversation.pinned),
+    projectId: conversation.projectId ?? null,
+    projectName: project?.name ?? null,
     updatedAt: conversation.updatedAt.toISOString()
   };
 }
@@ -84,6 +94,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
       model: true,
       mode: true,
       pinned: true,
+      archivedAt: true,
+      projectId: true,
+      project: {
+        select: { name: true }
+      },
       createdAt: true,
       updatedAt: true,
       contextSummary: true,
@@ -117,12 +132,16 @@ export async function GET(request: NextRequest, context: RouteContext) {
           attachments: {
             select: {
               id: true,
+              projectId: true,
               kind: true,
               originalName: true,
               mimeType: true,
               sizeBytes: true,
               extractedText: true,
               storagePath: true,
+              project: {
+                select: { name: true }
+              },
               createdAt: true
             }
           }
@@ -195,6 +214,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
         mode: conversation.mode,
         model: conversation.model,
         pinned: conversation.pinned,
+        project: conversation.project,
+        projectId: conversation.projectId,
         title: conversation.title,
         updatedAt: conversation.updatedAt
       }),
@@ -247,7 +268,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 
   const data: {
+    archivedAt?: Date | null;
     pinned?: boolean;
+    projectId?: string | null;
     title?: string;
   } = {};
 
@@ -265,6 +288,28 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     data.pinned = body.pinned;
   }
 
+  if (typeof body.archived === "boolean") {
+    data.archivedAt = body.archived ? new Date() : null;
+  }
+
+  if ("projectId" in body) {
+    const projectId =
+      typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
+
+    if (projectId) {
+      const project = await prisma.userProject.findFirst({
+        where: { id: projectId, userId: user.id },
+        select: { id: true }
+      });
+
+      if (!project) {
+        return jsonError("项目不存在。", 404);
+      }
+    }
+
+    data.projectId = projectId;
+  }
+
   if (Object.keys(data).length === 0) {
     return jsonError("没有可更新的内容。", 400);
   }
@@ -278,6 +323,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       model: true,
       mode: true,
       pinned: true,
+      archivedAt: true,
+      projectId: true,
+      project: {
+        select: { name: true }
+      },
       createdAt: true,
       updatedAt: true,
       _count: {

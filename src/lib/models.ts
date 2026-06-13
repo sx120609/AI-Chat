@@ -450,7 +450,9 @@ export function isChatModel(modelId: string | undefined, catalog = CHAT_MODELS):
     return false;
   }
 
-  return getEnabledChatModels(catalog).some((model) => model.id === modelId);
+  return getEnabledChatModels(catalog).some(
+    (model) => model.id === modelId || model.upstreamId === modelId
+  );
 }
 
 export function normalizeReasoningEffort(value: unknown): ReasoningEffort {

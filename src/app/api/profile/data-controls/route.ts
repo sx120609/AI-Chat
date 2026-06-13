@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteAttachmentFiles } from "@/lib/attachments";
-import { getUserFromRequest } from "@/lib/auth";
+import { getUserFromRequest, SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
 type DataControlBody = {
-  action?: "archive_chats" | "delete_chats" | "deactivate_account";
+  action?: "archive_chats" | "delete_account" | "delete_chats" | "deactivate_account";
 };
 
 export async function POST(request: NextRequest) {
@@ -69,7 +69,35 @@ export async function POST(request: NextRequest) {
       data: { active: false }
     });
 
-    return NextResponse.json({ action: body.action, affected: 1 });
+    const response = NextResponse.json({ action: body.action, affected: 1 });
+
+    response.cookies.set(SESSION_COOKIE, "", {
+      ...sessionCookieOptions(),
+      maxAge: 0
+    });
+
+    return response;
+  }
+
+  if (body.action === "delete_account") {
+    const attachments = await prisma.attachment.findMany({
+      where: { userId: currentUser.id },
+      select: { storagePath: true }
+    });
+
+    await prisma.user.delete({
+      where: { id: currentUser.id }
+    });
+    await deleteAttachmentFiles(attachments);
+
+    const response = NextResponse.json({ action: body.action, affected: 1 });
+
+    response.cookies.set(SESSION_COOKIE, "", {
+      ...sessionCookieOptions(),
+      maxAge: 0
+    });
+
+    return response;
   }
 
   return jsonError("未知的数据控制操作。", 400);

@@ -12,6 +12,10 @@ const CONVERSATION_UTTERANCE_MEMORY_PATTERN =
 type MemoryLike = {
   id: string;
   content: string;
+  project?: {
+    name: string;
+  } | null;
+  projectId?: string | null;
   source: string;
   archivedAt?: Date | null;
   createdAt: Date;
@@ -96,6 +100,20 @@ function isUsefulMemory(value: string) {
   );
 }
 
+export function prepareMemoryContentForStorage(value: string) {
+  const cleaned = normalizeMemoryContentForStorage(value);
+
+  if (!isUsefulMemory(cleaned)) {
+    throw new Error("记忆内容无效，或包含不适合保存的敏感信息。");
+  }
+
+  return cleaned;
+}
+
+export function memoryHasCallNamePreference(value: string) {
+  return Boolean(extractCallNamePreference(value));
+}
+
 function firstSentence(value: string) {
   return cleanMemoryContent(value.split(/[。.!！?？\n]/)[0] || value);
 }
@@ -170,6 +188,8 @@ export function memoryToView(memory: MemoryLike) {
   return {
     id: memory.id,
     content: memory.content,
+    projectId: memory.projectId ?? null,
+    projectName: memory.project?.name ?? null,
     source: memory.source,
     archivedAt: memory.archivedAt ? memory.archivedAt.toISOString() : null,
     createdAt: memory.createdAt.toISOString(),
@@ -181,12 +201,20 @@ export async function listUserMemories(
   userId: string,
   options: {
     includeArchived?: boolean;
+    includeProjects?: boolean;
+    projectId?: string | null;
   } = {}
 ) {
   const memories = await prisma.userMemory.findMany({
     where: {
       userId,
+      ...(options.includeProjects ? {} : { projectId: options.projectId ?? null }),
       ...(options.includeArchived ? {} : { archivedAt: null })
+    },
+    include: {
+      project: {
+        select: { name: true }
+      }
     },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     take: MAX_MEMORIES_PER_USER
@@ -197,22 +225,20 @@ export async function listUserMemories(
 
 export async function createUserMemory({
   content,
+  projectId = null,
   source = "manual",
   userId
 }: {
   content: string;
+  projectId?: string | null;
   source?: string;
   userId: string;
 }) {
-  const cleaned = normalizeMemoryContentForStorage(content);
+  const cleaned = prepareMemoryContentForStorage(content);
   const callName = extractCallNamePreference(cleaned);
 
-  if (!isUsefulMemory(cleaned)) {
-    throw new Error("记忆内容无效，或包含不适合保存的敏感信息。");
-  }
-
   const existing = await prisma.userMemory.findMany({
-    where: { userId },
+    where: { userId, projectId },
     orderBy: { updatedAt: "desc" },
     take: MAX_MEMORIES_PER_USER
   });
@@ -229,6 +255,7 @@ export async function createUserMemory({
       await prisma.userMemory.updateMany({
         where: {
           id: { in: conflictingCallNameIds },
+          projectId,
           userId
         },
         data: {
@@ -248,6 +275,7 @@ export async function createUserMemory({
   const created = await prisma.userMemory.create({
     data: {
       content: cleaned,
+      projectId,
       source,
       userId
     }
@@ -259,6 +287,7 @@ export async function createUserMemory({
     await prisma.userMemory.deleteMany({
       where: {
         id: { in: overflow.map((memory) => memory.id) },
+        projectId,
         userId
       }
     });
@@ -406,10 +435,12 @@ export function fallbackMemoryDecisionFromMessage(message: string): MemoryToolDe
 
 export async function applyMemoryDecision({
   decision,
+  projectId = null,
   sourceMessageId,
   userId
 }: {
   decision: MemoryToolDecision;
+  projectId?: string | null;
   sourceMessageId?: string;
   userId: string;
 }): Promise<MemoryApplyResult | null> {
@@ -424,7 +455,7 @@ export async function applyMemoryDecision({
   try {
     if (normalized.action === "forget") {
       if (normalized.all) {
-        const deleted = await prisma.userMemory.deleteMany({ where: { userId } });
+        const deleted = await prisma.userMemory.deleteMany({ where: { projectId, userId } });
 
         return {
           action: normalized.action,
@@ -454,7 +485,7 @@ export async function applyMemoryDecision({
         };
       }
 
-      const memories = await prisma.userMemory.findMany({ where: { userId } });
+      const memories = await prisma.userMemory.findMany({ where: { projectId, userId } });
       const queryKey = normalizeMemoryKey(query);
       const matchedIds = memories
         .filter((memory) => normalizeMemoryKey(memory.content).includes(queryKey))
@@ -475,6 +506,7 @@ export async function applyMemoryDecision({
       const deleted = await prisma.userMemory.deleteMany({
         where: {
           id: { in: matchedIds },
+          projectId,
           userId
         }
       });
@@ -495,6 +527,7 @@ export async function applyMemoryDecision({
     for (const item of normalized.items ?? []) {
       const memory = await createOrRefreshChatMemory({
         content: item,
+        projectId,
         sourceMessageId,
         userId
       });
@@ -532,22 +565,27 @@ export async function applyMemoryDecision({
 
 async function createOrRefreshChatMemory({
   content,
+  projectId = null,
   sourceMessageId,
   userId
 }: {
   content: string;
+  projectId?: string | null;
   sourceMessageId?: string;
   userId: string;
 }) {
-  const cleaned = normalizeMemoryContentForStorage(content);
-  const callName = extractCallNamePreference(cleaned);
+  let cleaned: string;
 
-  if (!isUsefulMemory(cleaned)) {
+  try {
+    cleaned = prepareMemoryContentForStorage(content);
+  } catch {
     return null;
   }
 
+  const callName = extractCallNamePreference(cleaned);
+
   const existing = await prisma.userMemory.findMany({
-    where: { userId },
+    where: { userId, projectId },
     orderBy: { updatedAt: "desc" },
     take: MAX_MEMORIES_PER_USER
   });
@@ -565,6 +603,7 @@ async function createOrRefreshChatMemory({
         await prisma.userMemory.updateMany({
           where: {
             id: { in: conflictingCallNameIds },
+            projectId,
             userId
           },
           data: {
@@ -586,6 +625,7 @@ async function createOrRefreshChatMemory({
 
   return createUserMemory({
     content: cleaned,
+    projectId,
     source: "chat",
     userId
   }).then((memory) =>

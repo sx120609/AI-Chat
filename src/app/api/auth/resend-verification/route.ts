@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { VERIFICATION_EMAIL_HINT } from "@/lib/email-copy";
 import { createEmailVerificationToken, sendVerificationEmail } from "@/lib/email-verification";
 import { jsonError, readJson } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -6,7 +7,6 @@ import { normalizeSiteName, normalizeSiteUrl } from "@/lib/site-settings";
 import { describeSmtpError, normalizeEmail, normalizeSmtpSettings } from "@/lib/smtp";
 
 export const runtime = "nodejs";
-const VERIFICATION_EMAIL_HINT = "如果收件箱里没看到，可以检查垃圾邮件或广告邮件。";
 
 type ResendBody = {
   email?: string;
@@ -38,7 +38,9 @@ export async function POST(request: NextRequest) {
   });
 
   if (!user || user.emailVerified) {
-    return NextResponse.json({ message: "如果该邮箱需要验证，系统会发送新的验证邮件。" });
+    return NextResponse.json({
+      message: `如果该邮箱需要验证，系统会发送新的验证邮件。${VERIFICATION_EMAIL_HINT}`
+    });
   }
 
   const settings = await prisma.aiSettings.findUnique({

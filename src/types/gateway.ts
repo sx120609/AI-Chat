@@ -92,6 +92,8 @@ export type UserApiKeyView = {
 export type UserMemoryView = {
   id: string;
   content: string;
+  projectId?: string | null;
+  projectName?: string | null;
   source: string;
   archivedAt?: string | null;
   createdAt: string;
@@ -118,9 +120,12 @@ export type SiteSettingsView = {
 export type ConversationSummary = {
   id: string;
   title: string;
+  projectId?: string | null;
+  projectName?: string | null;
   model: string;
   mode: GenerationMode;
   pinned: boolean;
+  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: {
@@ -157,6 +162,8 @@ export type MessageView = {
 
 export type AttachmentView = {
   id: string;
+  projectId?: string | null;
+  projectName?: string | null;
   kind: AttachmentKind;
   originalName: string;
   mimeType: string;

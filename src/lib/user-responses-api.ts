@@ -7,6 +7,7 @@ import {
   getEnabledChatModels,
   type ChatModelConfig
 } from "@/lib/models";
+import { maybeNotifyLowBalance } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, QuotaError } from "@/lib/quota";
 import { resolveApiIdentityPrompt } from "@/lib/system-prompt";
@@ -711,12 +712,14 @@ function serializeModel(model: ChatModelConfig) {
 }
 
 async function recordUserApiUsage({
+  apiKeyPrefix,
   completionTokensEstimate,
   model,
   promptTokensEstimate,
   upstreamUsage,
   userId
 }: {
+  apiKeyPrefix?: string | null;
   completionTokensEstimate: number;
   model: ChatModelConfig;
   promptTokensEstimate: number;
@@ -740,11 +743,14 @@ async function recordUserApiUsage({
       totalTokens: tokenUsage.totalTokens,
       cachedPromptTokens: tokenUsage.cachedPromptTokens,
       reasoningTokens: tokenUsage.reasoningTokens,
-      usageSource: `user_api:${tokenUsage.usageSource}`,
+      usageSource: apiKeyPrefix
+        ? `user_api:${apiKeyPrefix}:${tokenUsage.usageSource}`
+        : `user_api:${tokenUsage.usageSource}`,
       upstreamUsageJson: tokenUsage.upstreamUsageJson,
       estimatedCostCents: tokenUsage.estimatedCostCents
     }
   });
+  await maybeNotifyLowBalance(userId).catch(() => undefined);
 }
 
 function passthroughHeaders(response: Response) {
@@ -854,6 +860,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     const payload = mockResponsesBody(upstreamBody, model);
 
     await recordUserApiUsage({
+      apiKeyPrefix: authenticated.apiKey.keyPrefix,
       completionTokensEstimate: numberFromUsage(payload.usage.output_tokens),
       model,
       promptTokensEstimate,
@@ -933,6 +940,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
           }
 
           await recordUserApiUsage({
+            apiKeyPrefix: authenticated.apiKey.keyPrefix,
             completionTokensEstimate: Math.max(1, estimateTokens(outputText)),
             model,
             promptTokensEstimate,
@@ -967,6 +975,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
   const upstreamUsage = parseUsage(payload);
 
   await recordUserApiUsage({
+    apiKeyPrefix: authenticated.apiKey.keyPrefix,
     completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(payload))),
     model,
     promptTokensEstimate,
@@ -1037,6 +1046,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     const usage = payload.usage;
 
     await recordUserApiUsage({
+      apiKeyPrefix: authenticated.apiKey.keyPrefix,
       completionTokensEstimate: usage.completion_tokens,
       model,
       promptTokensEstimate,
@@ -1120,6 +1130,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
           }
 
           await recordUserApiUsage({
+            apiKeyPrefix: authenticated.apiKey.keyPrefix,
             completionTokensEstimate: Math.max(1, estimateTokens(outputText)),
             model,
             promptTokensEstimate,
@@ -1153,6 +1164,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
   const upstreamUsage = parseUsage(payload);
   await recordUserApiUsage({
+    apiKeyPrefix: authenticated.apiKey.keyPrefix,
     completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(payload))),
     model,
     promptTokensEstimate,

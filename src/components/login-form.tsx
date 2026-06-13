@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { Loader2, LogIn, Mail, UserPlus } from "lucide-react";
+import { VERIFICATION_EMAIL_HINT } from "@/lib/email-copy";
 import type { PublicAuthSettingsView } from "@/types/gateway";
 
 type LoginFormProps = {
@@ -9,8 +10,6 @@ type LoginFormProps = {
 };
 
 type AuthMode = "login" | "register";
-
-const VERIFICATION_EMAIL_HINT = "如果收件箱里没看到，可以检查垃圾邮件或广告邮件。";
 
 export function LoginForm({ authSettings }: LoginFormProps) {
   const [mode, setMode] = useState<AuthMode>("login");
@@ -166,15 +165,18 @@ export function LoginForm({ authSettings }: LoginFormProps) {
         </div>
       ) : null}
       {errorCode === "EMAIL_UNVERIFIED" ? (
-        <button
-          className="ios-button-secondary app-action-button flex h-10 w-full items-center justify-center gap-2 px-4 text-sm disabled:opacity-60"
-          disabled={resending || !email}
-          onClick={resendVerification}
-          type="button"
-        >
-          {resending ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
-          重发验证邮件
-        </button>
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">{VERIFICATION_EMAIL_HINT}</p>
+          <button
+            className="ios-button-secondary app-action-button flex h-10 w-full items-center justify-center gap-2 px-4 text-sm disabled:opacity-60"
+            disabled={resending || !email}
+            onClick={resendVerification}
+            type="button"
+          >
+            {resending ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+            重发验证邮件
+          </button>
+        </div>
       ) : null}
       <button
         className="ios-button-primary app-action-button flex h-11 w-full items-center justify-center gap-2 px-4 disabled:opacity-60"

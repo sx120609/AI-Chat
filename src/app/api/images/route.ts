@@ -8,6 +8,7 @@ import {
   readAttachmentBuffer
 } from "@/lib/attachments";
 import { ensureAttachmentsMetadata } from "@/lib/attachment-repair";
+import { markUserAppConnectorUsed } from "@/lib/connectors";
 import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
@@ -19,6 +20,8 @@ import {
   type PersistedToolEvent
 } from "@/lib/message-process";
 import { estimateImageCostCents } from "@/lib/models";
+import { maybeNotifyLowBalance } from "@/lib/notifications";
+import { parsePersonalizationSettings } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
 import { compactTitle, estimateTokens } from "@/lib/tokens";
@@ -29,6 +32,7 @@ export const dynamic = "force-dynamic";
 
 type ImageBody = {
   conversationId?: string;
+  projectId?: string | null;
   model?: string;
   prompt?: string;
   size?: string;
@@ -184,6 +188,19 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "生图失败。", 400);
   }
 
+  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+  const fileAccessEnabled =
+    personalizationSettings.apps.fileLibrary &&
+    personalizationSettings.toolPreferences.fileAnalysisEnabled;
+
+  if (personalizationSettings.toolPreferences.securityMode) {
+    return jsonError("隐私 / 安全模式已关闭图片生成。", 403);
+  }
+
+  if (!personalizationSettings.toolPreferences.imageGenerationEnabled) {
+    return jsonError("图片生成已在个人中心关闭。", 403);
+  }
+
   const reusedUserMessage = body.reuseUserMessageId
     ? await prisma.message.findFirst({
         where: {
@@ -198,6 +215,9 @@ export async function POST(request: NextRequest) {
           attachments: true,
           conversation: {
             include: {
+              project: {
+                select: { id: true }
+              },
               _count: {
                 select: { messages: true }
               }
@@ -231,6 +251,19 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
+  const requestedProjectId =
+    typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
+  const requestedProject = requestedProjectId
+    ? await prisma.userProject.findFirst({
+        where: { id: requestedProjectId, userId: user.id },
+        select: { id: true }
+      })
+    : null;
+
+  if (requestedProjectId && !requestedProject) {
+    return jsonError("项目不存在。", 404);
+  }
+
   const existingConversation = reusedUserMessage
     ? reusedUserMessage.conversation
     : body.conversationId
@@ -238,11 +271,14 @@ export async function POST(request: NextRequest) {
           where: {
             id: body.conversationId,
             userId: user.id
+        },
+        include: {
+          project: {
+            select: { id: true }
           },
-          include: {
-            _count: {
-              select: { messages: true }
-            }
+          _count: {
+            select: { messages: true }
+          }
           }
         })
     : null;
@@ -250,6 +286,8 @@ export async function POST(request: NextRequest) {
   if ((body.conversationId || body.reuseUserMessageId) && !existingConversation) {
     return jsonError("会话不存在。", 404);
   }
+
+  const effectiveProjectId = existingConversation?.project?.id ?? requestedProject?.id ?? null;
 
   const attachments = attachmentIds.length
     ? await ensureAttachmentsMetadata(
@@ -273,6 +311,16 @@ export async function POST(request: NextRequest) {
   const effectiveAttachments = reusedUserMessage
     ? await ensureAttachmentsMetadata(reusedUserMessage.attachments)
     : attachments;
+
+  if (!fileAccessEnabled && effectiveAttachments.length > 0) {
+    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+  }
+
+  if (effectiveAttachments.length > 0) {
+    await markUserAppConnectorUsed({ provider: "fileLibrary", userId: user.id }).catch(
+      () => undefined
+    );
+  }
 
   const sourceImageMessage = body.sourceImageMessageId
     ? await prisma.message.findFirst({
@@ -314,11 +362,15 @@ export async function POST(request: NextRequest) {
     (await prisma.conversation.create({
       data: {
         userId: user.id,
+        projectId: effectiveProjectId,
         title: compactTitle(prompt),
         model: "image2",
         mode: "IMAGE"
       },
       include: {
+        project: {
+          select: { id: true }
+        },
         _count: {
           select: { messages: true }
         }
@@ -387,6 +439,7 @@ export async function POST(request: NextRequest) {
         userId: user.id
       },
       data: {
+        projectId: effectiveProjectId,
         conversationId: conversation.id,
         messageId: userMessage.id
       }
@@ -488,6 +541,7 @@ export async function POST(request: NextRequest) {
     });
 
     const usage = await getUsageSummary(user.id, { readCache: false });
+    await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
 
     return NextResponse.json({
       conversationId: conversation.id,

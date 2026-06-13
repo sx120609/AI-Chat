@@ -272,7 +272,7 @@ button:disabled {
 }
 
 .app-modal-panel {
-  transform-origin: center bottom;
+  transform-origin: center;
 }
 
 .app-reveal {

@@ -17,6 +17,10 @@ const MAX_ARCHIVE_ENTRY_BYTES = 8 * 1024 * 1024;
 
 type AttachmentLike = {
   id: string;
+  project?: {
+    name: string;
+  } | null;
+  projectId?: string | null;
   kind: string;
   originalName: string;
   mimeType: string;
@@ -639,6 +643,8 @@ export function attachmentToView(attachment: AttachmentLike): AttachmentView {
 
   return {
     id: attachment.id,
+    projectId: attachment.projectId ?? null,
+    projectName: attachment.project?.name ?? null,
     kind,
     originalName: attachment.originalName,
     mimeType: attachment.mimeType,

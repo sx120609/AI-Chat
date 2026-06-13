@@ -14,6 +14,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { prepareMarkdownForRendering } from "@/lib/markdown";
 import type {
   AttachmentKind,
   AttachmentView,
@@ -168,6 +169,7 @@ function SharedMessage({
 }) {
   const isUser = message.role === "USER";
   const label = isUser ? "用户" : `AI · ${messageModel(message, conversationModel)}`;
+  const renderedContent = isUser ? message.content : prepareMarkdownForRendering(message.content);
 
   return (
     <article className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -208,7 +210,7 @@ function SharedMessage({
                 rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
                 remarkPlugins={[remarkGfm, remarkMath]}
               >
-                {message.content}
+                {renderedContent}
               </ReactMarkdown>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "crypto";
+import { VERIFICATION_EMAIL_HINT } from "@/lib/email-copy";
 import { prisma } from "@/lib/prisma";
 import { sendSmtpMail, type SmtpSettings } from "@/lib/smtp";
 
@@ -71,6 +72,8 @@ export async function sendVerificationEmail({
     "",
     verificationUrl,
     "",
+    VERIFICATION_EMAIL_HINT,
+    "",
     "如果不是你本人操作，可以忽略这封邮件。"
   ].join("\n");
   const html = `
@@ -83,6 +86,7 @@ export async function sendVerificationEmail({
       </p>
       <p style="color:#746b62;font-size:13px">如果按钮不可用，请复制下面的链接到浏览器打开：</p>
       <p style="word-break:break-all;color:#746b62;font-size:13px">${verificationUrl}</p>
+      <p style="color:#746b62;font-size:13px">${VERIFICATION_EMAIL_HINT}</p>
       <p style="color:#746b62;font-size:13px">如果不是你本人操作，可以忽略这封邮件。</p>
     </div>
   `;

@@ -5,7 +5,9 @@ import {
   validateAttachment
 } from "@/lib/attachments";
 import { getUserFromRequest } from "@/lib/auth";
+import { markUserAppConnectorUsed } from "@/lib/connectors";
 import { jsonError, requireActiveUser } from "@/lib/http";
+import { parsePersonalizationSettings } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -23,6 +25,19 @@ export async function POST(request: NextRequest) {
     return authError;
   }
 
+  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+
+  if (personalizationSettings.toolPreferences.securityMode) {
+    return jsonError("隐私 / 安全模式已关闭文件上传。", 403);
+  }
+
+  if (
+    !personalizationSettings.apps.fileLibrary ||
+    !personalizationSettings.toolPreferences.fileAnalysisEnabled
+  ) {
+    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+  }
+
   const formData = await request.formData().catch(() => null);
 
   if (!formData) {
@@ -33,6 +48,9 @@ export async function POST(request: NextRequest) {
     .getAll("files")
     .filter((item): item is File => item instanceof File && item.size > 0);
   const temporary = formData.get("temporary") === "1";
+  const projectIdValue = formData.get("projectId");
+  const projectId =
+    typeof projectIdValue === "string" && projectIdValue.trim() ? projectIdValue.trim() : null;
 
   if (files.length === 0) {
     return jsonError("请选择要上传的文件。", 400);
@@ -40,6 +58,17 @@ export async function POST(request: NextRequest) {
 
   if (files.length > 8) {
     return jsonError("一次最多上传 8 个附件。", 400);
+  }
+
+  if (projectId) {
+    const project = await prisma.userProject.findFirst({
+      where: { id: projectId, userId: user.id },
+      select: { id: true }
+    });
+
+    if (!project) {
+      return jsonError("项目不存在。", 404);
+    }
   }
 
   const attachments = [];
@@ -63,6 +92,7 @@ export async function POST(request: NextRequest) {
         const attachment = await prisma.attachment.create({
           data: {
             userId: user.id,
+            projectId,
             kind,
             originalName: file.name,
             mimeType,
@@ -83,6 +113,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "附件上传失败。", 400);
   }
+
+  await markUserAppConnectorUsed({ provider: "fileLibrary", userId: user.id }).catch(
+    () => undefined
+  );
 
   return NextResponse.json({ attachments });
 }

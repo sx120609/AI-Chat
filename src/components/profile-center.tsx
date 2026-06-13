@@ -36,7 +36,7 @@ import {
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DocumentTitle } from "@/components/document-title";
-import { SiteConfirmDialog } from "@/components/site-dialog";
+import { SiteConfirmDialog, SiteNoticeDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
 import { formatCents, formatNumber } from "@/lib/format";
 import {
@@ -59,6 +59,7 @@ import type {
 
 type ProfileCenterProps = {
   apiModels: ChatModelView[];
+  chatModels: ChatModelView[];
   initialUser: UserView;
   initialUsage: UsageSummary;
   siteSettings: SiteSettingsView;
@@ -89,8 +90,29 @@ type SharedLinksPayload = {
   links: SharedLinkView[];
 };
 
+type ArchivedConversationView = {
+  _count?: {
+    messages: number;
+  };
+  archivedAt?: string | null;
+  createdAt: string;
+  id: string;
+  mode: string;
+  model: string;
+  projectId?: string | null;
+  projectName?: string | null;
+  title: string;
+  updatedAt: string;
+};
+
+type ArchivedConversationsPayload = {
+  conversations: ArchivedConversationView[];
+};
+
 type FileLibraryItem = {
   id: string;
+  projectId?: string | null;
+  projectName?: string | null;
   conversationId?: string | null;
   messageId?: string | null;
   kind: string;
@@ -105,6 +127,10 @@ type FileLibraryItem = {
 
 type FileLibraryPayload = {
   files: FileLibraryItem[];
+  hasMore?: boolean;
+  limit?: number;
+  offset?: number;
+  total?: number;
 };
 
 type UsageBucketView = {
@@ -120,12 +146,14 @@ type UsageBucketView = {
 };
 
 type UsageBreakdownPayload = {
+  byApiKey?: UsageBucketView[];
   byMode: UsageBucketView[];
   byModel: UsageBucketView[];
   byMonth: UsageBucketView[];
   bySurface: UsageBucketView[];
   generatedAt: string;
   recentRecords: Array<{
+    apiKeyLabel?: string | null;
     createdAt: string;
     estimatedCostCents: number;
     id: string;
@@ -142,9 +170,100 @@ type UsageBreakdownPayload = {
   };
 };
 
-type ProfileTab = "overview" | "personalization" | "memory" | "tools" | "data" | "security" | "api";
-type DataControlAction = "archive_chats" | "delete_chats" | "deactivate_account" | "clear_shared_links";
+type UserTaskView = {
+  id: string;
+  title: string;
+  prompt: string;
+  projectId?: string | null;
+  projectName?: string | null;
+  schedule: string;
+  timezone: string;
+  enabled: boolean;
+  nextRunAt?: string | null;
+  lastRunAt?: string | null;
+  lastStatus: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type TasksPayload = {
+  tasks: UserTaskView[];
+};
+
+type UserProjectView = {
+  counts?: {
+    attachments: number;
+    conversations: number;
+    memories: number;
+    tasks: number;
+  };
+  id: string;
+  name: string;
+  instructions: string;
+  memoryScope: string;
+  defaultModel: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ProjectsPayload = {
+  projects: UserProjectView[];
+};
+
+type UserNotificationView = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+  readAt?: string | null;
+  emailedAt?: string | null;
+  createdAt: string;
+};
+
+type NotificationsPayload = {
+  notifications: UserNotificationView[];
+  unreadCount: number;
+};
+
+type AppConnectorStatus = "connected" | "disconnected" | "needs_setup";
+
+type AppConnectorView = {
+  authorizedAt?: string | null;
+  description: string;
+  enabled: boolean;
+  id?: string | null;
+  label: string;
+  lastUsedAt?: string | null;
+  metadata?: Record<string, unknown>;
+  provider: keyof PersonalizationSettings["apps"];
+  revokedAt?: string | null;
+  scope: string;
+  status: AppConnectorStatus;
+  updatedAt?: string | null;
+};
+
+type ConnectorsPayload = {
+  connectors: AppConnectorView[];
+};
+
+type ProfileTab =
+  | "overview"
+  | "personalization"
+  | "memory"
+  | "tools"
+  | "apps"
+  | "data"
+  | "security"
+  | "api";
+type DataControlAction =
+  | "archive_chats"
+  | "delete_account"
+  | "delete_chats"
+  | "deactivate_account"
+  | "clear_shared_links";
 type InstructionPreset = "concise" | "professional" | "teaching" | "code" | "life";
+type TaskPreset = "balance" | "daily" | "learning" | "reminder";
 type ApiGuideTool = "codex" | "opencode" | "claude-router";
 type ApiGuideOs = "unix" | "windows";
 const LOWIQ_API_KEY_ENV = "LOWIQ_API_KEY";
@@ -158,6 +277,34 @@ function memorySourceLabel(source: string) {
   return source === "chat" ? "聊天保存" : "手动添加";
 }
 
+function projectMemoryScopeLabel(scope: string) {
+  if (scope === "project") {
+    return "仅项目范围";
+  }
+
+  if (scope === "off") {
+    return "不引用记忆";
+  }
+
+  return "引用账号记忆";
+}
+
+function taskScheduleLabel(schedule: string) {
+  if (schedule === "daily") {
+    return "每天";
+  }
+
+  if (schedule === "weekly") {
+    return "每周";
+  }
+
+  if (schedule === "monthly") {
+    return "每月";
+  }
+
+  return "一次";
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -168,6 +315,90 @@ function formatBytes(bytes: number) {
   }
 
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function localDateTimeInputValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+
+  return [
+    date.getFullYear(),
+    "-",
+    pad(date.getMonth() + 1),
+    "-",
+    pad(date.getDate()),
+    "T",
+    pad(date.getHours()),
+    ":",
+    pad(date.getMinutes())
+  ].join("");
+}
+
+function nextPresetRunAt(preset: TaskPreset) {
+  const next = new Date();
+
+  if (preset === "daily") {
+    next.setHours(18, 0, 0, 0);
+
+    if (next.getTime() <= Date.now()) {
+      next.setDate(next.getDate() + 1);
+    }
+
+    return localDateTimeInputValue(next);
+  }
+
+  if (preset === "learning") {
+    next.setDate(next.getDate() + 1);
+    next.setHours(20, 0, 0, 0);
+
+    return localDateTimeInputValue(next);
+  }
+
+  if (preset === "balance") {
+    next.setDate(next.getDate() + 1);
+    next.setHours(9, 0, 0, 0);
+
+    return localDateTimeInputValue(next);
+  }
+
+  next.setHours(next.getHours() + 1, 0, 0, 0);
+
+  return localDateTimeInputValue(next);
+}
+
+function nextScheduleRunAt(schedule: string) {
+  const next = new Date();
+
+  if (schedule === "daily") {
+    next.setHours(18, 0, 0, 0);
+
+    if (next.getTime() <= Date.now()) {
+      next.setDate(next.getDate() + 1);
+    }
+
+    return localDateTimeInputValue(next);
+  }
+
+  if (schedule === "weekly") {
+    next.setDate(next.getDate() + 7);
+    next.setHours(9, 0, 0, 0);
+
+    return localDateTimeInputValue(next);
+  }
+
+  if (schedule === "monthly") {
+    next.setMonth(next.getMonth() + 1);
+    next.setHours(9, 0, 0, 0);
+
+    return localDateTimeInputValue(next);
+  }
+
+  next.setHours(next.getHours() + 1, 0, 0, 0);
+
+  return localDateTimeInputValue(next);
+}
+
+function resolveChatModelId(value: string, models: ChatModelView[]) {
+  return models.find((model) => model.id === value || model.upstreamId === value)?.id ?? "";
 }
 
 type SelectOption<T extends string> = {
@@ -204,6 +435,19 @@ const REASONING_OPTIONS: SelectOption<ReasoningEffort>[] = [
   { label: "极高", value: "xhigh" }
 ];
 
+const MEMORY_SCOPE_OPTIONS = [
+  { label: "引用账号记忆", value: "account" },
+  { label: "仅项目范围", value: "project" },
+  { label: "不引用记忆", value: "off" }
+];
+
+const TASK_SCHEDULE_OPTIONS = [
+  { label: "一次", value: "once" },
+  { label: "每天", value: "daily" },
+  { label: "每周", value: "weekly" },
+  { label: "每月", value: "monthly" }
+];
+
 const INSTRUCTION_PRESETS: Array<{
   id: InstructionPreset;
   label: string;
@@ -225,6 +469,53 @@ const APP_SETTING_OPTIONS: Array<{
   { icon: FileIcon, key: "fileLibrary", label: "文件库" },
   { icon: PlugZap, key: "mcpConnectors", label: "第三方 MCP" },
   { icon: Bot, key: "knowledgeBase", label: "知识库" }
+];
+
+const TASK_PRESETS: Array<{
+  description: string;
+  icon: typeof Clock3;
+  id: TaskPreset;
+  label: string;
+  schedule: string;
+  title: string;
+  prompt: string;
+}> = [
+  {
+    id: "reminder",
+    icon: Bell,
+    label: "定时提示",
+    description: "一次性提醒",
+    schedule: "once",
+    title: "定时提示",
+    prompt: "请在这个时间提醒我：把这里改成你要提醒的事情。"
+  },
+  {
+    id: "daily",
+    icon: Clock3,
+    label: "每日总结",
+    description: "每天复盘",
+    schedule: "daily",
+    title: "每日总结",
+    prompt: "请帮我总结今天的重点、完成事项、待跟进事项，并给出明天最重要的 3 个优先事项。"
+  },
+  {
+    id: "learning",
+    icon: BookOpen,
+    label: "定期学习",
+    description: "每周计划",
+    schedule: "weekly",
+    title: "每周学习计划",
+    prompt: "请为我安排本周的学习计划：给出主题、每日小任务、练习方式和复盘问题。"
+  },
+  {
+    id: "balance",
+    icon: Database,
+    label: "余额提醒",
+    description: "每周检查",
+    schedule: "weekly",
+    title: "余额与用量检查",
+    prompt: "请提醒我检查本月 AI 使用量和余额情况，并列出需要关注的模型消耗、API 使用和图片生成开销。"
+  }
 ];
 
 const profileTabs: Array<{
@@ -254,8 +545,14 @@ const profileTabs: Array<{
   {
     id: "tools",
     label: "工具",
-    description: "搜索、模型与连接器",
+    description: "搜索、模型与安全模式",
     icon: SlidersHorizontal
+  },
+  {
+    id: "apps",
+    label: "应用",
+    description: "连接器与授权",
+    icon: PlugZap
   },
   {
     id: "data",
@@ -764,6 +1061,22 @@ function ToggleRow({
   );
 }
 
+function connectorStatusLabel(status: AppConnectorStatus, enabled: boolean) {
+  if (status === "connected" && enabled) {
+    return "已授权";
+  }
+
+  if (status === "connected") {
+    return "已授权 · 已停用";
+  }
+
+  if (status === "needs_setup") {
+    return "待配置";
+  }
+
+  return "未授权";
+}
+
 function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title: string }) {
   return (
     <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/45 p-3">
@@ -789,6 +1102,47 @@ function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title
               </p>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UsageTrendChart({ buckets }: { buckets: UsageBucketView[] }) {
+  const chronological = [...buckets].sort((left, right) => left.key.localeCompare(right.key)).slice(-12);
+  const maxCost = Math.max(1, ...chronological.map((bucket) => bucket.costCents));
+
+  return (
+    <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/45 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-stone-950">月度趋势图</h3>
+        <span className="text-xs ios-muted">{chronological.length} 个月</span>
+      </div>
+      {chronological.length === 0 ? (
+        <p className="py-8 text-center text-sm ios-muted">暂无月度数据</p>
+      ) : (
+        <div className="grid min-h-52 grid-cols-[repeat(auto-fit,minmax(3.25rem,1fr))] items-end gap-3">
+          {chronological.map((bucket) => {
+            const percent = Math.max(7, Math.round((bucket.costCents / maxCost) * 100));
+
+            return (
+              <div className="grid h-52 grid-rows-[1fr_auto] gap-2" key={bucket.key}>
+                <div className="flex h-full items-end rounded-lg bg-white/60 px-2 py-2">
+                  <div
+                    aria-label={`${bucket.label} ${formatCents(bucket.costCents)}`}
+                    className="w-full rounded-md bg-[color:var(--claude-accent)] shadow-sm"
+                    style={{ height: `${percent}%` }}
+                    title={`${bucket.label} · ${formatCents(bucket.costCents)} · ${formatNumber(bucket.totalTokens)} tokens`}
+                  />
+                </div>
+                <div className="min-w-0 text-center">
+                  <p className="truncate text-xs font-semibold text-stone-900">{bucket.label}</p>
+                  <p className="truncate text-[11px] ios-muted">{formatCents(bucket.costCents)}</p>
+                  <p className="truncate text-[11px] ios-muted">{formatNumber(bucket.records)} 条</p>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -911,11 +1265,11 @@ function ApiGuideDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-stone-950/35 px-3 pb-3 pt-[calc(0.75rem+var(--app-safe-area-top,0px))] backdrop-blur-sm sm:items-center sm:p-6">
+    <div className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-stone-950/35 px-3 py-[calc(1rem+var(--app-safe-area-top,0px))] backdrop-blur-sm sm:p-6">
       <button aria-label="关闭教程" className="absolute inset-0" onClick={onClose} type="button" />
       <section
         aria-modal="true"
-        className="app-modal-panel relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] text-stone-950 shadow-[0_26px_90px_rgba(18,42,35,0.24)] ring-1 ring-white/70"
+        className="app-modal-panel relative flex max-h-[min(44rem,calc(100dvh-2rem))] w-full max-w-4xl flex-col overflow-hidden rounded-[1.25rem] border border-[color:var(--ios-separator)] bg-[color:var(--claude-surface)] text-stone-950 shadow-[0_26px_90px_rgba(18,42,35,0.24)] ring-1 ring-white/70"
         role="dialog"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4 sm:px-6">
@@ -1156,7 +1510,13 @@ function ApiGuideDialog({
   );
 }
 
-export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettings }: ProfileCenterProps) {
+export function ProfileCenter({
+  apiModels,
+  chatModels,
+  initialUser,
+  initialUsage,
+  siteSettings
+}: ProfileCenterProps) {
   const [user, setUser] = useState(initialUser);
   const [name, setName] = useState(initialUser.name);
   const [personalization, setPersonalization] = useState<PersonalizationSettings>(() =>
@@ -1168,13 +1528,34 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
   const [apiKeyName, setApiKeyName] = useState("个人 API Key");
   const [apiKeys, setApiKeys] = useState<UserApiKeyView[]>([]);
   const [memories, setMemories] = useState<UserMemoryView[]>([]);
+  const [archivedConversations, setArchivedConversations] = useState<ArchivedConversationView[]>([]);
   const [sharedLinks, setSharedLinks] = useState<SharedLinkView[]>([]);
   const [fileLibrary, setFileLibrary] = useState<FileLibraryItem[]>([]);
+  const [fileLibraryHasMore, setFileLibraryHasMore] = useState(false);
+  const [fileLibraryTotal, setFileLibraryTotal] = useState(0);
   const [usageBreakdown, setUsageBreakdown] = useState<UsageBreakdownPayload | null>(null);
+  const [tasks, setTasks] = useState<UserTaskView[]>([]);
+  const [projects, setProjects] = useState<UserProjectView[]>([]);
+  const [notifications, setNotifications] = useState<UserNotificationView[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [connectors, setConnectors] = useState<AppConnectorView[]>([]);
+  const [taskTitle, setTaskTitle] = useState("每日总结");
+  const [taskPrompt, setTaskPrompt] = useState("请帮我总结今天的重点，并给出明天的优先事项。");
+  const [taskSchedule, setTaskSchedule] = useState("daily");
+  const [taskNextRunAt, setTaskNextRunAt] = useState(() => nextScheduleRunAt("daily"));
+  const [taskProjectId, setTaskProjectId] = useState("");
+  const [projectName, setProjectName] = useState("工作项目");
+  const [projectInstructions, setProjectInstructions] = useState("");
+  const [projectMemoryScope, setProjectMemoryScope] = useState("account");
+  const [projectDefaultModel, setProjectDefaultModel] = useState("");
+  const [fileProjectFilter, setFileProjectFilter] = useState("");
   const [newMemoryContent, setNewMemoryContent] = useState("");
+  const [newMemoryProjectId, setNewMemoryProjectId] = useState("");
   const [canCreateApiKey, setCanCreateApiKey] = useState(user.userGroup === "VIP");
   const [origin, setOrigin] = useState("");
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
+  const [deleteArchivedConversationTarget, setDeleteArchivedConversationTarget] =
+    useState<ArchivedConversationView | null>(null);
   const [deleteMemoryId, setDeleteMemoryId] = useState<string | null>(null);
   const [clearMemoriesOpen, setClearMemoriesOpen] = useState(false);
   const [dataControlAction, setDataControlAction] = useState<DataControlAction | null>(null);
@@ -1188,10 +1569,21 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [loadingMemories, setLoadingMemories] = useState(true);
   const [loadingDataLists, setLoadingDataLists] = useState(true);
+  const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
+  const [loadingConnectors, setLoadingConnectors] = useState(true);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
   const [savingDataAction, setSavingDataAction] = useState(false);
+  const [savingArchivedConversationId, setSavingArchivedConversationId] = useState<string | null>(null);
   const [savingFileId, setSavingFileId] = useState<string | null>(null);
   const [savingSharedLinkId, setSavingSharedLinkId] = useState<string | null>(null);
+  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [runningDueTasks, setRunningDueTasks] = useState(false);
+  const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
+  const [savingNotificationId, setSavingNotificationId] = useState<string | null>(null);
+  const [savingConnectorProvider, setSavingConnectorProvider] = useState<string | null>(null);
   const [savingMemory, setSavingMemory] = useState(false);
   const [creatingKey, setCreatingKey] = useState(false);
   const [notice, setNotice] = useState("");
@@ -1232,11 +1624,15 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
   const loadDataLists = useCallback(async () => {
     setLoadingDataLists(true);
-    const [sharedResponse, fileResponse, usageResponse] = await Promise.all([
+    const [archivedResponse, sharedResponse, fileResponse, usageResponse] = await Promise.all([
+      fetch("/api/conversations?archived=1"),
       fetch("/api/profile/shared-links"),
-      fetch("/api/profile/file-library"),
+      fetch("/api/profile/file-library?limit=100&offset=0"),
       fetch("/api/profile/usage")
     ]);
+    const archivedPayload = (await archivedResponse.json().catch(() => null)) as
+      | (ArchivedConversationsPayload & { error?: string })
+      | null;
     const sharedPayload = (await sharedResponse.json().catch(() => null)) as
       | (SharedLinksPayload & { error?: string })
       | null;
@@ -1247,6 +1643,12 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
       | (UsageBreakdownPayload & { error?: string })
       | null;
 
+    if (archivedResponse.ok && archivedPayload) {
+      setArchivedConversations(archivedPayload.conversations);
+    } else {
+      setError(archivedPayload?.error || "读取已归档聊天失败。");
+    }
+
     if (sharedResponse.ok && sharedPayload) {
       setSharedLinks(sharedPayload.links);
     } else {
@@ -1255,6 +1657,8 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
     if (fileResponse.ok && filePayload) {
       setFileLibrary(filePayload.files);
+      setFileLibraryHasMore(Boolean(filePayload.hasMore));
+      setFileLibraryTotal(filePayload.total ?? filePayload.files.length);
     } else {
       setError(filePayload?.error || "读取文件库失败。");
     }
@@ -1268,12 +1672,117 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
     setLoadingDataLists(false);
   }, []);
 
+  const loadMoreFiles = useCallback(async () => {
+    if (loadingMoreFiles || !fileLibraryHasMore) {
+      return;
+    }
+
+    setLoadingMoreFiles(true);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/file-library?limit=100&offset=${fileLibrary.length}`);
+    const payload = (await response.json().catch(() => null)) as
+      | (FileLibraryPayload & { error?: string })
+      | null;
+
+    if (!response.ok || !payload) {
+      setError(payload?.error || "读取更多文件失败。");
+    } else {
+      setFileLibrary((current) => {
+        const seen = new Set(current.map((file) => file.id));
+        return [...current, ...payload.files.filter((file) => !seen.has(file.id))];
+      });
+      setFileLibraryHasMore(Boolean(payload.hasMore));
+      setFileLibraryTotal(payload.total ?? fileLibraryTotal);
+    }
+
+    setLoadingMoreFiles(false);
+  }, [fileLibrary.length, fileLibraryHasMore, fileLibraryTotal, loadingMoreFiles]);
+
+  const loadTasks = useCallback(async () => {
+    setLoadingTasks(true);
+    const response = await fetch("/api/profile/tasks");
+    const payload = (await response.json().catch(() => null)) as
+      | (TasksPayload & { error?: string })
+      | null;
+
+    if (response.ok && payload) {
+      setTasks(payload.tasks);
+    } else {
+      setError(payload?.error || "读取任务失败。");
+    }
+
+    setLoadingTasks(false);
+  }, []);
+
+  const loadProjects = useCallback(async () => {
+    setLoadingProjects(true);
+    const response = await fetch("/api/profile/projects");
+    const payload = (await response.json().catch(() => null)) as
+      | (ProjectsPayload & { error?: string })
+      | null;
+
+    if (response.ok && payload) {
+      setProjects(payload.projects);
+    } else {
+      setError(payload?.error || "读取项目偏好失败。");
+    }
+
+    setLoadingProjects(false);
+  }, []);
+
+  const loadNotifications = useCallback(async () => {
+    setLoadingNotifications(true);
+    const response = await fetch("/api/profile/notifications");
+    const payload = (await response.json().catch(() => null)) as
+      | (NotificationsPayload & { error?: string })
+      | null;
+
+    if (response.ok && payload) {
+      setNotifications(payload.notifications);
+      setUnreadNotificationCount(payload.unreadCount);
+    } else {
+      setError(payload?.error || "读取通知失败。");
+    }
+
+    setLoadingNotifications(false);
+  }, []);
+
+  const loadConnectors = useCallback(async () => {
+    setLoadingConnectors(true);
+    const response = await fetch("/api/profile/connectors");
+    const payload = (await response.json().catch(() => null)) as
+      | (ConnectorsPayload & { error?: string })
+      | null;
+
+    if (response.ok && payload) {
+      setConnectors(payload.connectors);
+    } else {
+      setError(payload?.error || "读取连接器失败。");
+    }
+
+    setLoadingConnectors(false);
+  }, []);
+
   useEffect(() => {
     setOrigin(window.location.origin);
     void loadApiKeys();
+    void loadConnectors();
     void loadDataLists();
     void loadMemories();
-  }, [loadApiKeys, loadDataLists, loadMemories]);
+    void loadNotifications();
+    void loadProjects();
+    void loadTasks();
+  }, [
+    loadApiKeys,
+    loadConnectors,
+    loadDataLists,
+    loadMemories,
+    loadNotifications,
+    loadProjects,
+    loadTasks
+  ]);
 
   const revealableApiKeys = useMemo(() => apiKeys.filter((key) => key.apiKey), [apiKeys]);
   const selectedGuideApiKey = useMemo(
@@ -1292,12 +1801,32 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
     [memories]
   );
   const visibleMemories = showArchivedMemories ? memories : activeMemories;
+  const connectorByProvider = useMemo(
+    () => new Map(connectors.map((connector) => [connector.provider, connector])),
+    [connectors]
+  );
+  const activeConnectors = useMemo(
+    () => connectors.filter((connector) => connector.enabled && connector.status === "connected"),
+    [connectors]
+  );
+  const visibleFileLibrary = useMemo(
+    () => {
+      if (fileProjectFilter === "__account__") {
+        return fileLibrary.filter((file) => !file.projectId);
+      }
+
+      return fileProjectFilter
+        ? fileLibrary.filter((file) => file.projectId === fileProjectFilter)
+        : fileLibrary;
+    },
+    [fileLibrary, fileProjectFilter]
+  );
   const modelOptions = useMemo<SelectOption<string>[]>(
     () => [
       { label: "跟随默认", value: "" },
-      ...apiModels.map((model) => ({ label: model.label || model.id, value: model.id }))
+      ...chatModels.map((model) => ({ label: model.label || model.id, value: model.id }))
     ],
-    [apiModels]
+    [chatModels]
   );
   const dataActionCopy: Record<DataControlAction, { confirmLabel: string; description: string; title: string }> = {
     archive_chats: {
@@ -1310,6 +1839,11 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
       description: "所有聊天、消息和关联附件都会删除。这个操作无法撤销。",
       title: "清空所有聊天"
     },
+    delete_account: {
+      confirmLabel: "永久删除",
+      description: "账号、聊天、记忆、API Key、任务、项目、通知、用量记录和上传文件都会永久删除。这个操作无法撤销。",
+      title: "永久删除账号"
+    },
     deactivate_account: {
       confirmLabel: "停用",
       description: "停用后这个账号不能继续使用，需要管理员重新启用。",
@@ -1321,6 +1855,10 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
       title: "取消全部共享链接"
     }
   };
+  const lowBalanceWarning =
+    personalization.notifications.balanceLow &&
+    initialUsage.monthlyCostLimitCents > 0 &&
+    initialUsage.remainingCostCents / initialUsage.monthlyCostLimitCents <= 0.15;
 
   function openApiGuide(key?: UserApiKeyView) {
     setApiGuideKeyId(key?.apiKey ? key.id : revealableApiKeys[0]?.id ?? null);
@@ -1376,19 +1914,6 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
       ...current,
       notifications: {
         ...current.notifications,
-        [key]: value
-      }
-    }));
-  }
-
-  function updateAppSetting<K extends keyof PersonalizationSettings["apps"]>(
-    key: K,
-    value: PersonalizationSettings["apps"][K]
-  ) {
-    setPersonalization((current) => ({
-      ...current,
-      apps: {
-        ...current.apps,
         [key]: value
       }
     }));
@@ -1584,7 +2109,7 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
     const response = await fetch("/api/profile/memories", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content })
+      body: JSON.stringify({ content, projectId: newMemoryProjectId || null })
     });
     const payload = (await response.json().catch(() => null)) as
       | { error?: string; memory?: UserMemoryView }
@@ -1767,11 +2292,18 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
       if (!response.ok) {
         setError(payload?.error || "数据控制操作失败。");
       } else if (action === "archive_chats") {
+        await loadDataLists();
         setNotice(`已归档 ${payload?.affected ?? 0} 个聊天。`);
       } else if (action === "delete_chats") {
         setNotice(`已清空 ${payload?.affected ?? 0} 个聊天。`);
+        setArchivedConversations([]);
         setFileLibrary([]);
+        setFileLibraryHasMore(false);
+        setFileLibraryTotal(0);
         setSharedLinks([]);
+      } else if (action === "delete_account") {
+        setNotice("账号已删除。");
+        window.location.href = "/login";
       } else {
         setNotice("账号已停用。");
       }
@@ -1779,6 +2311,60 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
     setSavingDataAction(false);
     setDataControlAction(null);
+  }
+
+  async function restoreArchivedConversation(conversationId: string) {
+    setSavingArchivedConversationId(conversationId);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/conversations/${conversationId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ archived: false })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { conversation?: ArchivedConversationView; error?: string }
+      | null;
+
+    if (!response.ok || !payload?.conversation) {
+      setError(payload?.error || "恢复归档聊天失败。");
+    } else {
+      setArchivedConversations((current) =>
+        current.filter((conversation) => conversation.id !== conversationId)
+      );
+      setNotice("聊天已恢复到默认聊天列表。");
+    }
+
+    setSavingArchivedConversationId(null);
+  }
+
+  async function deleteArchivedConversation(conversationId: string) {
+    setSavingArchivedConversationId(conversationId);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/conversations/${conversationId}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "删除归档聊天失败。");
+    } else {
+      const removedFileCount = fileLibrary.filter((file) => file.conversationId === conversationId).length;
+
+      setArchivedConversations((current) =>
+        current.filter((conversation) => conversation.id !== conversationId)
+      );
+      setFileLibrary((current) => current.filter((file) => file.conversationId !== conversationId));
+      setFileLibraryTotal((current) => Math.max(0, current - removedFileCount));
+      setSharedLinks((current) => current.filter((link) => link.conversationId !== conversationId));
+      setNotice("归档聊天已删除。");
+    }
+
+    setSavingArchivedConversationId(null);
+    setDeleteArchivedConversationTarget(null);
   }
 
   async function deleteSharedLink(linkId: string) {
@@ -1815,10 +2401,334 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
       setError(payload?.error || "删除文件失败。");
     } else {
       setFileLibrary((current) => current.filter((file) => file.id !== fileId));
+      setFileLibraryTotal((current) => Math.max(0, current - 1));
       setNotice("文件已删除。");
     }
 
     setSavingFileId(null);
+  }
+
+  async function createTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingTaskId("new");
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: taskTitle,
+        prompt: taskPrompt,
+        projectId: taskProjectId || null,
+        schedule: taskSchedule,
+        nextRunAt: taskNextRunAt || null,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Hong_Kong"
+      })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; task?: UserTaskView }
+      | null;
+
+    if (!response.ok || !payload?.task) {
+      setError(payload?.error || "创建任务失败。");
+    } else {
+      setTasks((current) => [payload.task as UserTaskView, ...current]);
+      setTaskNextRunAt(nextScheduleRunAt(taskSchedule));
+      setNotice("任务已创建。");
+    }
+
+    setSavingTaskId(null);
+  }
+
+  function applyTaskPreset(preset: (typeof TASK_PRESETS)[number]) {
+    setTaskTitle(preset.title);
+    setTaskPrompt(preset.prompt);
+    setTaskSchedule(preset.schedule);
+    setTaskNextRunAt(nextPresetRunAt(preset.id));
+    setNotice(`${preset.label} 模板已填入。`);
+    setError("");
+  }
+
+  async function updateTask(task: UserTaskView, patch: Partial<UserTaskView>) {
+    setSavingTaskId(task.id);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/tasks/${task.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch)
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; task?: UserTaskView }
+      | null;
+
+    if (!response.ok || !payload?.task) {
+      setError(payload?.error || "更新任务失败。");
+    } else {
+      setTasks((current) => current.map((item) => (item.id === task.id ? payload.task! : item)));
+      setNotice("任务已更新。");
+    }
+
+    setSavingTaskId(null);
+  }
+
+  async function deleteTask(taskId: string) {
+    setSavingTaskId(taskId);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/tasks/${taskId}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "删除任务失败。");
+    } else {
+      setTasks((current) => current.filter((task) => task.id !== taskId));
+      setNotice("任务已删除。");
+    }
+
+    setSavingTaskId(null);
+  }
+
+  async function runTask(taskId: string) {
+    setSavingTaskId(taskId);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/tasks/${taskId}/run`, {
+      method: "POST"
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { conversationId?: string; error?: string; usage?: UsageSummary }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "运行任务失败。");
+    } else {
+      await loadTasks();
+      await loadNotifications();
+      setNotice(payload?.conversationId ? "任务已运行，并已创建聊天结果。" : "任务已运行。");
+    }
+
+    setSavingTaskId(null);
+  }
+
+  async function runDueTasksNow() {
+    setRunningDueTasks(true);
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/tasks/run-due", {
+      method: "POST"
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { due?: number; error?: string; failed?: number; ran?: number; skipped?: number }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "运行到期任务失败。");
+    } else {
+      await loadTasks();
+      await loadNotifications();
+      setNotice(
+        `到期任务已处理：运行 ${payload?.ran ?? 0} 个，跳过 ${payload?.skipped ?? 0} 个，失败 ${payload?.failed ?? 0} 个。`
+      );
+    }
+
+    setRunningDueTasks(false);
+  }
+
+  async function updateNotificationRead(notification: UserNotificationView, read: boolean) {
+    setSavingNotificationId(notification.id);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/notifications/${notification.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ read })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; notification?: UserNotificationView }
+      | null;
+
+    if (!response.ok || !payload?.notification) {
+      setError(payload?.error || "更新通知失败。");
+    } else {
+      setNotifications((current) =>
+        current.map((item) => (item.id === notification.id ? payload.notification! : item))
+      );
+      setUnreadNotificationCount((current) =>
+        read ? Math.max(0, current - (notification.readAt ? 0 : 1)) : current + (notification.readAt ? 1 : 0)
+      );
+      setNotice(read ? "通知已标记为已读。" : "通知已标记为未读。");
+    }
+
+    setSavingNotificationId(null);
+  }
+
+  async function deleteNotification(notification: UserNotificationView) {
+    setSavingNotificationId(notification.id);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/notifications/${notification.id}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; id?: string }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "删除通知失败。");
+    } else {
+      setNotifications((current) => current.filter((item) => item.id !== notification.id));
+      setUnreadNotificationCount((current) =>
+        notification.readAt ? current : Math.max(0, current - 1)
+      );
+      setNotice("通知已删除。");
+    }
+
+    setSavingNotificationId(null);
+  }
+
+  async function markAllNotificationsRead() {
+    setSavingNotificationId("all");
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/notifications/read-all", {
+      method: "POST"
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; updated?: number }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "标记通知失败。");
+    } else {
+      await loadNotifications();
+      setNotice(`已标记 ${payload?.updated ?? 0} 条通知为已读。`);
+    }
+
+    setSavingNotificationId(null);
+  }
+
+  async function updateConnector(connector: AppConnectorView, enabled: boolean) {
+    setSavingConnectorProvider(connector.provider);
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/connectors", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled, provider: connector.provider })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { connector?: AppConnectorView; connectors?: AppConnectorView[]; error?: string }
+      | null;
+
+    if (!response.ok || !payload?.connector) {
+      setError(payload?.error || "更新连接器失败。");
+    } else {
+      const nextConnectors =
+        payload.connectors ??
+        connectors.map((item) => (item.provider === connector.provider ? payload.connector! : item));
+
+      setConnectors(nextConnectors);
+      setPersonalization((current) => ({
+        ...current,
+        apps: {
+          ...current.apps,
+          [connector.provider]: enabled
+        }
+      }));
+      setNotice(enabled ? `${connector.label} 已授权。` : `${connector.label} 已撤销授权。`);
+    }
+
+    setSavingConnectorProvider(null);
+  }
+
+  async function createProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingProjectId("new");
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: projectName,
+        instructions: projectInstructions,
+        defaultModel: projectDefaultModel,
+        memoryScope: projectMemoryScope
+      })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; project?: UserProjectView }
+      | null;
+
+    if (!response.ok || !payload?.project) {
+      setError(payload?.error || "创建项目偏好失败。");
+    } else {
+      setProjects((current) => [payload.project as UserProjectView, ...current]);
+      setProjectInstructions("");
+      setProjectDefaultModel("");
+      setNotice("项目偏好已创建。");
+    }
+
+    setSavingProjectId(null);
+  }
+
+  async function updateProject(project: UserProjectView, patch: Partial<UserProjectView>) {
+    setSavingProjectId(project.id);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch)
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; project?: UserProjectView }
+      | null;
+
+    if (!response.ok || !payload?.project) {
+      setError(payload?.error || "更新项目偏好失败。");
+    } else {
+      setProjects((current) =>
+        current.map((item) => (item.id === project.id ? payload.project! : item))
+      );
+      setNotice("项目偏好已更新。");
+    }
+
+    setSavingProjectId(null);
+  }
+
+  async function deleteProject(projectId: string) {
+    setSavingProjectId(projectId);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/projects/${projectId}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "删除项目偏好失败。");
+    } else {
+      setProjects((current) => current.filter((project) => project.id !== projectId));
+      setNotice("项目偏好已删除。");
+    }
+
+    setSavingProjectId(null);
   }
 
   async function copyText(value: string, message = "已复制。") {
@@ -1883,18 +2793,13 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pt-3">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-          {notice ? (
-            <div className="app-inline-alert rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-              {notice}
-            </div>
-          ) : null}
-          {error ? (
-            <div className="app-inline-alert rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
+          {lowBalanceWarning ? (
+            <div className="app-inline-alert rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              余额接近上限，请留意本月用量或联系管理员调整额度。
             </div>
           ) : null}
 
-          <nav className="ios-panel motion-lift grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <nav className="ios-panel motion-lift grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
             {profileTabs.map((tab) => {
               const TabIcon = tab.icon;
               const selected = activeTab === tab.id;
@@ -2206,13 +3111,13 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
               <div className="divide-y divide-[color:var(--ios-separator)]">
                 <ToggleRow
                   checked={personalization.savedMemoryEnabled}
-                  description="开启后，聊天会引用下方保存的长期记忆；关闭后不会读取这些记忆。"
+                  description="开启后，聊天会引用下方保存的长期记忆，并允许 AI 判断是否新增、更新或删除这些记忆。"
                   label="保存的记忆"
                   onChange={(checked) => updatePersonalization({ savedMemoryEnabled: checked })}
                 />
                 <ToggleRow
                   checked={personalization.chatHistoryMemoryEnabled}
-                  description="开启后，AI 可以根据聊天内容判断是否新增、更新或删除记忆。"
+                  description="开启后，AI 可以参考近期聊天作为背景；关闭后不再把聊天历史作为长期上下文。"
                   label="引用聊天历史"
                   onChange={(checked) => updatePersonalization({ chatHistoryMemoryEnabled: checked })}
                 />
@@ -2242,7 +3147,19 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                       </button>
                     </div>
 
-                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <div className="grid gap-2 sm:grid-cols-[minmax(8rem,12rem)_1fr_auto]">
+                      <select
+                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
+                        onChange={(event) => setNewMemoryProjectId(event.target.value)}
+                        value={newMemoryProjectId}
+                      >
+                        <option value="">账号记忆</option>
+                        {projects.map((project) => (
+                          <option key={project.id} value={project.id}>
+                            {project.name}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         className="ios-input"
                         maxLength={280}
@@ -2330,6 +3247,9 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                               <p className="mt-2 flex flex-wrap items-center gap-2 text-xs ios-muted">
                                 <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
                                   {memorySourceLabel(memory.source)}
+                                </span>
+                                <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                                  {memory.projectName ? `项目：${memory.projectName}` : "账号记忆"}
                                 </span>
                                 {archived ? (
                                   <span className="rounded-full bg-stone-200 px-2 py-1 font-semibold text-stone-600">
@@ -2436,7 +3356,7 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                     label="默认模型"
                     onChange={(value) => updateToolPreference("defaultModel", value)}
                     options={modelOptions}
-                    value={personalization.toolPreferences.defaultModel}
+                    value={resolveChatModelId(personalization.toolPreferences.defaultModel, chatModels)}
                   />
                 </div>
 
@@ -2445,30 +3365,181 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                     <PlugZap className="size-4 text-[color:var(--claude-accent)]" />
                     <h3 className="text-sm font-semibold text-stone-950">应用 / 连接器</h3>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {APP_SETTING_OPTIONS.map(({ icon: Icon, key, label }) => (
-                      <button
-                        aria-pressed={personalization.apps[key]}
-                        className={`app-action-button flex min-h-12 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${
-                          personalization.apps[key]
-                            ? "border-[color:var(--claude-accent)] bg-white"
-                            : "border-[color:var(--ios-separator)] bg-white/55"
-                        }`}
-                        key={key}
-                        onClick={() =>
-                          updateAppSetting(key, !personalization.apps[key])
-                        }
-                        type="button"
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/45 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-stone-950">
+                        {activeConnectors.length} 个连接器已授权
+                      </p>
+                      <p className="mt-1 text-sm ios-muted">
+                        搜索、文件源、第三方 MCP 和知识库授权状态在应用页统一管理。
+                      </p>
+                    </div>
+                    <button
+                      className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm"
+                      onClick={() => setActiveTab("apps")}
+                      type="button"
+                    >
+                      <PlugZap className="size-4" />
+                      管理应用
+                    </button>
+                  </div>
+                </div>
+
+                <div className="px-4 py-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <FolderOpen className="size-4 text-[color:var(--claude-accent)]" />
+                    <h3 className="text-sm font-semibold text-stone-950">项目级偏好</h3>
+                  </div>
+                  <form className="grid gap-3 rounded-lg bg-white/50 p-3" onSubmit={createProject}>
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                      <input
+                        className="ios-input"
+                        maxLength={80}
+                        onChange={(event) => setProjectName(event.target.value)}
+                        placeholder="项目名称"
+                        value={projectName}
+                      />
+                      <select
+                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
+                        onChange={(event) => setProjectMemoryScope(event.target.value)}
+                        value={projectMemoryScope}
                       >
-                        <span className="flex items-center gap-2 text-sm font-semibold text-stone-900">
-                          <Icon className="size-4" />
-                          {label}
-                        </span>
-                        <span className="text-xs ios-muted">
-                          {personalization.apps[key] ? "已启用" : "未启用"}
-                        </span>
-                      </button>
-                    ))}
+                        {MEMORY_SCOPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
+                        onChange={(event) => setProjectDefaultModel(event.target.value)}
+                        value={projectDefaultModel}
+                      >
+                        {modelOptions.map((option) => (
+                          <option key={option.value || "default"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <textarea
+                      className="ios-input min-h-20 w-full resize-y py-3 text-sm leading-6"
+                      maxLength={2000}
+                      onChange={(event) => setProjectInstructions(event.target.value)}
+                      placeholder="这个项目里的专属指令、上下文、工作方式"
+                      value={projectInstructions}
+                    />
+                    <button
+                      className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60 sm:w-max"
+                      disabled={savingProjectId === "new"}
+                      type="submit"
+                    >
+                      {savingProjectId === "new" ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                      创建项目偏好
+                    </button>
+                  </form>
+
+                  <div className="mt-3 grid gap-2">
+                    {loadingProjects ? (
+                      <div className="grid min-h-20 place-items-center text-stone-500">
+                        <Loader2 className="size-5 animate-spin" />
+                      </div>
+                    ) : projects.length === 0 ? (
+                      <div className="rounded-lg bg-white/45 px-3 py-6 text-center text-sm ios-muted">
+                        暂无项目级偏好。
+                      </div>
+                    ) : (
+                      projects.map((project) => (
+                        <div
+                          className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
+                          key={project.id}
+                        >
+                          <div className="min-w-0">
+                            <input
+                              className="ios-input h-9 max-w-md text-sm"
+                              defaultValue={project.name}
+                              onBlur={(event) => {
+                                const name = event.target.value.trim();
+
+                                if (name && name !== project.name) {
+                                  void updateProject(project, { name });
+                                }
+                              }}
+                            />
+                            <textarea
+                              className="ios-input mt-2 min-h-16 w-full resize-y py-2 text-xs leading-5"
+                              defaultValue={project.instructions}
+                              maxLength={2000}
+                              onBlur={(event) => {
+                                const instructions = event.target.value.trim();
+
+                                if (instructions !== project.instructions) {
+                                  void updateProject(project, { instructions });
+                                }
+                              }}
+                              placeholder="未设置专属指令"
+                            />
+                            <p className="mt-2 text-xs ios-muted">
+                              记忆范围 {projectMemoryScopeLabel(project.memoryScope)} · 默认模型 {project.defaultModel || "跟随默认"} · 更新 {new Date(project.updatedAt).toLocaleString()}
+                            </p>
+                            <p className="mt-2 flex flex-wrap items-center gap-2 text-xs ios-muted">
+                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                                {project.counts?.conversations ?? 0} 个聊天
+                              </span>
+                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                                {project.counts?.attachments ?? 0} 个文件
+                              </span>
+                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                                {project.counts?.memories ?? 0} 条记忆
+                              </span>
+                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                                {project.counts?.tasks ?? 0} 个任务
+                              </span>
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-start gap-2 md:justify-end">
+                            <select
+                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
+                              disabled={savingProjectId === project.id}
+                              onChange={(event) =>
+                                void updateProject(project, { memoryScope: event.target.value })
+                              }
+                              title="记忆范围"
+                              value={project.memoryScope}
+                            >
+                              {MEMORY_SCOPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
+                              disabled={savingProjectId === project.id}
+                              onChange={(event) =>
+                                void updateProject(project, { defaultModel: event.target.value })
+                              }
+                              value={resolveChatModelId(project.defaultModel, chatModels)}
+                            >
+                              {modelOptions.map((option) => (
+                                <option key={option.value || "default"} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
+                              disabled={savingProjectId === project.id}
+                              onClick={() => void deleteProject(project.id)}
+                              title="删除项目偏好"
+                              type="button"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
 
@@ -2503,10 +3574,106 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                       onChange={(checked) => updateNotification("email", checked)}
                     />
                   </div>
+                  <div className="mt-4 rounded-lg border border-[color:var(--ios-separator)] bg-white/45">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-stone-950">通知中心</h4>
+                        <p className="mt-1 text-xs ios-muted">
+                          {unreadNotificationCount > 0
+                            ? `${unreadNotificationCount} 条未读`
+                            : "暂无未读通知"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                          disabled={loadingNotifications}
+                          onClick={() => void loadNotifications()}
+                          type="button"
+                        >
+                          <RotateCcw className="size-4" />
+                          刷新
+                        </button>
+                        <button
+                          className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                          disabled={savingNotificationId === "all" || unreadNotificationCount === 0}
+                          onClick={() => void markAllNotificationsRead()}
+                          type="button"
+                        >
+                          {savingNotificationId === "all" ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Check className="size-4" />
+                          )}
+                          全部已读
+                        </button>
+                      </div>
+                    </div>
+                    {loadingNotifications ? (
+                      <p className="px-4 py-6 text-center text-sm ios-muted">正在读取通知...</p>
+                    ) : notifications.length === 0 ? (
+                      <p className="px-4 py-6 text-center text-sm ios-muted">暂无通知</p>
+                    ) : (
+                      <div className="divide-y divide-[color:var(--ios-separator)]">
+                        {notifications.slice(0, 12).map((notification) => (
+                          <div
+                            className="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
+                            key={notification.id}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-stone-950">{notification.title}</p>
+                                {!notification.readAt ? (
+                                  <span className="rounded-full bg-[color:var(--claude-accent)] px-2 py-0.5 text-[11px] font-semibold text-white">
+                                    未读
+                                  </span>
+                                ) : null}
+                                {notification.emailedAt ? (
+                                  <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-600">
+                                    已邮件通知
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 text-sm leading-5 text-stone-700">{notification.body}</p>
+                              <p className="mt-2 text-xs ios-muted">
+                                {new Date(notification.createdAt).toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                                disabled={savingNotificationId === notification.id}
+                                onClick={() => void updateNotificationRead(notification, !notification.readAt)}
+                                type="button"
+                              >
+                                {savingNotificationId === notification.id ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : notification.readAt ? (
+                                  <RotateCcw className="size-4" />
+                                ) : (
+                                  <Check className="size-4" />
+                                )}
+                                {notification.readAt ? "标为未读" : "标为已读"}
+                              </button>
+                              <button
+                                className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
+                                disabled={savingNotificationId === notification.id}
+                                onClick={() => void deleteNotification(notification)}
+                                title="删除通知"
+                                type="button"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
-                  <p className="text-xs ios-muted">项目级偏好和定时任务入口已预留在此设置组。</p>
+                  <p className="text-xs ios-muted">这些开关会影响聊天页默认工具、提醒和项目体验。</p>
                   <button
                     className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
                     disabled={savingProfile}
@@ -2518,6 +3685,123 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                 </div>
               </div>
             </form>
+          ) : null}
+
+          {activeTab === "apps" ? (
+            <section className="ios-panel motion-lift overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
+                <div className="flex items-center gap-2">
+                  <PlugZap className="size-4 text-[color:var(--claude-accent)]" />
+                  <h2 className="text-base font-semibold">应用 / 连接器</h2>
+                </div>
+                <button
+                  className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                  disabled={loadingConnectors}
+                  onClick={() => void loadConnectors()}
+                  type="button"
+                >
+                  <RotateCcw className="size-4" />
+                  刷新
+                </button>
+              </div>
+              <div className="grid gap-3 p-4 md:grid-cols-2">
+                {loadingConnectors ? (
+                  <div className="grid min-h-28 place-items-center text-stone-500 md:col-span-2">
+                    <Loader2 className="size-5 animate-spin" />
+                  </div>
+                ) : (
+                  APP_SETTING_OPTIONS.map(({ icon: Icon, key, label }) => {
+                    const connector =
+                      connectorByProvider.get(key) ??
+                      ({
+                        description: "",
+                        enabled: personalization.apps[key],
+                        label,
+                        provider: key,
+                        scope: "账号",
+                        status: personalization.apps[key] ? "connected" : "disconnected"
+                      } as AppConnectorView);
+                    const saving = savingConnectorProvider === connector.provider;
+                    const statusLabel = connectorStatusLabel(connector.status, connector.enabled);
+
+                    return (
+                      <div
+                        className={`grid gap-4 rounded-lg border p-4 ${
+                          connector.enabled && connector.status === "connected"
+                            ? "border-[color:var(--claude-accent)] bg-white"
+                            : "border-[color:var(--ios-separator)] bg-white/55"
+                        }`}
+                        key={connector.provider}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-white/80 text-[color:var(--claude-accent)]">
+                              <Icon className="size-5" />
+                            </div>
+                            <div className="min-w-0">
+                              <h3 className="text-sm font-semibold text-stone-950">{connector.label}</h3>
+                              <p className="mt-1 text-sm leading-5 ios-muted">
+                                {connector.description || "账号级应用连接器"}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
+                              connector.enabled && connector.status === "connected"
+                                ? "bg-[color:var(--claude-accent)] text-white"
+                                : "bg-stone-100 text-stone-600"
+                            }`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+
+                        <div className="grid gap-2 rounded-lg bg-white/55 px-3 py-2 text-xs ios-muted">
+                          <div className="flex items-center justify-between gap-3">
+                            <span>范围</span>
+                            <span className="font-semibold text-stone-700">{connector.scope}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span>授权时间</span>
+                            <span className="font-semibold text-stone-700">
+                              {connector.authorizedAt
+                                ? new Date(connector.authorizedAt).toLocaleString()
+                                : "未授权"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span>最近使用</span>
+                            <span className="font-semibold text-stone-700">
+                              {connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          className={`app-action-button flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold disabled:opacity-60 ${
+                            connector.enabled
+                              ? "ios-button-secondary text-red-600"
+                              : "ios-button-primary"
+                          }`}
+                          disabled={saving}
+                          onClick={() => void updateConnector(connector, !connector.enabled)}
+                          type="button"
+                        >
+                          {saving ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : connector.enabled ? (
+                            <X className="size-4" />
+                          ) : (
+                            <Check className="size-4" />
+                          )}
+                          {connector.enabled ? "撤销授权" : "授权并启用"}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
           ) : null}
 
           {activeTab === "data" ? (
@@ -2560,6 +3844,89 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                     <Shield className="size-4" />
                     停用账号
                   </button>
+                  <button
+                    className="ios-button-secondary app-action-button flex h-11 items-center justify-center gap-2 px-4 text-red-700"
+                    onClick={() => setDataControlAction("delete_account")}
+                    type="button"
+                  >
+                    <Trash2 className="size-4" />
+                    删除账号
+                  </button>
+                </div>
+              </section>
+
+              <section className="ios-panel motion-lift overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
+                  <div className="flex items-center gap-2">
+                    <Archive className="size-4 text-[color:var(--claude-accent)]" />
+                    <div>
+                      <h2 className="text-base font-semibold">已归档聊天</h2>
+                      <p className="mt-1 text-xs ios-muted">
+                        {archivedConversations.length} 个聊天已从默认历史列表隐藏。
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                    disabled={loadingDataLists}
+                    onClick={() => void loadDataLists()}
+                    type="button"
+                  >
+                    <RotateCcw className="size-4" />
+                    刷新
+                  </button>
+                </div>
+                <div className="grid gap-2 p-4">
+                  {loadingDataLists ? (
+                    <div className="grid min-h-20 place-items-center text-stone-500">
+                      <Loader2 className="size-5 animate-spin" />
+                    </div>
+                  ) : archivedConversations.length === 0 ? (
+                    <div className="rounded-lg bg-white/45 px-3 py-8 text-center text-sm ios-muted">
+                      暂无已归档聊天。
+                    </div>
+                  ) : (
+                    archivedConversations.map((conversation) => (
+                      <div
+                        className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
+                        key={conversation.id}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-stone-950">
+                            {conversation.title}
+                          </p>
+                          <p className="mt-1 text-xs ios-muted">
+                            {conversation.projectName ? `项目：${conversation.projectName} · ` : ""}
+                            {conversation.mode === "IMAGE" ? "图片" : "聊天"} · {conversation.model} ·{" "}
+                            {conversation._count?.messages ?? 0} 条消息
+                          </p>
+                          <p className="mt-1 text-xs ios-muted">
+                            归档 {conversation.archivedAt ? new Date(conversation.archivedAt).toLocaleString() : "未知时间"}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                          <button
+                            className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                            disabled={savingArchivedConversationId === conversation.id}
+                            onClick={() => void restoreArchivedConversation(conversation.id)}
+                            type="button"
+                          >
+                            <RotateCcw className="size-4" />
+                            恢复
+                          </button>
+                          <button
+                            className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
+                            disabled={savingArchivedConversationId === conversation.id}
+                            onClick={() => setDeleteArchivedConversationTarget(conversation)}
+                            title="删除归档聊天"
+                            type="button"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </section>
 
@@ -2604,9 +3971,14 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                         </div>
                       </div>
 
+                      <UsageTrendChart buckets={usageBreakdown.byMonth} />
+
                       <div className="grid gap-3 lg:grid-cols-2">
                         <UsageBucketList buckets={usageBreakdown.byModel.slice(0, 6)} title="按模型" />
                         <UsageBucketList buckets={usageBreakdown.bySurface} title="按入口" />
+                        <UsageBucketList buckets={(usageBreakdown.byApiKey ?? []).slice(0, 6)} title="按 API Key" />
+                        <UsageBucketList buckets={usageBreakdown.byMode} title="按聊天 / 图片" />
+                        <UsageBucketList buckets={usageBreakdown.byMonth.slice(0, 6)} title="月度明细" />
                       </div>
 
                       <div className="grid gap-2">
@@ -2621,7 +3993,9 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                                 {record.surface} · {record.model}
                               </p>
                               <p className="mt-1 text-xs ios-muted">
-                                {new Date(record.createdAt).toLocaleString()} · {record.usageSource}
+                                {new Date(record.createdAt).toLocaleString()} ·{" "}
+                                {record.apiKeyLabel ? `${record.apiKeyLabel} · ` : ""}
+                                {record.usageSource}
                               </p>
                             </div>
                             <p className="text-xs font-semibold ios-muted sm:text-right">
@@ -2699,21 +4073,42 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
               </section>
 
               <section className="ios-panel motion-lift overflow-hidden">
-                <div className="flex items-center gap-2 border-b border-[color:var(--ios-separator)] px-4 py-4">
-                  <FileIcon className="size-4 text-[color:var(--claude-accent)]" />
-                  <h2 className="text-base font-semibold">文件库</h2>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
+                  <div className="flex items-center gap-2">
+                    <FileIcon className="size-4 text-[color:var(--claude-accent)]" />
+                    <div>
+                      <h2 className="text-base font-semibold">文件库</h2>
+                      <p className="mt-1 text-xs ios-muted">
+                        {visibleFileLibrary.length} / {fileLibraryTotal || fileLibrary.length} 个文件
+                      </p>
+                    </div>
+                  </div>
+                  <select
+                    className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold"
+                    onChange={(event) => setFileProjectFilter(event.target.value)}
+                    title="按项目筛选文件"
+                    value={fileProjectFilter}
+                  >
+                    <option value="">全部文件</option>
+                    <option value="__account__">账号默认</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid gap-2 p-4">
                   {loadingDataLists ? (
                     <div className="grid min-h-20 place-items-center text-stone-500">
                       <Loader2 className="size-5 animate-spin" />
                     </div>
-                  ) : fileLibrary.length === 0 ? (
+                  ) : visibleFileLibrary.length === 0 ? (
                     <div className="rounded-lg bg-white/45 px-3 py-8 text-center text-sm ios-muted">
-                      暂无上传文件。
+                      {fileLibrary.length === 0 ? "暂无上传文件。" : "当前筛选下没有文件。"}
                     </div>
                   ) : (
-                    fileLibrary.map((file) => (
+                    visibleFileLibrary.map((file) => (
                       <div
                         className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
                         key={file.id}
@@ -2721,7 +4116,7 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-stone-950">{file.originalName}</p>
                           <p className="mt-1 text-xs ios-muted">
-                            {file.kind} · {formatBytes(file.sizeBytes)} · {file.temporary ? "临时文件" : "账号文件"} · {file.conversationTitle || "未关联聊天"}
+                            {file.kind} · {formatBytes(file.sizeBytes)} · {file.temporary ? "临时文件" : file.projectName ? `项目文件：${file.projectName}` : "账号文件"} · {file.conversationTitle || "未关联聊天"}
                           </p>
                         </div>
                         <button
@@ -2736,6 +4131,17 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                       </div>
                     ))
                   )}
+                  {!loadingDataLists && fileLibraryHasMore ? (
+                    <button
+                      className="ios-button-secondary app-action-button mx-auto mt-2 flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                      disabled={loadingMoreFiles}
+                      onClick={() => void loadMoreFiles()}
+                      type="button"
+                    >
+                      {loadingMoreFiles ? <Loader2 className="size-4 animate-spin" /> : <Archive className="size-4" />}
+                      加载更多文件
+                    </button>
+                  ) : null}
                 </div>
               </section>
 
@@ -2743,11 +4149,209 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                 <div className="flex items-center gap-2 border-b border-[color:var(--ios-separator)] px-4 py-4">
                   <Clock3 className="size-4 text-[color:var(--claude-accent)]" />
                   <h2 className="text-base font-semibold">任务 / 提醒</h2>
+                  <button
+                    className="ios-button-secondary app-action-button ml-auto flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                    disabled={runningDueTasks}
+                    onClick={() => void runDueTasksNow()}
+                    type="button"
+                  >
+                    {runningDueTasks ? <Loader2 className="size-4 animate-spin" /> : <Clock3 className="size-4" />}
+                    运行到期
+                  </button>
                 </div>
-                <div className="grid gap-3 p-4 text-sm ios-muted md:grid-cols-3">
-                  <div className="rounded-lg bg-white/55 p-3">余额不足提醒</div>
-                  <div className="rounded-lg bg-white/55 p-3">每日总结</div>
-                  <div className="rounded-lg bg-white/55 p-3">定期学习计划</div>
+                <div className="grid gap-4 p-4">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {TASK_PRESETS.map((preset) => {
+                      const PresetIcon = preset.icon;
+
+                      return (
+                        <button
+                          className="app-action-button flex min-h-16 items-center justify-between gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-left transition hover:bg-white"
+                          key={preset.id}
+                          onClick={() => applyTaskPreset(preset)}
+                          type="button"
+                        >
+                          <span className="flex min-w-0 items-center gap-3">
+                            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/80 text-[color:var(--claude-accent)]">
+                              <PresetIcon className="size-4" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-stone-950">{preset.label}</span>
+                              <span className="block truncate text-xs ios-muted">{preset.description}</span>
+                            </span>
+                          </span>
+                          <Plus className="size-4 shrink-0 text-stone-400" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <form className="grid gap-3 rounded-lg bg-white/50 p-3" onSubmit={createTask}>
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+                      <input
+                        className="ios-input"
+                        maxLength={80}
+                        onChange={(event) => setTaskTitle(event.target.value)}
+                        placeholder="任务标题"
+                        value={taskTitle}
+                      />
+                      <select
+                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
+                        onChange={(event) => {
+                          setTaskSchedule(event.target.value);
+                          setTaskNextRunAt(nextScheduleRunAt(event.target.value));
+                        }}
+                        value={taskSchedule}
+                      >
+                        {TASK_SCHEDULE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="ios-input h-10 bg-white/72 px-3 text-sm font-semibold"
+                        onChange={(event) => setTaskProjectId(event.target.value)}
+                        value={taskProjectId}
+                      >
+                        <option value="">账号默认</option>
+                        {projects.map((project) => (
+                          <option key={project.id} value={project.id}>
+                            {project.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <textarea
+                      className="ios-input min-h-20 w-full resize-y py-3 text-sm leading-6"
+                      maxLength={4000}
+                      onChange={(event) => setTaskPrompt(event.target.value)}
+                      placeholder="任务提示词"
+                      value={taskPrompt}
+                    />
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <input
+                        className="ios-input"
+                        onChange={(event) => setTaskNextRunAt(event.target.value)}
+                        type="datetime-local"
+                        value={taskNextRunAt}
+                      />
+                      <button
+                        className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
+                        disabled={savingTaskId === "new"}
+                        type="submit"
+                      >
+                        {savingTaskId === "new" ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                        创建任务
+                      </button>
+                    </div>
+                  </form>
+
+                  {loadingTasks ? (
+                    <div className="grid min-h-20 place-items-center text-stone-500">
+                      <Loader2 className="size-5 animate-spin" />
+                    </div>
+                  ) : tasks.length === 0 ? (
+                    <div className="rounded-lg bg-white/45 px-3 py-8 text-center text-sm ios-muted">
+                      暂无任务。
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      {tasks.map((task) => (
+                        <div
+                          className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 md:grid-cols-[1fr_auto]"
+                          key={task.id}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-stone-950">{task.title}</p>
+                            <p className="mt-1 line-clamp-2 text-xs ios-muted">{task.prompt}</p>
+                            <p className="mt-2 flex flex-wrap items-center gap-2 text-xs ios-muted">
+                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                                {taskScheduleLabel(task.schedule)}
+                              </span>
+                              <span>{task.enabled ? "已启用" : "已停用"}</span>
+                              <span>{task.projectName ? `项目：${task.projectName}` : "账号默认"}</span>
+                              <span>{task.timezone}</span>
+                              {task.nextRunAt ? <span>下次 {new Date(task.nextRunAt).toLocaleString()}</span> : null}
+                              {task.lastRunAt ? <span>上次 {new Date(task.lastRunAt).toLocaleString()}</span> : null}
+                              {task.lastStatus !== "pending" ? <span>状态 {task.lastStatus}</span> : null}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-start gap-2 md:justify-end">
+                            <select
+                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
+                              disabled={savingTaskId === task.id}
+                              onChange={(event) =>
+                                void updateTask(task, { schedule: event.target.value })
+                              }
+                              title="运行频率"
+                              value={task.schedule}
+                            >
+                              {TASK_SCHEDULE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              className="ios-input h-9 min-w-48 px-3 text-sm disabled:opacity-60"
+                              defaultValue={
+                                task.nextRunAt ? localDateTimeInputValue(new Date(task.nextRunAt)) : ""
+                              }
+                              disabled={savingTaskId === task.id}
+                              key={`${task.id}-${task.nextRunAt ?? "empty"}`}
+                              onBlur={(event) =>
+                                void updateTask(task, { nextRunAt: event.target.value || null })
+                              }
+                              title="下次运行时间"
+                              type="datetime-local"
+                            />
+                            <select
+                              className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold disabled:opacity-60"
+                              disabled={savingTaskId === task.id}
+                              onChange={(event) =>
+                                void updateTask(task, { projectId: event.target.value || null })
+                              }
+                              value={task.projectId ?? ""}
+                            >
+                              <option value="">账号默认</option>
+                              {projects.map((project) => (
+                                <option key={project.id} value={project.id}>
+                                  {project.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                              disabled={savingTaskId === task.id}
+                              onClick={() => void runTask(task.id)}
+                              type="button"
+                            >
+                              <Sparkles className="size-4" />
+                              运行
+                            </button>
+                            <button
+                              className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                              disabled={savingTaskId === task.id}
+                              onClick={() => void updateTask(task, { enabled: !task.enabled })}
+                              type="button"
+                            >
+                              <Shield className="size-4" />
+                              {task.enabled ? "停用" : "启用"}
+                            </button>
+                            <button
+                              className="ios-icon-button app-action-button text-red-600 disabled:opacity-60"
+                              disabled={savingTaskId === task.id}
+                              onClick={() => void deleteTask(task.id)}
+                              title="删除任务"
+                              type="button"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </section>
             </div>
@@ -2936,6 +4540,29 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
         onConfirm={deleteApiKey}
         open={Boolean(deleteKeyId)}
         title="删除 API Key"
+        tone="danger"
+      />
+      <SiteNoticeDialog
+        description={error || notice}
+        onClose={() => {
+          setError("");
+          setNotice("");
+        }}
+        open={Boolean(error || notice)}
+        title={error ? "操作失败" : "操作已完成"}
+        tone={error ? "error" : "success"}
+      />
+      <SiteConfirmDialog
+        confirmLabel="删除"
+        description={`确定删除「${deleteArchivedConversationTarget?.title || "这个归档聊天"}」吗？删除后聊天、消息和关联附件都会移除，此操作不可恢复。`}
+        onCancel={() => setDeleteArchivedConversationTarget(null)}
+        onConfirm={() => {
+          if (deleteArchivedConversationTarget) {
+            void deleteArchivedConversation(deleteArchivedConversationTarget.id);
+          }
+        }}
+        open={Boolean(deleteArchivedConversationTarget)}
+        title="删除归档聊天"
         tone="danger"
       />
       <SiteConfirmDialog

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -22,7 +22,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { SiteConfirmDialog } from "@/components/site-dialog";
+import { SiteConfirmDialog, SiteNoticeDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
 import { formatCents, formatNumber } from "@/lib/format";
 import {
@@ -603,8 +603,6 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:py-6">
         <div className="app-stagger mx-auto max-w-7xl">
-        {error ? <Banner tone="error">{error}</Banner> : null}
-        {notice ? <Banner tone="success">{notice}</Banner> : null}
         {diagnostics ? <DiagnosticsPanel result={diagnostics} /> : null}
 
         <nav className="ios-panel motion-lift mb-5 grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-7">
@@ -2131,6 +2129,16 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         title="删除用户"
         tone="danger"
       />
+      <SiteNoticeDialog
+        description={error || notice}
+        onClose={() => {
+          setError("");
+          setNotice("");
+        }}
+        open={Boolean(error || notice)}
+        title={error ? "操作失败" : "操作已完成"}
+        tone={error ? "error" : "success"}
+      />
     </main>
   );
 }
@@ -2236,13 +2244,4 @@ function CostLimitInput({
       value={value / 100}
     />
   );
-}
-
-function Banner({ children, tone }: { children: ReactNode; tone: "error" | "success" }) {
-  const classes =
-    tone === "error"
-      ? "border-red-200 bg-red-50 text-red-700"
-      : "border-green-200 bg-green-50 text-green-800";
-
-  return <div className={`app-inline-alert mb-4 rounded-lg border px-3 py-2 text-sm ${classes}`}>{children}</div>;
 }

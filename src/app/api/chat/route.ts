@@ -19,6 +19,8 @@ import {
   resetContextSummaryData,
   type ContextCompressionResult
 } from "@/lib/context-compression";
+import { formatRecentChatHistoryForPrompt } from "@/lib/chat-history";
+import { markUserAppConnectorUsed } from "@/lib/connectors";
 import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
@@ -45,6 +47,7 @@ import {
   isChatModel,
   normalizeReasoningEffort
 } from "@/lib/models";
+import { maybeNotifyLowBalance } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { formatPersonalizationForPrompt, parsePersonalizationSettings } from "@/lib/personalization";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
@@ -68,6 +71,7 @@ export const dynamic = "force-dynamic";
 
 type ChatBody = {
   conversationId?: string;
+  projectId?: string | null;
   model?: string;
   content?: string;
   reasoningEffort?: string;
@@ -104,6 +108,7 @@ class UpstreamStreamError extends Error {}
 
 type ChatAttachment = {
   id: string;
+  projectId?: string | null;
   kind: string;
   originalName: string;
   mimeType: string;
@@ -958,14 +963,58 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  if (!isChatModel(body.model, aiSettings.chatModels)) {
+  const requestedProjectId =
+    typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
+  const requestedProject = requestedProjectId
+    ? await prisma.userProject.findFirst({
+        where: { id: requestedProjectId, userId: user.id },
+        select: {
+          id: true,
+          name: true,
+          instructions: true,
+          memoryScope: true,
+          defaultModel: true
+        }
+      })
+    : null;
+
+  if (requestedProjectId && !requestedProject) {
+    return jsonError("项目不存在。", 404);
+  }
+
+  const requestedModel = body.model || requestedProject?.defaultModel || undefined;
+
+  if (!isChatModel(requestedModel, aiSettings.chatModels)) {
     return jsonError("模型不在允许列表中。", 400);
   }
 
-  const model = getChatModel(body.model, aiSettings.chatModels);
+  const model = getChatModel(requestedModel, aiSettings.chatModels);
   const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
-  if (body.temporary === true && body.reuseUserMessageId) {
+  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+  const securityMode = personalizationSettings.toolPreferences.securityMode;
+  const fileAccessEnabled =
+    personalizationSettings.apps.fileLibrary &&
+    personalizationSettings.toolPreferences.fileAnalysisEnabled;
+  const webSearchRuntimeEnabled = personalizationSettings.apps.webSearch && !securityMode;
+  const requestedAttachmentIds = uniqueAttachmentIds(body.attachmentIds);
+  const temporaryChat = body.temporary === true || securityMode;
+
+  if (temporaryChat && body.reuseUserMessageId) {
     return jsonError("临时聊天不会改写已有聊天记录，请直接发送新消息。", 400);
+  }
+
+  if (securityMode) {
+    if (requestedAttachmentIds.length > 0 || body.sourceImageMessageId) {
+      return jsonError("隐私 / 安全模式已关闭文件和图片输入。", 403);
+    }
+
+    if (body.imageToolRequested) {
+      return jsonError("隐私 / 安全模式已关闭图片生成。", 403);
+    }
+  }
+
+  if (!fileAccessEnabled && requestedAttachmentIds.length > 0) {
+    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
   }
 
   const reusedUserMessage = body.reuseUserMessageId
@@ -981,6 +1030,15 @@ export async function POST(request: NextRequest) {
           attachments: true,
           conversation: {
             include: {
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  instructions: true,
+                  memoryScope: true,
+                  defaultModel: true
+                }
+              },
               _count: {
                 select: { messages: true }
               }
@@ -994,7 +1052,7 @@ export async function POST(request: NextRequest) {
     return jsonError("要继续的用户消息不存在。", 404);
   }
 
-  const attachmentIds = reusedUserMessage ? [] : uniqueAttachmentIds(body.attachmentIds);
+  const attachmentIds = reusedUserMessage ? [] : requestedAttachmentIds;
   const content =
     body.content?.trim() ||
     reusedUserMessage?.content ||
@@ -1009,16 +1067,6 @@ export async function POST(request: NextRequest) {
     time: body.clientTime,
     timeZone: body.clientTimeZone
   });
-  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
-  const temporaryChat = body.temporary === true;
-  const memoryReadEnabled =
-    personalizationSettings.savedMemoryEnabled && !temporaryChat;
-  const memoryWriteEnabled =
-    personalizationSettings.savedMemoryEnabled &&
-    personalizationSettings.chatHistoryMemoryEnabled &&
-    !temporaryChat &&
-    body.disableMemoryWrite !== true;
-
   const existingConversation = reusedUserMessage
     ? reusedUserMessage.conversation
     : !temporaryChat && body.conversationId
@@ -1028,6 +1076,15 @@ export async function POST(request: NextRequest) {
           userId: user.id
         },
         include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              instructions: true,
+              memoryScope: true,
+              defaultModel: true
+            }
+          },
           _count: {
             select: { messages: true }
           }
@@ -1038,6 +1095,21 @@ export async function POST(request: NextRequest) {
   if (((!temporaryChat && body.conversationId) || body.reuseUserMessageId) && !existingConversation) {
     return jsonError("会话不存在。", 404);
   }
+
+  const effectiveProject = existingConversation?.project ?? requestedProject;
+  const effectiveProjectId = effectiveProject?.id ?? null;
+  const projectMemoryScope = effectiveProject?.memoryScope ?? "account";
+  const memoryProjectId = projectMemoryScope === "project" ? effectiveProjectId : null;
+  const projectAllowsMemory = projectMemoryScope !== "off";
+  const memoryReadEnabled =
+    personalizationSettings.savedMemoryEnabled && !temporaryChat && projectAllowsMemory;
+  const chatHistoryReadEnabled =
+    personalizationSettings.chatHistoryMemoryEnabled && !temporaryChat && projectAllowsMemory;
+  const memoryWriteEnabled =
+    personalizationSettings.savedMemoryEnabled &&
+    projectAllowsMemory &&
+    !temporaryChat &&
+    body.disableMemoryWrite !== true;
 
   const routerStartedAt = Date.now();
   const attachmentStartedAt = Date.now();
@@ -1065,6 +1137,17 @@ export async function POST(request: NextRequest) {
     ? await ensureAttachmentsMetadata(reusedUserMessage.attachments)
     : attachments;
   attachmentFinishedAt = effectiveAttachments.length > 0 ? Date.now() : attachmentFinishedAt;
+
+  if (!fileAccessEnabled && effectiveAttachments.length > 0) {
+    await cleanupTemporaryAttachments(attachments, temporaryChat);
+    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+  }
+
+  if (effectiveAttachments.length > 0) {
+    await markUserAppConnectorUsed({ provider: "fileLibrary", userId: user.id }).catch(
+      () => undefined
+    );
+  }
 
   if (reusedUserMessage) {
     const laterAttachments = await prisma.attachment.findMany({
@@ -1102,16 +1185,28 @@ export async function POST(request: NextRequest) {
 
   const toolRoutePlan = await planMessageTools({
     attachmentCount: effectiveAttachments.length,
-    forceSearch: body.useWebSearch === true,
+    forceSearch: webSearchRuntimeEnabled && body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
     memoryEnabled: memoryWriteEnabled,
     prompt: content,
     promptClock,
-    settings: aiSettings,
+    settings: webSearchRuntimeEnabled ? aiSettings : { ...aiSettings, webSearchEnabled: false },
     signal: request.signal,
     sourceImageSelected: Boolean(body.sourceImageMessageId)
   });
+
+  if (toolRoutePlan.tool === "image") {
+    if (securityMode) {
+      await cleanupTemporaryAttachments(attachments, temporaryChat);
+      return jsonError("隐私 / 安全模式已关闭图片生成。", 403);
+    }
+
+    if (!personalizationSettings.toolPreferences.imageGenerationEnabled) {
+      await cleanupTemporaryAttachments(attachments, temporaryChat);
+      return jsonError("图片生成已在个人中心关闭。", 403);
+    }
+  }
 
   if (toolRoutePlan.tool === "image") {
     const sourceImageMessage = body.sourceImageMessageId
@@ -1263,6 +1358,7 @@ export async function POST(request: NextRequest) {
             });
 
             const usage = await getUsageSummary(user.id, { readCache: false });
+            await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
             const assistantMessage = temporaryMessageForClient({
               content: "Image generated",
               estimatedCostCents,
@@ -1340,6 +1436,7 @@ export async function POST(request: NextRequest) {
       (await prisma.conversation.create({
         data: {
           userId: user.id,
+          projectId: effectiveProjectId,
           title: compactTitle(content),
           model: "image2",
           mode: "IMAGE"
@@ -1378,8 +1475,10 @@ export async function POST(request: NextRequest) {
           userId: user.id
         },
         data: {
+          projectId: effectiveProjectId,
           conversationId: imageConversation.id,
-          messageId: imageUserMessage.id
+          messageId: imageUserMessage.id,
+          temporary: false
         }
       });
     }
@@ -1387,13 +1486,16 @@ export async function POST(request: NextRequest) {
     const imageMemoryResult = memoryWriteEnabled
       ? await applyMemoryDecision({
           decision: toolRoutePlan.memory,
+          projectId: memoryProjectId,
           sourceMessageId: imageUserMessage.id,
           userId: user.id
         })
       : null;
     const imageUserMessageView = {
       ...imageUserMessage,
-      attachments: effectiveAttachments.map(attachmentToView)
+      attachments: effectiveAttachments.map((attachment) =>
+        attachmentToView({ ...attachment, temporary: false })
+      )
     };
     const imageRouterFinishedAt = Date.now();
     const imageStartedAt = imageRouterFinishedAt;
@@ -1541,6 +1643,7 @@ export async function POST(request: NextRequest) {
           });
 
           const usage = await getUsageSummary(user.id, { readCache: false });
+          await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
           sse(controller, "tool", imageEvents.find((event) => event.id === "image"));
           sse(controller, "done", {
             assistantMessage: imageMessageForResponse(assistantMessage),
@@ -1635,22 +1738,44 @@ export async function POST(request: NextRequest) {
     promptClock
   });
   const savedMemoryPrompt = memoryReadEnabled
-    ? formatMemoriesForPrompt(await listUserMemories(user.id), {
+    ? formatMemoriesForPrompt(await listUserMemories(user.id, { projectId: memoryProjectId }), {
         profileNickname: personalizationSettings.about.nickname
       })
     : "";
+  const chatHistoryPrompt = chatHistoryReadEnabled
+    ? await formatRecentChatHistoryForPrompt({
+        excludeConversationId: existingConversation?.id,
+        projectId: projectMemoryScope === "project" ? effectiveProjectId : null,
+        userId: user.id
+      })
+    : "";
   const userStylePrompt = formatPersonalizationForPrompt(user.aiStylePrompt);
+  const projectPrompt = effectiveProject
+    ? [
+        `当前项目：${effectiveProject.name}`,
+        effectiveProject.instructions ? `项目专属指令：${effectiveProject.instructions}` : "",
+        projectMemoryScope === "project"
+          ? "当前项目只引用并写入项目范围内的记忆。"
+          : projectMemoryScope === "off"
+            ? "当前项目不引用或写入长期记忆。"
+            : ""
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
   const systemPrompt = [
     baseSystemPrompt,
+    projectPrompt ? `项目上下文：\n${projectPrompt}` : "",
     userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : "",
-    savedMemoryPrompt
+    savedMemoryPrompt,
+    chatHistoryPrompt
   ]
     .filter(Boolean)
     .join("\n\n");
   const webSearchStartedAt = Date.now();
   const webSearchPlan = {
     query: toolRoutePlan.query,
-    shouldSearch: toolRoutePlan.shouldSearch
+    shouldSearch: webSearchRuntimeEnabled && toolRoutePlan.shouldSearch
   };
   const webSearchResult = webSearchPlan.shouldSearch
     ? await searchWeb(
@@ -1665,6 +1790,13 @@ export async function POST(request: NextRequest) {
         { force: true, query: webSearchPlan.query, signal: request.signal }
       )
     : null;
+
+  if (webSearchPlan.shouldSearch) {
+    await markUserAppConnectorUsed({ provider: "webSearch", userId: user.id }).catch(
+      () => undefined
+    );
+  }
+
   const webSearchFinishedAt = Date.now();
   const webSearchSources: WebSearchSource[] = webSearchResult?.sources ?? [];
   const webSearchContext = webSearchResult?.sources.length
@@ -1814,7 +1946,6 @@ export async function POST(request: NextRequest) {
         let streamedReasoningContent = "";
         let processToolEvents: PersistedToolEvent[] = initialProcessToolEvents;
         let generationStreamStarted = false;
-        let currentStreamStatus = MODEL_THINKING_STATUS;
 
         const upsertProcessToolEvent = (
           event: Omit<PersistedToolEvent, "startedAt"> & Partial<Pick<PersistedToolEvent, "startedAt">>,
@@ -1822,13 +1953,12 @@ export async function POST(request: NextRequest) {
         ) => {
           processToolEvents = mergePersistedToolEvent(processToolEvents, event, now);
         };
-        const markModelOutputStarted = (detail: string, status: string) => {
+        const markModelOutputStarted = (detail: string) => {
           if (generationStreamStarted) {
             return;
           }
 
           generationStreamStarted = true;
-          currentStreamStatus = status;
           upsertProcessToolEvent({
             detail,
             id: "generation",
@@ -1859,7 +1989,6 @@ export async function POST(request: NextRequest) {
           upstreamUsage?: UpstreamUsage;
         }) => {
           const finishedAt = options.finishedAt ?? Date.now();
-          currentStreamStatus = options.streamStatus;
           processToolEvents = processToolEvents.map((event) =>
             event.status === "running"
               ? {
@@ -1945,7 +2074,7 @@ export async function POST(request: NextRequest) {
           if (aiSettings.mockResponses) {
             await streamMockAnswer(content, (delta) => {
               assistantContent += delta;
-              markModelOutputStarted(MODEL_STREAMING_DETAIL, MODEL_STREAMING_STATUS);
+              markModelOutputStarted(MODEL_STREAMING_DETAIL);
               sse(controller, "delta", { delta });
             }, streamAbortController.signal);
           } else {
@@ -1962,12 +2091,12 @@ export async function POST(request: NextRequest) {
             upstreamUsage = await pipeOpenAiSse(upstreamBody, {
               onDelta: (delta) => {
                 assistantContent += delta;
-                markModelOutputStarted(MODEL_STREAMING_DETAIL, MODEL_STREAMING_STATUS);
+                markModelOutputStarted(MODEL_STREAMING_DETAIL);
                 sse(controller, "delta", { delta });
               },
               onReasoning: (delta) => {
                 reasoningContent += delta;
-                markModelOutputStarted("正在思考并整理思路", "正在思考...");
+                markModelOutputStarted("正在思考并整理思路");
                 emitReasoningDelta();
               }
             });
@@ -2014,6 +2143,7 @@ export async function POST(request: NextRequest) {
             upstreamUsage
           });
           const usage = await getUsageSummary(user.id, { readCache: false });
+          await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
 
           sse(controller, "done", {
             assistantMessage,
@@ -2078,6 +2208,7 @@ export async function POST(request: NextRequest) {
     (await prisma.conversation.create({
       data: {
         userId: user.id,
+        projectId: effectiveProjectId,
         title: compactTitle(content),
         model: model.id,
         mode: "CHAT"
@@ -2108,8 +2239,10 @@ export async function POST(request: NextRequest) {
         userId: user.id
       },
       data: {
+        projectId: effectiveProjectId,
         conversationId: conversation.id,
-        messageId: userMessage.id
+        messageId: userMessage.id,
+        temporary: false
       }
     });
   }
@@ -2117,13 +2250,16 @@ export async function POST(request: NextRequest) {
   const memoryResult = memoryWriteEnabled
     ? await applyMemoryDecision({
         decision: toolRoutePlan.memory,
+        projectId: memoryProjectId,
         sourceMessageId: userMessage.id,
         userId: user.id
       })
     : null;
   const userMessageView = {
     ...userMessage,
-    attachments: effectiveAttachments.map(attachmentToView)
+    attachments: effectiveAttachments.map((attachment) =>
+      attachmentToView({ ...attachment, temporary: false })
+    )
   };
   const routerFinishedAt = Date.now();
   const toolEvents = buildToolEvents({
@@ -2460,6 +2596,7 @@ export async function POST(request: NextRequest) {
           upstreamUsage
         });
         const usage = await getUsageSummary(user.id, { readCache: false });
+        await maybeNotifyLowBalance(user.id, usage).catch(() => undefined);
         const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
         const remainingReasoningContent =
           visibleReasoningContent && visibleReasoningContent !== streamedReasoningContent

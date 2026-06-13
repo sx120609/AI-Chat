@@ -4,12 +4,14 @@ import {
   Archive,
   Check,
   ChevronDown,
+  Clock3,
   Copy,
   CreditCard,
   ExternalLink,
   File as FileIcon,
   FileArchive,
   FileText,
+  FolderOpen,
   Gauge,
   Image as ImageIcon,
   Loader2,
@@ -55,6 +57,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
+import { prepareMarkdownForRendering } from "@/lib/markdown";
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORTS } from "@/lib/models";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { formatCents, formatNumber } from "@/lib/format";
@@ -109,6 +112,16 @@ type ShareNotice = {
   title: string;
   tone: "success" | "error";
   url?: string;
+};
+
+type ChatProjectView = {
+  id: string;
+  name: string;
+  instructions: string;
+  memoryScope: string;
+  defaultModel: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const PAYMENT_AMOUNTS_CENTS = [100, 500, 1000, 2000, 5000];
@@ -430,6 +443,10 @@ function useEventCallback<Args extends unknown[], Result>(callback: (...args: Ar
   return useCallback((...args: Args) => callbackRef.current(...args), []);
 }
 
+function resolveChatModelId(value: string, models: ChatModelView[]) {
+  return models.find((model) => model.id === value || model.upstreamId === value)?.id ?? "";
+}
+
 export function ChatShell({
   initialDefaultReasoningEffort,
   initialModels,
@@ -445,16 +462,17 @@ export function ChatShell({
   );
   const securityModeDefault = personalizationSettings.toolPreferences.securityMode;
   const defaultTemporaryMode = personalizationSettings.temporaryChatDefault || securityModeDefault;
-  const defaultModel = initialModels.some(
-    (item) => item.id === personalizationSettings.toolPreferences.defaultModel
-  )
-    ? personalizationSettings.toolPreferences.defaultModel
-    : initialModels[0]?.id ?? "";
+  const defaultModel =
+    resolveChatModelId(personalizationSettings.toolPreferences.defaultModel, initialModels) ||
+    initialModels[0]?.id ||
+    "";
   const [user] = useState(initialUser);
   const [siteSettings, setSiteSettings] = useState(initialSiteSettings);
   const [usage, setUsage] = useState(initialUsage);
   const [paymentSettings, setPaymentSettings] = useState(initialPaymentSettings);
   const [chatModels, setChatModels] = useState(initialModels);
+  const [projects, setProjects] = useState<ChatProjectView[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState("");
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeLocalConversationKey, setActiveLocalConversationKey] = useState(
@@ -478,11 +496,13 @@ export function ChatShell({
   const [webSearchAvailable, setWebSearchAvailable] = useState(initialWebSearchEnabled);
   const [webSearchEnabledForMessage, setWebSearchEnabledForMessage] = useState(
     initialWebSearchEnabled &&
+      personalizationSettings.apps.webSearch &&
       personalizationSettings.toolPreferences.webSearchDefault &&
       !securityModeDefault
   );
   const [temporaryChatEnabled, setTemporaryChatEnabled] = useState(defaultTemporaryMode);
-  const [memoryWriteDisabledForMessage, setMemoryWriteDisabledForMessage] = useState(false);
+  const [memoryWriteDisabledForConversation, setMemoryWriteDisabledForConversation] =
+    useState(false);
   const [model, setModel] = useState<string>(defaultModel);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
     personalizationSettings.toolPreferences.defaultReasoningEffort || initialDefaultReasoningEffort
@@ -528,8 +548,11 @@ export function ChatShell({
   const imageGenerationAvailable =
     personalizationSettings.toolPreferences.imageGenerationEnabled && !securityModeDefault;
   const fileAnalysisAvailable =
-    personalizationSettings.toolPreferences.fileAnalysisEnabled && !securityModeDefault;
-  const webSearchToolAvailable = webSearchAvailable && !securityModeDefault;
+    personalizationSettings.apps.fileLibrary &&
+    personalizationSettings.toolPreferences.fileAnalysisEnabled &&
+    !securityModeDefault;
+  const webSearchToolAvailable =
+    webSearchAvailable && personalizationSettings.apps.webSearch && !securityModeDefault;
   const runningGenerationKeySet = useMemo(
     () => new Set(runningGenerationKeys),
     [runningGenerationKeys]
@@ -542,6 +565,10 @@ export function ChatShell({
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId),
     [activeConversationId, conversations]
+  );
+  const activeProject = useMemo(
+    () => projects.find((project) => project.id === activeProjectId) ?? null,
+    [activeProjectId, projects]
   );
   const activeModel = useMemo(
     () => chatModels.find((item) => item.id === model) ?? chatModels[0],
@@ -676,11 +703,11 @@ export function ChatShell({
 
       if (payload.chatModels?.length) {
         setChatModels(payload.chatModels);
-        setModel((current) =>
-          payload.chatModels?.some((item) => item.id === current)
-            ? current
-            : payload.chatModels?.[0]?.id ?? current
-        );
+        setModel((current) => {
+          const resolvedCurrent = resolveChatModelId(current, payload.chatModels ?? []);
+
+          return resolvedCurrent || payload.chatModels?.[0]?.id || current;
+        });
       }
 
       if (payload.defaultReasoningEffort) {
@@ -701,6 +728,17 @@ export function ChatShell({
         }
       }
 
+    }
+  }, []);
+
+  const loadProjects = useCallback(async () => {
+    const response = await fetch("/api/profile/projects").catch(() => null);
+    const payload = response?.ok
+      ? ((await response.json().catch(() => null)) as { projects?: ChatProjectView[] } | null)
+      : null;
+
+    if (payload?.projects) {
+      setProjects(payload.projects);
     }
   }, []);
 
@@ -759,6 +797,7 @@ export function ChatShell({
       activeConversationIdRef.current = payload.conversation.id;
       activeConversationKeyRef.current = payload.conversation.id;
       setActiveConversationId(payload.conversation.id);
+      setActiveProjectId(payload.conversation.projectId ?? "");
       setMessages(messagesWithInFlight);
       setLastContextStats(
         restoringInFlightChat
@@ -855,6 +894,10 @@ export function ChatShell({
   useEffect(() => {
     void refreshMe();
   }, [refreshMe]);
+
+  useEffect(() => {
+    void loadProjects();
+  }, [loadProjects]);
 
   useEffect(() => {
     document.title = siteSettings.siteName;
@@ -980,11 +1023,10 @@ export function ChatShell({
     setImageToolEnabled(false);
     setSourceImageMessage(null);
     setTemporaryChatEnabled(defaultTemporaryMode);
-    setMemoryWriteDisabledForMessage(false);
+    setMemoryWriteDisabledForConversation(false);
     setWebSearchEnabledForMessage(
       webSearchToolAvailable &&
-        personalizationSettings.toolPreferences.webSearchDefault &&
-        !securityModeDefault
+        personalizationSettings.toolPreferences.webSearchDefault
     );
     setMobileSidebarOpen(false);
     setOpenConversationMenuId(null);
@@ -995,7 +1037,7 @@ export function ChatShell({
 
   async function patchConversation(
     conversationId: string,
-    body: { pinned?: boolean; title?: string }
+    body: { pinned?: boolean; projectId?: string | null; title?: string }
   ) {
     const response = await fetch(`/api/conversations/${conversationId}`, {
       method: "PATCH",
@@ -1012,6 +1054,36 @@ export function ChatShell({
     }
 
     return payload.conversation;
+  }
+
+  async function changeActiveProject(projectId: string) {
+    const nextProject = projects.find((project) => project.id === projectId) ?? null;
+    setActiveProjectId(projectId);
+    const projectDefaultModel = nextProject?.defaultModel
+      ? resolveChatModelId(nextProject.defaultModel, chatModels)
+      : "";
+
+    if (projectDefaultModel) {
+      setModel(projectDefaultModel);
+    }
+
+    if (!activeConversationIdRef.current) {
+      setStreamStatus(nextProject ? `已选择项目：${nextProject.name}` : "已切回账号默认聊天。");
+      return;
+    }
+
+    const updated = await patchConversation(activeConversationIdRef.current, {
+      projectId: projectId || null
+    });
+
+    if (!updated) {
+      return;
+    }
+
+    setConversations((current) =>
+      current.map((conversation) => (conversation.id === updated.id ? updated : conversation))
+    );
+    setStreamStatus(nextProject ? `当前会话已归入项目：${nextProject.name}` : "当前会话已移出项目。");
   }
 
   function beginRenameConversation(conversation: ConversationSummary) {
@@ -1190,6 +1262,7 @@ export function ChatShell({
     activeConversationIdRef.current = conversationId;
     activeConversationKeyRef.current = conversationId;
     setActiveConversationId(conversationId);
+    setActiveProjectId(nextConversation?.projectId ?? "");
     setMessages([]);
     setLastContextStats(null);
     setStreamStatus("正在加载会话...");
@@ -1200,11 +1273,10 @@ export function ChatShell({
     setImageToolEnabled(false);
     setSourceImageMessage(null);
     setTemporaryChatEnabled(false);
-    setMemoryWriteDisabledForMessage(false);
+    setMemoryWriteDisabledForConversation(false);
     setWebSearchEnabledForMessage(
       webSearchToolAvailable &&
-        personalizationSettings.toolPreferences.webSearchDefault &&
-        !securityModeDefault
+        personalizationSettings.toolPreferences.webSearchDefault
     );
 
     if (nextConversation?.model && nextConversation.model !== "image2") {
@@ -1224,7 +1296,14 @@ export function ChatShell({
   }
 
   async function uploadAttachments(files: FileList | null) {
-    if (!files?.length || uploadingAttachments || loading || quotaBlocked || conversationSwitching) {
+    if (
+      !files?.length ||
+      !fileAnalysisAvailable ||
+      uploadingAttachments ||
+      loading ||
+      quotaBlocked ||
+      conversationSwitching
+    ) {
       return;
     }
 
@@ -1241,6 +1320,10 @@ export function ChatShell({
 
     if (temporaryChatEnabled) {
       formData.set("temporary", "1");
+    }
+
+    if (activeProjectId) {
+      formData.set("projectId", activeProjectId);
     }
 
     try {
@@ -1406,7 +1489,7 @@ export function ChatShell({
     const sourceImageMessageId = options.sourceImageMessage?.id;
     const requestTemporary = options.temporary ?? temporaryChatEnabled;
     const requestDisableMemoryWrite =
-      options.disableMemoryWrite ?? (memoryWriteDisabledForMessage || requestTemporary);
+      options.disableMemoryWrite ?? (memoryWriteDisabledForConversation || requestTemporary);
     const temporaryMessages = requestTemporary
       ? messages
           .filter(
@@ -1520,6 +1603,7 @@ export function ChatShell({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           conversationId: requestTemporary ? undefined : startingConversationId,
+          projectId: activeProjectId || null,
           model,
           reasoningEffort,
           content: prompt,
@@ -2236,6 +2320,7 @@ export function ChatShell({
         body: JSON.stringify({
           mode: "IMAGE",
           model: "image2",
+          projectId: activeProjectId || null,
           title: prompt.trim().slice(0, 48) || "New image"
         })
       }).catch(() => null);
@@ -2487,6 +2572,7 @@ export function ChatShell({
           attachmentIds: attachments.map((attachment) => attachment.id),
           conversationId: startingConversationId,
           model: "image2",
+          projectId: activeProjectId || null,
           prompt,
           reuseUserMessageId,
           sourceImageMessageId
@@ -2805,15 +2891,13 @@ export function ChatShell({
     try {
       const useWebSearch = webSearchToolAvailable && webSearchEnabledForMessage;
       const requestTemporary = temporaryChatEnabled;
-      const requestDisableMemoryWrite = memoryWriteDisabledForMessage || requestTemporary;
+      const requestDisableMemoryWrite = memoryWriteDisabledForConversation || requestTemporary;
 
       if (editingMessage) {
-        setMemoryWriteDisabledForMessage(false);
         setTemporaryChatEnabled(defaultTemporaryMode);
         setWebSearchEnabledForMessage(
           webSearchToolAvailable &&
-            personalizationSettings.toolPreferences.webSearchDefault &&
-            !securityModeDefault
+            personalizationSettings.toolPreferences.webSearchDefault
         );
         await submitEditedMessage(prompt, useWebSearch, {
           disableMemoryWrite: requestDisableMemoryWrite,
@@ -2824,12 +2908,10 @@ export function ChatShell({
 
       const imageToolRequested = imageGenerationAvailable && (imageToolEnabled || Boolean(sourceImage));
       setImageToolEnabled(false);
-      setMemoryWriteDisabledForMessage(false);
       setTemporaryChatEnabled(defaultTemporaryMode);
       setWebSearchEnabledForMessage(
         webSearchToolAvailable &&
-          personalizationSettings.toolPreferences.webSearchDefault &&
-          !securityModeDefault
+          personalizationSettings.toolPreferences.webSearchDefault
       );
 
       await sendChat(prompt, attachments, {
@@ -3052,6 +3134,7 @@ export function ChatShell({
                           </p>
                         </div>
                         <p className="mt-0.5 truncate text-xs ios-muted max-lg:hidden">
+                          {conversation.projectName ? `${conversation.projectName} · ` : ""}
                           {conversation.mode === "IMAGE" ? "image2" : conversation.model}
                           {conversation._count ? ` · ${conversation._count.messages} 条消息` : ""}
                           {running ? " · 生成中" : ""}
@@ -3264,6 +3347,7 @@ export function ChatShell({
                   </p>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs ios-muted">
+                  {activeProject ? <span className="min-w-0 truncate">项目 {activeProject.name}</span> : null}
                   <span className="min-w-0 truncate">余额 {formatCents(usage.remainingCostCents)}</span>
                   {activeModel ? (
                     <ContextBadge
@@ -3275,7 +3359,25 @@ export function ChatShell({
               </div>
 
               <div className="min-w-0 justify-self-stretch lg:block lg:shrink-0 lg:justify-self-auto">
-                <div className="w-full lg:w-auto">
+                <div className="flex w-full min-w-0 items-center gap-2 lg:w-auto">
+                  {projects.length > 0 ? (
+                    <label className="app-glass-control hidden h-10 min-w-0 items-center gap-2 rounded-2xl px-3 text-xs font-semibold text-stone-700 sm:flex">
+                      <FolderOpen className="size-4 shrink-0 text-[color:var(--claude-accent)]" />
+                      <select
+                        className="max-w-36 min-w-0 bg-transparent outline-none lg:max-w-48"
+                        onChange={(event) => void changeActiveProject(event.target.value)}
+                        title="选择项目"
+                        value={activeProjectId}
+                      >
+                        <option value="">账号默认</option>
+                        {projects.map((project) => (
+                          <option key={project.id} value={project.id}>
+                            {project.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                   <ModelReasoningPicker
                     activeModel={activeModel}
                     activeReasoningEffort={activeReasoningEffort}
@@ -3323,6 +3425,7 @@ export function ChatShell({
                     今天想聊点什么？
                   </h1>
                   <p className="mt-2 text-sm ios-muted">
+                    {activeProject ? `${activeProject.name} · ` : ""}
                     {imageToolEnabled ? "image2" : activeModel?.label || model}
                   </p>
                 </div>
@@ -3383,10 +3486,10 @@ export function ChatShell({
                 下一条将联网搜索（{webSearchProviderLabel}）
               </div>
             ) : null}
-            {temporaryChatEnabled || memoryWriteDisabledForMessage ? (
+            {temporaryChatEnabled || memoryWriteDisabledForConversation ? (
               <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
                 <Shield className="size-3.5 text-[color:var(--claude-accent)]" />
-                {temporaryChatEnabled ? "临时聊天：不读取或写入长期记忆" : "本次对话不写入记忆"}
+                {temporaryChatEnabled ? "临时聊天：不保存历史，不读取或写入长期记忆" : "本次对话不写入记忆"}
               </div>
             ) : null}
             {toolEvents.length > 0 && processStartedAt && !inlineProcessMessageId ? (
@@ -3482,7 +3585,7 @@ export function ChatShell({
                     conversationSwitching
                   }
                   onClick={() => fileInputRef.current?.click()}
-                  title={fileAnalysisAvailable ? "上传文件或图片" : "文件分析已关闭"}
+                  title={fileAnalysisAvailable ? "上传文件或图片" : "文件库或文件分析已关闭"}
                   type="button"
                 >
                   {uploadingAttachments ? (
@@ -3551,26 +3654,44 @@ export function ChatShell({
                   </div>
                 ) : null}
                 <button
-                  aria-pressed={temporaryChatEnabled || memoryWriteDisabledForMessage}
+                  aria-pressed={temporaryChatEnabled}
                   className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
-                    temporaryChatEnabled || memoryWriteDisabledForMessage
+                    temporaryChatEnabled
                       ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
                       : "app-glass-control text-stone-600 sm:text-stone-600"
                   }`}
                   disabled={loading || quotaBlocked || conversationSwitching}
                   onClick={() => {
-                    if (temporaryChatEnabled) {
-                      setTemporaryChatEnabled(false);
-                      setMemoryWriteDisabledForMessage(false);
-                      return;
-                    }
+                    const nextTemporaryChatEnabled = !temporaryChatEnabled;
 
-                    setMemoryWriteDisabledForMessage((current) => !current);
+                    setTemporaryChatEnabled(nextTemporaryChatEnabled);
+
+                    if (nextTemporaryChatEnabled) {
+                      setMemoryWriteDisabledForConversation(false);
+                    }
                   }}
                   title={
                     temporaryChatEnabled
-                      ? "已开启临时聊天：不读取或写入长期记忆"
-                      : memoryWriteDisabledForMessage
+                      ? "已开启临时聊天：不保存历史，不读取或写入长期记忆"
+                      : "临时聊天：不保存历史，不读取或写入长期记忆"
+                  }
+                  type="button"
+                >
+                  <Clock3 className="size-4" />
+                </button>
+                <button
+                  aria-pressed={memoryWriteDisabledForConversation}
+                  className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
+                    memoryWriteDisabledForConversation
+                      ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
+                      : "app-glass-control text-stone-600 sm:text-stone-600"
+                  }`}
+                  disabled={temporaryChatEnabled || loading || quotaBlocked || conversationSwitching}
+                  onClick={() => setMemoryWriteDisabledForConversation((current) => !current)}
+                  title={
+                    temporaryChatEnabled
+                      ? "临时聊天已包含不写入记忆"
+                      : memoryWriteDisabledForConversation
                         ? "已开启：本次对话不写入记忆"
                         : "本次对话不写入记忆"
                   }
@@ -3668,9 +3789,9 @@ function ShareNoticeToast({
   const success = notice.tone === "success";
 
   return createPortal(
-    <div className="pointer-events-none fixed inset-x-3 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-[75] sm:bottom-auto sm:left-auto sm:right-6 sm:top-6 sm:w-[24rem]">
+    <div className="pointer-events-none fixed inset-0 z-[75] grid place-items-center px-4 py-[calc(1rem+env(safe-area-inset-top))] sm:block sm:p-0">
       <section
-        className={`app-reveal pointer-events-auto overflow-hidden rounded-2xl border bg-white/82 p-3 text-stone-900 shadow-[0_20px_70px_rgba(18,42,35,0.22),inset_0_1px_0_rgba(255,255,255,0.78)] backdrop-blur-2xl ${
+        className={`app-reveal pointer-events-auto w-full max-w-[24rem] overflow-hidden rounded-2xl border bg-white/82 p-3 text-stone-900 shadow-[0_20px_70px_rgba(18,42,35,0.22),inset_0_1px_0_rgba(255,255,255,0.78)] backdrop-blur-2xl sm:absolute sm:right-6 sm:top-6 sm:w-[24rem] ${
           success ? "border-emerald-200" : "border-red-200"
         }`}
         role="status"
@@ -4955,60 +5076,6 @@ function reactNodeToText(node: ReactNode): string {
   }
 
   return "";
-}
-
-function convertMathDelimiters(value: string) {
-  return value
-    .replace(/\\{1,2}\[([\s\S]*?)\\{1,2}\]/g, (_match, math: string) => {
-      const trimmed = math.trim();
-      return trimmed ? `\n\n$$\n${trimmed}\n$$\n\n` : "";
-    })
-    .replace(/\\{1,2}\(([\s\S]*?)\\{1,2}\)/g, (_match, math: string) => {
-      const trimmed = math.trim();
-      return trimmed ? `$${trimmed}$` : "";
-    });
-}
-
-function normalizeMathInMarkdownText(value: string) {
-  return value
-    .split(/(`+[^`\n]*?`+)/g)
-    .map((part) => (part.startsWith("`") ? part : convertMathDelimiters(part)))
-    .join("");
-}
-
-function closeUnfinishedCodeFence(value: string) {
-  const lines = value.split("\n");
-  let openFence: "```" | "~~~" | null = null;
-
-  for (const line of lines) {
-    const fence = line.match(/^(\s*)(```|~~~)/)?.[2] as "```" | "~~~" | undefined;
-
-    if (!fence) {
-      continue;
-    }
-
-    if (!openFence) {
-      openFence = fence;
-      continue;
-    }
-
-    if (openFence === fence) {
-      openFence = null;
-    }
-  }
-
-  return openFence ? `${value}\n${openFence}` : value;
-}
-
-function prepareMarkdownForRendering(value: string) {
-  const normalized = value
-    .split(/((?:^|\n)(?:```|~~~)[\s\S]*?(?:\n(?:```|~~~)(?=\n|$)|$))/g)
-    .map((part) =>
-      /^(?:\n)?(?:```|~~~)/.test(part) ? part : normalizeMathInMarkdownText(part)
-    )
-    .join("");
-
-  return closeUnfinishedCodeFence(normalized);
 }
 
 function MarkdownCodeBlock({ code, language }: { code: string; language: string }) {

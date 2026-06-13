@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 
 type CreateMemoryBody = {
   content?: string;
+  projectId?: string | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
   const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "1";
 
   return NextResponse.json({
-    memories: await listUserMemories(currentUser.id, { includeArchived })
+    memories: await listUserMemories(currentUser.id, { includeArchived, includeProjects: true })
   });
 }
 
@@ -50,8 +51,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const projectId =
+      typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
+
+    if (projectId) {
+      const project = await prisma.userProject.findFirst({
+        where: { id: projectId, userId: currentUser.id },
+        select: { id: true }
+      });
+
+      if (!project) {
+        return jsonError("项目不存在。", 404);
+      }
+    }
+
     const memory = await createUserMemory({
       content: body.content || "",
+      projectId,
       source: "manual",
       userId: currentUser.id
     });

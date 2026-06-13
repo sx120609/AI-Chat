@@ -20,7 +20,6 @@ import {
   type ContextCompressionResult
 } from "@/lib/context-compression";
 import { formatRecentChatHistoryForPrompt } from "@/lib/chat-history";
-import { markUserAppConnectorUsed } from "@/lib/connectors";
 import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
@@ -991,10 +990,8 @@ export async function POST(request: NextRequest) {
   const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const securityMode = personalizationSettings.toolPreferences.securityMode;
-  const fileAccessEnabled =
-    personalizationSettings.apps.fileLibrary &&
-    personalizationSettings.toolPreferences.fileAnalysisEnabled;
-  const webSearchRuntimeEnabled = personalizationSettings.apps.webSearch && !securityMode;
+  const fileAccessEnabled = personalizationSettings.toolPreferences.fileAnalysisEnabled;
+  const webSearchRuntimeEnabled = !securityMode;
   const requestedAttachmentIds = uniqueAttachmentIds(body.attachmentIds);
   const temporaryChat = body.temporary === true || securityMode;
 
@@ -1013,7 +1010,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!fileAccessEnabled && requestedAttachmentIds.length > 0) {
-    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+    return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
   const reusedUserMessage = body.reuseUserMessageId
@@ -1142,13 +1139,7 @@ export async function POST(request: NextRequest) {
 
   if (!fileAccessEnabled && effectiveAttachments.length > 0) {
     await cleanupTemporaryAttachments(attachments, temporaryChat);
-    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
-  }
-
-  if (effectiveAttachments.length > 0) {
-    await markUserAppConnectorUsed({ provider: "fileLibrary", userId: user.id }).catch(
-      () => undefined
-    );
+    return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
   if (reusedUserMessage) {
@@ -1798,12 +1789,6 @@ export async function POST(request: NextRequest) {
         { force: true, query: webSearchPlan.query, signal: request.signal }
       )
     : null;
-
-  if (webSearchPlan.shouldSearch) {
-    await markUserAppConnectorUsed({ provider: "webSearch", userId: user.id }).catch(
-      () => undefined
-    );
-  }
 
   const webSearchFinishedAt = Date.now();
   const webSearchSources: WebSearchSource[] = webSearchResult?.sources ?? [];

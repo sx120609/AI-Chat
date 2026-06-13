@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Archive,
   BookOpen,
-  Bot,
   Braces,
   ChevronRight,
   Check,
@@ -14,13 +13,11 @@ import {
   File as FileIcon,
   FileCode2,
   FolderOpen,
-  Globe2,
   KeyRound,
   Link2,
   Loader2,
   Lock,
   Pencil,
-  PlugZap,
   Plus,
   RotateCcw,
   Save,
@@ -185,40 +182,10 @@ type ProjectsPayload = {
   projects: UserProjectView[];
 };
 
-type AppConnectorStatus = "connected" | "disconnected" | "needs_setup";
-
-type AppConnectorView = {
-  authorizedAt?: string | null;
-  description: string;
-  enabled: boolean;
-  id?: string | null;
-  label: string;
-  lastUsedAt?: string | null;
-  metadata?: Record<string, unknown>;
-  provider: keyof PersonalizationSettings["apps"];
-  revokedAt?: string | null;
-  scope: string;
-  status: AppConnectorStatus;
-  updatedAt?: string | null;
-};
-
-type ConnectorDraft = {
-  endpoint: string;
-  note: string;
-  permission: "catalog" | "invoke" | "project";
-  scope: "account" | "project" | "summary";
-  space: string;
-};
-
-type ConnectorsPayload = {
-  connectors: AppConnectorView[];
-};
-
 type ProfileTab =
   | "overview"
   | "personalization"
   | "memory"
-  | "apps"
   | "data"
   | "security"
   | "api";
@@ -293,17 +260,6 @@ const INSTRUCTION_PRESETS: Array<{
   { id: "life", label: "生活助理", description: "自然体贴，适合日常决策。" }
 ];
 
-const APP_SETTING_OPTIONS: Array<{
-  icon: typeof Globe2;
-  key: keyof PersonalizationSettings["apps"];
-  label: string;
-}> = [
-  { icon: Globe2, key: "webSearch", label: "联网搜索" },
-  { icon: FileIcon, key: "fileLibrary", label: "文件库" },
-  { icon: PlugZap, key: "mcpConnectors", label: "第三方 MCP" },
-  { icon: Bot, key: "knowledgeBase", label: "知识库" }
-];
-
 const profileTabs: Array<{
   id: ProfileTab;
   label: string;
@@ -327,12 +283,6 @@ const profileTabs: Array<{
     label: "记忆",
     description: "保存、引用与归档",
     icon: Database
-  },
-  {
-    id: "apps",
-    label: "应用",
-    description: "连接器与授权",
-    icon: PlugZap
   },
   {
     id: "data",
@@ -849,148 +799,6 @@ function ToggleRow({
   );
 }
 
-function connectorStatusLabel(status: AppConnectorStatus, enabled: boolean) {
-  if (status === "connected" && enabled) {
-    return "已授权";
-  }
-
-  if (status === "connected") {
-    return "已授权 · 已停用";
-  }
-
-  if (status === "needs_setup") {
-    return "待配置";
-  }
-
-  return "未授权";
-}
-
-function connectorMetadataString(metadata: Record<string, unknown> | undefined, key: string) {
-  const value = metadata?.[key];
-
-  return typeof value === "string" ? value : "";
-}
-
-function connectorDraftFromMetadata(connector: AppConnectorView): ConnectorDraft {
-  const permission = connectorMetadataString(connector.metadata, "permission");
-  const scope = connectorMetadataString(connector.metadata, "scope");
-
-  return {
-    endpoint: connectorMetadataString(connector.metadata, "endpoint"),
-    note: connectorMetadataString(connector.metadata, "note"),
-    permission:
-      permission === "invoke" || permission === "project" || permission === "catalog"
-        ? permission
-        : "catalog",
-    scope: scope === "project" || scope === "summary" || scope === "account" ? scope : "account",
-    space: connectorMetadataString(connector.metadata, "space")
-  };
-}
-
-function connectorDraftsFromList(connectors: AppConnectorView[]) {
-  return Object.fromEntries(
-    connectors.map((connector) => [connector.provider, connectorDraftFromMetadata(connector)])
-  ) as Partial<Record<keyof PersonalizationSettings["apps"], ConnectorDraft>>;
-}
-
-function connectorPermissionLabel(value: ConnectorDraft["permission"]) {
-  if (value === "invoke") {
-    return "允许工具调用";
-  }
-
-  if (value === "project") {
-    return "仅项目内启用";
-  }
-
-  return "只读取工具清单";
-}
-
-function connectorKnowledgeScopeLabel(value: ConnectorDraft["scope"]) {
-  if (value === "project") {
-    return "仅项目知识";
-  }
-
-  if (value === "summary") {
-    return "只引用摘要";
-  }
-
-  return "账号可用";
-}
-
-function connectorMetadataForSave(
-  connector: AppConnectorView,
-  draft?: ConnectorDraft
-): Record<string, string> | undefined {
-  if (connector.provider === "mcpConnectors") {
-    return {
-      endpoint: draft?.endpoint ?? "",
-      note: draft?.note ?? "",
-      permission: draft?.permission ?? "catalog"
-    };
-  }
-
-  if (connector.provider === "knowledgeBase") {
-    return {
-      note: draft?.note ?? "",
-      scope: draft?.scope ?? "account",
-      space: draft?.space ?? ""
-    };
-  }
-
-  return undefined;
-}
-
-function connectorDetailRows(connector: AppConnectorView, draft?: ConnectorDraft) {
-  if (connector.provider === "mcpConnectors") {
-    return [
-      ["能力", connectorPermissionLabel(draft?.permission ?? "catalog")],
-      ["网关", draft?.endpoint || "未配置 MCP 网关"],
-      ["最近使用", connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"]
-    ];
-  }
-
-  if (connector.provider === "knowledgeBase") {
-    return [
-      ["能力", connectorKnowledgeScopeLabel(draft?.scope ?? "account")],
-      ["知识库", draft?.space || "未配置知识空间"],
-      ["最近使用", connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"]
-    ];
-  }
-
-  return [
-    ["范围", connector.scope],
-    [
-      "授权时间",
-      connector.authorizedAt ? new Date(connector.authorizedAt).toLocaleString() : "未授权"
-    ],
-    ["最近使用", connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"]
-  ];
-}
-
-function connectorNextStep(connector: AppConnectorView, draft?: ConnectorDraft) {
-  if (connector.provider === "mcpConnectors") {
-    if (!draft?.endpoint) {
-      return "填写 MCP 网关地址后即可启用；当前只保存授权状态，不会自动调用外部工具。";
-    }
-
-    return connector.enabled
-      ? "已保存 MCP 网关配置；后续接入运行时即可按这里的权限开放工具。"
-      : "配置已准备好，授权后会进入可用状态。";
-  }
-
-  if (connector.provider === "knowledgeBase") {
-    if (!draft?.space) {
-      return "填写知识库名称或空间标识后即可启用；聊天会按这里的范围显示授权状态。";
-    }
-
-    return connector.enabled
-      ? "已保存知识库范围；后续可在检索服务接入后引用这里的知识空间。"
-      : "配置已准备好，授权后会进入可用状态。";
-  }
-
-  return connector.enabled ? "已接入当前账号偏好。" : "授权后可在聊天页使用。";
-}
-
 function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title: string }) {
   return (
     <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/45 p-3">
@@ -1449,10 +1257,6 @@ export function ProfileCenter({
   const [fileLibraryTotal, setFileLibraryTotal] = useState(0);
   const [usageBreakdown, setUsageBreakdown] = useState<UsageBreakdownPayload | null>(null);
   const [projects, setProjects] = useState<UserProjectView[]>([]);
-  const [connectors, setConnectors] = useState<AppConnectorView[]>([]);
-  const [connectorDrafts, setConnectorDrafts] = useState<
-    Partial<Record<keyof PersonalizationSettings["apps"], ConnectorDraft>>
-  >({});
   const [fileProjectFilter, setFileProjectFilter] = useState("");
   const [newMemoryContent, setNewMemoryContent] = useState("");
   const [newMemoryProjectId, setNewMemoryProjectId] = useState("");
@@ -1475,13 +1279,11 @@ export function ProfileCenter({
   const [loadingMemories, setLoadingMemories] = useState(true);
   const [loadingDataLists, setLoadingDataLists] = useState(true);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
-  const [loadingConnectors, setLoadingConnectors] = useState(true);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
   const [savingDataAction, setSavingDataAction] = useState(false);
   const [savingArchivedConversationId, setSavingArchivedConversationId] = useState<string | null>(null);
   const [savingFileId, setSavingFileId] = useState<string | null>(null);
   const [savingSharedLinkId, setSavingSharedLinkId] = useState<string | null>(null);
-  const [savingConnectorProvider, setSavingConnectorProvider] = useState<string | null>(null);
   const [savingMemory, setSavingMemory] = useState(false);
   const [creatingKey, setCreatingKey] = useState(false);
   const [notice, setNotice] = useState("");
@@ -1611,33 +1413,14 @@ export function ProfileCenter({
     }
   }, []);
 
-  const loadConnectors = useCallback(async () => {
-    setLoadingConnectors(true);
-    const response = await fetch("/api/profile/connectors");
-    const payload = (await response.json().catch(() => null)) as
-      | (ConnectorsPayload & { error?: string })
-      | null;
-
-    if (response.ok && payload) {
-      setConnectors(payload.connectors);
-      setConnectorDrafts(connectorDraftsFromList(payload.connectors));
-    } else {
-      setError(payload?.error || "读取连接器失败。");
-    }
-
-    setLoadingConnectors(false);
-  }, []);
-
   useEffect(() => {
     setOrigin(window.location.origin);
     void loadApiKeys();
-    void loadConnectors();
     void loadDataLists();
     void loadMemories();
     void loadProjects();
   }, [
     loadApiKeys,
-    loadConnectors,
     loadDataLists,
     loadMemories,
     loadProjects
@@ -1660,10 +1443,6 @@ export function ProfileCenter({
     [memories]
   );
   const visibleMemories = showArchivedMemories ? memories : activeMemories;
-  const connectorByProvider = useMemo(
-    () => new Map(connectors.map((connector) => [connector.provider, connector])),
-    [connectors]
-  );
   const visibleFileLibrary = useMemo(
     () => {
       if (fileProjectFilter === "__account__") {
@@ -2238,73 +2017,6 @@ export function ProfileCenter({
     setSavingFileId(null);
   }
 
-  function updateConnectorDraft(
-    provider: keyof PersonalizationSettings["apps"],
-    patch: Partial<ConnectorDraft>
-  ) {
-    setConnectorDrafts((current) => ({
-      ...current,
-      [provider]: {
-        ...connectorDraftFromMetadata(
-          connectors.find((connector) => connector.provider === provider) ??
-            ({
-              metadata: {},
-              provider
-            } as AppConnectorView)
-        ),
-        ...current[provider],
-        ...patch
-      }
-    }));
-  }
-
-  async function updateConnector(connector: AppConnectorView, enabled: boolean) {
-    setSavingConnectorProvider(connector.provider);
-    setNotice("");
-    setError("");
-
-    const draft = connectorDrafts[connector.provider] ?? connectorDraftFromMetadata(connector);
-    const response = await fetch("/api/profile/connectors", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        enabled,
-        metadata: connectorMetadataForSave(connector, draft),
-        provider: connector.provider
-      })
-    });
-    const payload = (await response.json().catch(() => null)) as
-      | { connector?: AppConnectorView; connectors?: AppConnectorView[]; error?: string }
-      | null;
-
-    if (!response.ok || !payload?.connector) {
-      setError(payload?.error || "更新连接器失败。");
-    } else {
-      const nextConnectors =
-        payload.connectors ??
-        connectors.map((item) => (item.provider === connector.provider ? payload.connector! : item));
-
-      setConnectors(nextConnectors);
-      setConnectorDrafts(connectorDraftsFromList(nextConnectors));
-      setPersonalization((current) => ({
-        ...current,
-        apps: {
-          ...current.apps,
-          [connector.provider]: enabled
-        }
-      }));
-      setNotice(
-        enabled
-          ? payload.connector.status === "needs_setup"
-            ? `${connector.label} 已保存，仍需补全配置。`
-            : `${connector.label} 已授权。`
-          : `${connector.label} 已撤销授权。`
-      );
-    }
-
-    setSavingConnectorProvider(null);
-  }
-
   async function copyText(value: string, message = "已复制。") {
     if (!value) {
       return;
@@ -2411,7 +2123,7 @@ export function ProfileCenter({
           ) : null}
 
           <nav className="ios-panel motion-lift hidden p-2 md:block" aria-label="个人中心设置分类">
-            <div className="grid gap-2 md:grid-cols-4 lg:grid-cols-8" role="tablist">
+            <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6" role="tablist">
               {profileTabs.map((tab) => {
                 const TabIcon = tab.icon;
                 const selected = activeTab === tab.id;
@@ -2952,223 +2664,6 @@ export function ProfileCenter({
                 </div>
               </div>
             </form>
-          ) : null}
-
-          {activeTab === "apps" ? (
-            <section className="ios-panel motion-lift overflow-hidden">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
-                <div className="flex items-center gap-2">
-                  <PlugZap className="size-4 text-[color:var(--claude-accent)]" />
-                  <h2 className="text-base font-semibold">应用 / 连接器</h2>
-                </div>
-                <button
-                  className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-                  disabled={loadingConnectors}
-                  onClick={() => void loadConnectors()}
-                  type="button"
-                >
-                  <RotateCcw className="size-4" />
-                  刷新
-                </button>
-              </div>
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                {loadingConnectors ? (
-                  <div className="grid min-h-28 place-items-center text-stone-500 md:col-span-2">
-                    <Loader2 className="size-5 animate-spin" />
-                  </div>
-                ) : (
-                  APP_SETTING_OPTIONS.map(({ icon: Icon, key, label }) => {
-                    const connector =
-                      connectorByProvider.get(key) ??
-                      ({
-                        description: "",
-                        enabled: personalization.apps[key],
-                        label,
-                        provider: key,
-                        scope: "账号",
-                        status: personalization.apps[key] ? "connected" : "disconnected"
-                      } as AppConnectorView);
-                    const saving = savingConnectorProvider === connector.provider;
-                    const statusLabel = connectorStatusLabel(connector.status, connector.enabled);
-                    const draft = connectorDrafts[connector.provider] ?? connectorDraftFromMetadata(connector);
-                    const detailRows = connectorDetailRows(connector, draft);
-                    const advancedConnector =
-                      connector.provider === "mcpConnectors" || connector.provider === "knowledgeBase";
-
-                    return (
-                      <div
-                        className={`grid gap-4 rounded-lg border p-4 ${
-                          connector.enabled && connector.status === "connected"
-                            ? "border-[color:var(--claude-accent)] bg-white"
-                            : "border-[color:var(--ios-separator)] bg-white/55"
-                        }`}
-                        key={connector.provider}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-start gap-3">
-                            <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-white/80 text-[color:var(--claude-accent)]">
-                              <Icon className="size-5" />
-                            </div>
-                            <div className="min-w-0">
-                              <h3 className="text-sm font-semibold text-stone-950">{connector.label}</h3>
-                              <p className="mt-1 text-sm leading-5 ios-muted">
-                                {connector.description || "账号级应用连接器"}
-                              </p>
-                            </div>
-                          </div>
-                          <span
-                            className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
-                              connector.enabled && connector.status === "connected"
-                                ? "bg-[color:var(--claude-accent)] text-white"
-                                : "bg-stone-100 text-stone-600"
-                            }`}
-                          >
-                            {statusLabel}
-                          </span>
-                        </div>
-
-                        <div className="grid gap-2 rounded-lg bg-white/55 px-3 py-2 text-xs ios-muted">
-                          {detailRows.map(([rowLabel, rowValue]) => (
-                            <div className="flex items-center justify-between gap-3" key={rowLabel}>
-                              <span>{rowLabel}</span>
-                              <span className="min-w-0 truncate text-right font-semibold text-stone-700">
-                                {rowValue}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-
-                        {advancedConnector ? (
-                          <div className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/45 p-3">
-                            {connector.provider === "mcpConnectors" ? (
-                              <>
-                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
-                                  MCP 网关地址
-                                  <input
-                                    className="ios-input h-9 text-sm font-normal"
-                                    maxLength={240}
-                                    onChange={(event) =>
-                                      updateConnectorDraft(connector.provider, {
-                                        endpoint: event.target.value
-                                      })
-                                    }
-                                    placeholder="https://mcp.example.com/sse"
-                                    value={draft.endpoint}
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
-                                  调用权限
-                                  <select
-                                    className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold"
-                                    onChange={(event) =>
-                                      updateConnectorDraft(connector.provider, {
-                                        permission: event.target.value as ConnectorDraft["permission"]
-                                      })
-                                    }
-                                    value={draft.permission}
-                                  >
-                                    <option value="catalog">只读取工具清单</option>
-                                    <option value="invoke">允许工具调用</option>
-                                    <option value="project">仅项目内启用</option>
-                                  </select>
-                                </label>
-                              </>
-                            ) : (
-                              <>
-                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
-                                  知识库名称 / 空间
-                                  <input
-                                    className="ios-input h-9 text-sm font-normal"
-                                    maxLength={120}
-                                    onChange={(event) =>
-                                      updateConnectorDraft(connector.provider, {
-                                        space: event.target.value
-                                      })
-                                    }
-                                    placeholder="例如：公司文档、研发知识库"
-                                    value={draft.space}
-                                  />
-                                </label>
-                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
-                                  引用范围
-                                  <select
-                                    className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold"
-                                    onChange={(event) =>
-                                      updateConnectorDraft(connector.provider, {
-                                        scope: event.target.value as ConnectorDraft["scope"]
-                                      })
-                                    }
-                                    value={draft.scope}
-                                  >
-                                    <option value="account">账号可用</option>
-                                    <option value="project">仅项目知识</option>
-                                    <option value="summary">只引用摘要</option>
-                                  </select>
-                                </label>
-                              </>
-                            )}
-                            <label className="grid gap-1 text-xs font-semibold text-stone-700">
-                              备注
-                              <textarea
-                                className="ios-input min-h-16 resize-y py-2 text-sm font-normal leading-5"
-                                maxLength={500}
-                                onChange={(event) =>
-                                  updateConnectorDraft(connector.provider, {
-                                    note: event.target.value
-                                  })
-                                }
-                                placeholder="给自己看的授权说明、接入边界或负责人"
-                                value={draft.note}
-                              />
-                            </label>
-                            <p className="text-xs leading-5 ios-muted">{connectorNextStep(connector, draft)}</p>
-                          </div>
-                        ) : null}
-
-                        <div className={advancedConnector && connector.enabled ? "grid gap-2 sm:grid-cols-2" : ""}>
-                          <button
-                            className={`app-action-button flex h-10 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold disabled:opacity-60 ${
-                              connector.enabled && !advancedConnector
-                                ? "ios-button-secondary text-red-600"
-                                : "ios-button-primary"
-                            }`}
-                            disabled={saving}
-                            onClick={() => void updateConnector(connector, advancedConnector ? true : !connector.enabled)}
-                            type="button"
-                          >
-                            {saving ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : connector.enabled && !advancedConnector ? (
-                              <X className="size-4" />
-                            ) : (
-                              <Check className="size-4" />
-                            )}
-                            {advancedConnector
-                              ? connector.enabled
-                                ? "保存配置"
-                                : "授权并启用"
-                              : connector.enabled
-                                ? "撤销授权"
-                                : "授权并启用"}
-                          </button>
-                          {advancedConnector && connector.enabled ? (
-                            <button
-                              className="ios-button-secondary app-action-button flex h-10 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold text-red-600 disabled:opacity-60"
-                              disabled={saving}
-                              onClick={() => void updateConnector(connector, false)}
-                              type="button"
-                            >
-                              {saving ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
-                              撤销授权
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </section>
           ) : null}
 
           {activeTab === "data" ? (

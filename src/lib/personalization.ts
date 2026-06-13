@@ -30,12 +30,6 @@ export type PersonalizationSettings = {
     defaultReasoningEffort: "low" | "medium" | "high" | "xhigh";
     defaultModel: string;
   };
-  apps: {
-    webSearch: boolean;
-    fileLibrary: boolean;
-    mcpConnectors: boolean;
-    knowledgeBase: boolean;
-  };
 };
 
 const PERSONALIZATION_KIND = "ai-chat-personalization";
@@ -80,12 +74,6 @@ function defaultPersonalizationSettings(): PersonalizationSettings {
       securityMode: false,
       defaultReasoningEffort: "medium",
       defaultModel: ""
-    },
-    apps: {
-      webSearch: true,
-      fileLibrary: true,
-      mcpConnectors: false,
-      knowledgeBase: false
     }
   };
 }
@@ -107,8 +95,6 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
     input.about && typeof input.about === "object" ? input.about : {};
   const toolPreferences: Partial<PersonalizationSettings["toolPreferences"]> =
     input.toolPreferences && typeof input.toolPreferences === "object" ? input.toolPreferences : {};
-  const apps: Partial<PersonalizationSettings["apps"]> =
-    input.apps && typeof input.apps === "object" ? input.apps : {};
   const legacyMemoryEnabled =
     "memoryEnabled" in input && typeof (input as { memoryEnabled?: unknown }).memoryEnabled === "boolean"
       ? Boolean((input as { memoryEnabled?: unknown }).memoryEnabled)
@@ -172,15 +158,6 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
         defaults.toolPreferences.defaultReasoningEffort
       ),
       defaultModel: cleanText(toolPreferences.defaultModel, 80)
-    },
-    apps: {
-      webSearch: typeof apps.webSearch === "boolean" ? apps.webSearch : defaults.apps.webSearch,
-      fileLibrary:
-        typeof apps.fileLibrary === "boolean" ? apps.fileLibrary : defaults.apps.fileLibrary,
-      mcpConnectors:
-        typeof apps.mcpConnectors === "boolean" ? apps.mcpConnectors : defaults.apps.mcpConnectors,
-      knowledgeBase:
-        typeof apps.knowledgeBase === "boolean" ? apps.knowledgeBase : defaults.apps.knowledgeBase
     }
   };
 }

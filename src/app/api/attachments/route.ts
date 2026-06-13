@@ -5,7 +5,6 @@ import {
   validateAttachment
 } from "@/lib/attachments";
 import { getUserFromRequest } from "@/lib/auth";
-import { markUserAppConnectorUsed } from "@/lib/connectors";
 import { jsonError, requireActiveUser } from "@/lib/http";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
@@ -31,11 +30,8 @@ export async function POST(request: NextRequest) {
     return jsonError("隐私 / 安全模式已关闭文件上传。", 403);
   }
 
-  if (
-    !personalizationSettings.apps.fileLibrary ||
-    !personalizationSettings.toolPreferences.fileAnalysisEnabled
-  ) {
-    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+  if (!personalizationSettings.toolPreferences.fileAnalysisEnabled) {
+    return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
   const formData = await request.formData().catch(() => null);
@@ -113,10 +109,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "附件上传失败。", 400);
   }
-
-  await markUserAppConnectorUsed({ provider: "fileLibrary", userId: user.id }).catch(
-    () => undefined
-  );
 
   return NextResponse.json({ attachments });
 }

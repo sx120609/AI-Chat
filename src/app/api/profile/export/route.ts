@@ -20,7 +20,6 @@ export async function GET(request: NextRequest) {
 
   const [
     apiKeys,
-    appConnectors,
     attachments,
     conversations,
     memories,
@@ -41,10 +40,6 @@ export async function GET(request: NextRequest) {
         createdAt: true,
         updatedAt: true
       }
-    }),
-    prisma.userAppConnector.findMany({
-      where: { userId: currentUser.id },
-      orderBy: { updatedAt: "desc" }
     }),
     prisma.attachment.findMany({
       where: { userId: currentUser.id },
@@ -159,7 +154,6 @@ export async function GET(request: NextRequest) {
       updatedAt: user.updatedAt.toISOString()
     },
     apiKeys,
-    appConnectors,
     attachments,
     conversations,
     memories,

@@ -68,10 +68,8 @@ export async function POST(request: NextRequest) {
 
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const securityMode = personalizationSettings.toolPreferences.securityMode;
-  const fileAccessEnabled =
-    personalizationSettings.apps.fileLibrary &&
-    personalizationSettings.toolPreferences.fileAnalysisEnabled;
-  const webSearchRuntimeEnabled = personalizationSettings.apps.webSearch && !securityMode;
+  const fileAccessEnabled = personalizationSettings.toolPreferences.fileAnalysisEnabled;
+  const webSearchRuntimeEnabled = !securityMode;
   const requestedAttachmentIds = uniqueAttachmentIds(body.attachmentIds);
   const temporaryChat = body.temporary === true || securityMode;
 
@@ -86,7 +84,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!fileAccessEnabled && requestedAttachmentIds.length > 0) {
-    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+    return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
   const requestedProjectId =
@@ -176,7 +174,7 @@ export async function POST(request: NextRequest) {
   const effectiveAttachments = reusedUserMessage ? reusedUserMessage.attachments : attachments;
 
   if (!fileAccessEnabled && effectiveAttachments.length > 0) {
-    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
+    return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
   const promptClock = normalizePromptClock({

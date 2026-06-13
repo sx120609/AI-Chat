@@ -8,7 +8,6 @@ import {
   readAttachmentBuffer
 } from "@/lib/attachments";
 import { ensureAttachmentsMetadata } from "@/lib/attachment-repair";
-import { markUserAppConnectorUsed } from "@/lib/connectors";
 import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
@@ -188,9 +187,7 @@ export async function POST(request: NextRequest) {
   }
 
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
-  const fileAccessEnabled =
-    personalizationSettings.apps.fileLibrary &&
-    personalizationSettings.toolPreferences.fileAnalysisEnabled;
+  const fileAccessEnabled = personalizationSettings.toolPreferences.fileAnalysisEnabled;
 
   if (personalizationSettings.toolPreferences.securityMode) {
     return jsonError("隐私 / 安全模式已关闭图片生成。", 403);
@@ -312,13 +309,7 @@ export async function POST(request: NextRequest) {
     : attachments;
 
   if (!fileAccessEnabled && effectiveAttachments.length > 0) {
-    return jsonError("文件库或文件分析已在个人中心关闭。", 403);
-  }
-
-  if (effectiveAttachments.length > 0) {
-    await markUserAppConnectorUsed({ provider: "fileLibrary", userId: user.id }).catch(
-      () => undefined
-    );
+    return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
   const sourceImageMessage = body.sourceImageMessageId

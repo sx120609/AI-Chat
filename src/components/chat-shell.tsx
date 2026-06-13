@@ -496,7 +496,6 @@ export function ChatShell({
   const [webSearchAvailable, setWebSearchAvailable] = useState(initialWebSearchEnabled);
   const [webSearchEnabledForMessage, setWebSearchEnabledForMessage] = useState(
     initialWebSearchEnabled &&
-      personalizationSettings.apps.webSearch &&
       personalizationSettings.toolPreferences.webSearchDefault &&
       !securityModeDefault
   );
@@ -546,11 +545,9 @@ export function ChatShell({
   const imageGenerationAvailable =
     personalizationSettings.toolPreferences.imageGenerationEnabled && !securityModeDefault;
   const fileAnalysisAvailable =
-    personalizationSettings.apps.fileLibrary &&
     personalizationSettings.toolPreferences.fileAnalysisEnabled &&
     !securityModeDefault;
-  const webSearchToolAvailable =
-    webSearchAvailable && personalizationSettings.apps.webSearch && !securityModeDefault;
+  const webSearchToolAvailable = webSearchAvailable && !securityModeDefault;
   const runningGenerationKeySet = useMemo(
     () => new Set(runningGenerationKeys),
     [runningGenerationKeys]
@@ -3606,7 +3603,7 @@ export function ChatShell({
                     conversationSwitching
                   }
                   onClick={() => fileInputRef.current?.click()}
-                  title={fileAnalysisAvailable ? "上传文件或图片" : "文件库或文件分析已关闭"}
+                  title={fileAnalysisAvailable ? "上传文件或图片" : "文件分析已关闭"}
                   type="button"
                 >
                   {uploadingAttachments ? (

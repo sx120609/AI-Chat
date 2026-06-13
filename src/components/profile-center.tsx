@@ -61,6 +61,7 @@ type MemoriesPayload = {
 type ProfileTab = "overview" | "personalization" | "security" | "api";
 type ApiGuideTool = "codex" | "opencode" | "claude-router";
 type ApiGuideOs = "unix" | "windows";
+const LOWIQ_API_KEY_ENV = "LOWIQ_API_KEY";
 
 function groupLabel(group: string) {
   return group === "VIP" ? "VIP" : "普通";
@@ -132,7 +133,7 @@ const apiGuideTools: Array<{
     id: "codex",
     label: "Codex CLI",
     description: "Responses API",
-    hint: "适合 Codex CLI，使用 Responses API 和 auth.json。",
+    hint: "适合 Codex CLI，使用独立 LOWIQ_API_KEY，不占用 OPENAI_API_KEY。",
     icon: Terminal
   },
   {
@@ -180,10 +181,12 @@ function encodeBase64(text: string) {
 
 function buildCodexConfig({
   baseUrl,
+  envKey = LOWIQ_API_KEY_ENV,
   model,
   siteName
 }: {
   baseUrl: string;
+  envKey?: string;
   model: string;
   siteName: string;
 }) {
@@ -200,11 +203,39 @@ function buildCodexConfig({
     `name = "${siteName || "AI Gateway"}"`,
     `base_url = "${baseUrl}"`,
     'wire_api = "responses"',
-    'requires_openai_auth = true',
+    `env_key = "${envKey}"`,
+    `env_key_instructions = "Set ${envKey} to your ${siteName || "AI Gateway"} API key"`,
     "",
     "[features]",
     "goals = true"
   ].join("\n");
+}
+
+function shellSingleQuote(value: string) {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
+}
+
+function powerShellDoubleQuote(value: string) {
+  return `"${value.replace(/`/g, "``").replace(/"/g, '`"')}"`;
+}
+
+function buildCodexEnvSetup({
+  apiKey,
+  envKey = LOWIQ_API_KEY_ENV,
+  os
+}: {
+  apiKey: string;
+  envKey?: string;
+  os: ApiGuideOs;
+}) {
+  if (os === "windows") {
+    return [
+      `[Environment]::SetEnvironmentVariable(${powerShellDoubleQuote(envKey)}, ${powerShellDoubleQuote(apiKey)}, "User")`,
+      `$env:${envKey} = ${powerShellDoubleQuote(apiKey)}`
+    ].join("\n");
+  }
+
+  return `export ${envKey}=${shellSingleQuote(apiKey)}`;
 }
 
 function buildOpenCodeConfig({
@@ -452,12 +483,9 @@ function ApiGuideDialog({
     () => buildCodexConfig({ baseUrl, model: primaryModel, siteName }),
     [baseUrl, primaryModel, siteName]
   );
-  const codexAuth = useMemo(
-    () =>
-      jsonConfig({
-        OPENAI_API_KEY: keyValue
-      }),
-    [keyValue]
+  const codexEnvSetup = useMemo(
+    () => buildCodexEnvSetup({ apiKey: keyValue, os }),
+    [keyValue, os]
   );
   const openCodeConfig = useMemo(
     () => buildOpenCodeConfig({ baseUrl, models, siteName }),
@@ -560,7 +588,9 @@ function ApiGuideDialog({
             {tool === "codex" ? (
               <>
                 <p className="text-sm leading-6 text-stone-700">
-                  Codex CLI 使用 Responses API。把配置放到 Codex 配置目录，模型名称使用下方“支持的模型”里的 ID。
+                  Codex CLI 使用 Responses API。把配置放到 Codex 配置目录，并把 Key 设置为
+                  <code className="mx-1 rounded bg-white/70 px-1">{LOWIQ_API_KEY_ENV}</code>
+                  ，不会覆盖你的 OpenAI Key。
                 </p>
                 <ApiCodeBlock
                   label={os === "windows" ? "%USERPROFILE%\\.codex\\config.toml" : "~/.codex/config.toml"}
@@ -568,9 +598,9 @@ function ApiGuideDialog({
                   value={codexConfig}
                 />
                 <ApiCodeBlock
-                  label={os === "windows" ? "%USERPROFILE%\\.codex\\auth.json" : "~/.codex/auth.json"}
-                  onCopy={onCopy}
-                  value={codexAuth}
+                  label={os === "windows" ? "PowerShell 环境变量" : "Shell 环境变量"}
+                  onCopy={(value) => onCopy(value, `${LOWIQ_API_KEY_ENV} 设置命令已复制。`)}
+                  value={codexEnvSetup}
                 />
               </>
             ) : null}

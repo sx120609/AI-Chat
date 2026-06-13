@@ -21,6 +21,24 @@ import {
 const decoder = new TextDecoder();
 const streamEncoder = new TextEncoder();
 
+type UpstreamResponsesResult =
+  | {
+      response: ResponseWithBody;
+    }
+  | {
+      failure: UpstreamFailure;
+    };
+
+type ResponseWithBody = Response & {
+  body: ReadableStream<Uint8Array>;
+};
+
+type UpstreamFailure = {
+  message: string;
+  status: number;
+  upstreamBody?: string;
+};
+
 function numberFromUsage(value: unknown) {
   const parsed = typeof value === "string" ? Number(value) : value;
 
@@ -146,7 +164,14 @@ function resolveTokenUsage({
   };
 }
 
-function upstreamHeaders(settings: { apiKey: string; orgId: string }) {
+const SUB2API_PASSTHROUGH_HEADERS = [
+  "chatgpt-account-id",
+  "session_id",
+  "x-codex-installation-id",
+  "x-codex-window-id"
+];
+
+function upstreamHeaders(settings: { apiKey: string; orgId: string }, incomingHeaders?: Headers) {
   const headers: Record<string, string> = {
     "content-type": "application/json"
   };
@@ -158,6 +183,14 @@ function upstreamHeaders(settings: { apiKey: string; orgId: string }) {
   if (settings.orgId) {
     headers["openai-organization"] = settings.orgId;
   }
+
+  SUB2API_PASSTHROUGH_HEADERS.forEach((name) => {
+    const value = incomingHeaders?.get(name);
+
+    if (value) {
+      headers[name] = value;
+    }
+  });
 
   return headers;
 }
@@ -184,6 +217,197 @@ function promptEstimateFromBody(body: Record<string, unknown>) {
 
 function maybeDefinedEntries(entries: Array<[string, unknown]>) {
   return Object.fromEntries(entries.filter(([, value]) => value !== undefined && value !== null));
+}
+
+function cleanUpstreamErrorText(text: string) {
+  const title = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  const heading = text.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
+  const candidate = title || heading || text;
+
+  return candidate
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function friendlyHttpHint(status: number) {
+  if (status === 400) {
+    return "请求参数不被上游支持";
+  }
+
+  if (status === 401 || status === 403) {
+    return "上游 API Key 无效或无权限";
+  }
+
+  if (status === 404) {
+    return "接口路径或模型不存在";
+  }
+
+  if (status === 429) {
+    return "上游额度或频率限制";
+  }
+
+  if (status >= 500) {
+    return "上游服务错误";
+  }
+
+  return "";
+}
+
+function messageFromUpstreamBody(text: string) {
+  if (!text.trim()) {
+    return "";
+  }
+
+  try {
+    const payload = JSON.parse(text) as {
+      details?: { message?: string } | string;
+      error?: { message?: string; type?: string; code?: string } | string;
+      message?: string;
+    };
+    const errorField = payload.error;
+    const detailField = payload.details;
+
+    return (
+      (typeof errorField === "string" ? errorField : errorField?.message) ||
+      (typeof detailField === "string" ? detailField : detailField?.message) ||
+      payload.message ||
+      ""
+    );
+  } catch {
+    return cleanUpstreamErrorText(text);
+  }
+}
+
+async function upstreamFailureFromResponse(response: Response): Promise<UpstreamFailure> {
+  const text = (await response.text().catch(() => "")).slice(0, 4000);
+  const hint = friendlyHttpHint(response.status);
+  const prefix = `上游 API 错误（HTTP ${response.status}${hint ? `，${hint}` : ""}）`;
+  const message = messageFromUpstreamBody(text);
+
+  return {
+    message: message ? `${prefix}：${cleanUpstreamErrorText(message).slice(0, 500)}` : `${prefix}。`,
+    status: response.status,
+    upstreamBody: text
+  };
+}
+
+function shouldRetryUpstreamFailure(failure: UpstreamFailure) {
+  return (
+    failure.status >= 500 ||
+    /instructions|store|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|tool_choice|parallel_tool_calls|metadata|max_output_tokens|unsupported|unrecognized|unknown|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数/i.test(
+      failure.message
+    )
+  );
+}
+
+function withoutKeys(body: Record<string, unknown>, keys: string[]) {
+  const next = { ...body };
+
+  keys.forEach((key) => {
+    delete next[key];
+  });
+
+  return next;
+}
+
+function uniqueBodyCandidates(candidates: Record<string, unknown>[]) {
+  const seen = new Set<string>();
+
+  return candidates.filter((candidate) => {
+    const key = JSON.stringify(candidate);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function responseBodyFallbackCandidates(body: Record<string, unknown>) {
+  const stripped = withoutKeys(body, [
+    "metadata",
+    "parallel_tool_calls",
+    "reasoning",
+    "store",
+    "tool_choice",
+    "user"
+  ]);
+
+  return uniqueBodyCandidates([body, stripped]);
+}
+
+async function fetchUpstreamResponses({
+  body,
+  incomingHeaders,
+  settings,
+  signal
+}: {
+  body: Record<string, unknown>;
+  incomingHeaders: Headers;
+  settings: AiRuntimeSettings;
+  signal: AbortSignal;
+}): Promise<UpstreamResponsesResult> {
+  const url = `${settings.apiBaseUrl}/responses`;
+  let lastFailure: UpstreamFailure | null = null;
+
+  for (const candidate of responseBodyFallbackCandidates(body)) {
+    let response: Response;
+
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: upstreamHeaders(settings, incomingHeaders),
+        body: JSON.stringify(candidate),
+        signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw error;
+      }
+
+      lastFailure = {
+        message: `无法连接上游 API：${error instanceof Error ? error.message : String(error)}`,
+        status: 502
+      };
+      break;
+    }
+
+    if (response.ok && response.body) {
+      return { response: response as ResponseWithBody };
+    }
+
+    const failure = await upstreamFailureFromResponse(response);
+    lastFailure = failure;
+
+    if (!shouldRetryUpstreamFailure(failure)) {
+      break;
+    }
+  }
+
+  return {
+    failure: lastFailure || {
+      message: "上游 API 调用失败。",
+      status: 502
+    }
+  };
+}
+
+function upstreamJsonError(failure: UpstreamFailure, model: ChatModelConfig) {
+  return jsonError(failure.message, failure.status || 502, {
+    type: "upstream_error",
+    upstreamModel: model.upstreamId || model.id
+  });
 }
 
 function textFromMessageContent(content: unknown): string {
@@ -215,6 +439,45 @@ function textFromMessageContent(content: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function normalizeResponsesBodyForSub2Api(body: Record<string, unknown>) {
+  const input = Array.isArray(body.input) ? body.input : null;
+  const next = withoutKeys(body, ["user"]);
+
+  if (!input) {
+    return next;
+  }
+
+  const extractedInstructions: string[] = [];
+  const normalizedInput = input.filter((item) => {
+    const object = jsonObject(item);
+    const role = typeof object?.role === "string" ? object.role.toLowerCase() : "";
+
+    if (role !== "system" && role !== "developer") {
+      return true;
+    }
+
+    const text = textFromMessageContent(object?.content).trim();
+
+    if (text) {
+      extractedInstructions.push(text);
+    }
+
+    return false;
+  });
+
+  if (extractedInstructions.length === 0) {
+    return next;
+  }
+
+  const currentInstructions = typeof next.instructions === "string" ? next.instructions.trim() : "";
+
+  return {
+    ...next,
+    input: normalizedInput,
+    instructions: [...extractedInstructions, currentInstructions].filter(Boolean).join("\n\n")
+  };
 }
 
 function gatewayInstructions({
@@ -252,11 +515,11 @@ function upstreamRequestBody({
     settings
   });
 
-  return {
+  return normalizeResponsesBodyForSub2Api({
     ...body,
     ...(instructions ? { instructions } : {}),
     model: model.upstreamId || model.id
-  };
+  });
 }
 
 function chatCompletionRequestToResponsesBody({
@@ -603,21 +866,18 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  const response = await fetch(`${settings.apiBaseUrl}/responses`, {
-    method: "POST",
-    headers: upstreamHeaders(settings),
-    body: JSON.stringify(upstreamBody),
+  const upstream = await fetchUpstreamResponses({
+    body: upstreamBody,
+    incomingHeaders: request.headers,
+    settings,
     signal: request.signal
   });
 
-  if (!response.ok || !response.body) {
-    const text = await response.text();
-
-    return new Response(text || "上游 API 调用失败。", {
-      status: response.status,
-      headers: passthroughHeaders(response)
-    });
+  if ("failure" in upstream) {
+    return upstreamJsonError(upstream.failure, model);
   }
+
+  const { response } = upstream;
 
   if (body.stream === true) {
     let buffer = "";
@@ -793,22 +1053,18 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  const response = await fetch(`${settings.apiBaseUrl}/responses`, {
-    method: "POST",
-    headers: upstreamHeaders(settings),
-    body: JSON.stringify(upstreamBody),
+  const upstream = await fetchUpstreamResponses({
+    body: upstreamBody,
+    incomingHeaders: request.headers,
+    settings,
     signal: request.signal
   });
 
-  if (!response.ok || !response.body) {
-    const text = await response.text();
-
-    return new Response(text || "上游 API 调用失败。", {
-      status: response.status,
-      headers: passthroughHeaders(response)
-    });
+  if ("failure" in upstream) {
+    return upstreamJsonError(upstream.failure, model);
   }
 
+  const { response } = upstream;
   const responseModel = typeof body.model === "string" ? body.model : model.id;
 
   if (body.stream === true) {

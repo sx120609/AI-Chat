@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_PAGE_LIMIT = 1000;
+const MAX_PAGE_LIMIT = 100;
 const MAX_CSV_LIMIT = 5000;
 
 function isPersonalApiUsage(usageSource: string) {
@@ -276,8 +276,10 @@ export async function GET(request: NextRequest) {
   const csv = request.nextUrl.searchParams.get("format") === "csv";
   const limit = Math.min(
     csv ? MAX_CSV_LIMIT : MAX_PAGE_LIMIT,
-    coerceInt(request.nextUrl.searchParams.get("limit"), csv ? MAX_CSV_LIMIT : 500, 1)
+    coerceInt(request.nextUrl.searchParams.get("limit"), csv ? MAX_CSV_LIMIT : 20, 1)
   );
+  const page = csv ? 1 : coerceInt(request.nextUrl.searchParams.get("page"), 1, 1);
+  const skip = csv ? 0 : (page - 1) * limit;
   const [records, totalCount, totals, apiCalls, chatCalls, imageCalls, taskCalls, apiKeys, models, users] =
     await Promise.all([
       prisma.usageRecord.findMany({
@@ -297,6 +299,7 @@ export async function GET(request: NextRequest) {
           }
         },
         orderBy: { createdAt: "desc" },
+        skip,
         take: limit,
         where
       }),
@@ -390,6 +393,8 @@ export async function GET(request: NextRequest) {
     },
     generatedAt: new Date().toISOString(),
     limit,
+    page,
+    pageSize: limit,
     records: usageRecords,
     summary: {
       apiCalls,
@@ -407,6 +412,7 @@ export async function GET(request: NextRequest) {
       returnedRecords: usageRecords.length,
       taskCalls,
       totalTokens: totals._sum.totalTokens ?? 0
-    }
+    },
+    totalPages: Math.max(1, Math.ceil(totalCount / limit))
   });
 }

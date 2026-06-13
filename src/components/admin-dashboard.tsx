@@ -147,14 +147,19 @@ type AdminUsagePayload = {
   filterOptions: AdminUsageFilterOptionsView;
   generatedAt: string;
   limit: number;
+  page: number;
+  pageSize: number;
   records: AdminUsageRecordView[];
   summary: AdminUsageSummaryView;
+  totalPages: number;
 };
 
 type UsageFilterState = {
   apiKey: string;
   days: string;
   model: string;
+  page: string;
+  pageSize: string;
   query: string;
   surface: string;
   userId: string;
@@ -164,6 +169,8 @@ const defaultUsageFilters: UsageFilterState = {
   apiKey: "all",
   days: "7",
   model: "all",
+  page: "1",
+  pageSize: "20",
   query: "",
   surface: "all",
   userId: "all"
@@ -293,6 +300,11 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const usageFiltersRef = useRef<UsageFilterState>(defaultUsageFilters);
   const [usageRecords, setUsageRecords] = useState<AdminUsageRecordView[]>([]);
   const [usageSummary, setUsageSummary] = useState<AdminUsageSummaryView | null>(null);
+  const [usagePageMeta, setUsagePageMeta] = useState({
+    page: 1,
+    pageSize: 20,
+    totalPages: 1
+  });
   const [usageOptions, setUsageOptions] = useState<AdminUsageFilterOptionsView>({
     apiKeys: [],
     models: [],
@@ -330,7 +342,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
   const loadUsage = useCallback(async (filters: UsageFilterState = usageFiltersRef.current) => {
     const params = new URLSearchParams({
-      limit: "500",
+      limit: filters.pageSize,
+      page: filters.page,
       days: filters.days
     });
 
@@ -364,6 +377,11 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     const payload = (await response.json()) as AdminUsagePayload;
     setUsageRecords(payload.records);
     setUsageSummary(payload.summary);
+    setUsagePageMeta({
+      page: payload.page,
+      pageSize: payload.pageSize,
+      totalPages: payload.totalPages
+    });
     setUsageOptions(payload.filterOptions);
     setUsageGeneratedAt(payload.generatedAt);
   }, []);
@@ -548,11 +566,36 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
   function updateUsageFilters(patch: Partial<UsageFilterState>) {
     setUsageFilters((current) => {
-      const next = { ...current, ...patch };
+      const next = {
+        ...current,
+        ...patch,
+        ...("page" in patch ? {} : { page: "1" })
+      };
 
       usageFiltersRef.current = next;
       return next;
     });
+  }
+
+  async function applyUsageFilters(patch: Partial<UsageFilterState> = {}) {
+    const next = {
+      ...usageFiltersRef.current,
+      ...patch
+    };
+
+    usageFiltersRef.current = next;
+    setUsageFilters(next);
+    setLoadingUsage(true);
+    setError("");
+    setNotice("");
+
+    try {
+      await loadUsage(next);
+    } catch (usageError) {
+      setError(usageError instanceof Error ? usageError.message : "加载用量记录失败。");
+    } finally {
+      setLoadingUsage(false);
+    }
   }
 
   async function resetUsageFilters() {
@@ -800,11 +843,16 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             filters={usageFilters}
             generatedAt={usageGeneratedAt}
             loading={loading || loadingUsage}
+            onChangePage={(page) => void applyUsageFilters({ page: String(page) })}
+            onChangePageSize={(pageSize) =>
+              void applyUsageFilters({ page: "1", pageSize })
+            }
             onExportCsv={exportUsageCsv}
             onRefresh={refreshUsage}
             onReset={resetUsageFilters}
             onUpdateFilters={updateUsageFilters}
             options={usageOptions}
+            pageMeta={usagePageMeta}
             records={usageRecords}
             summary={usageSummary}
           />
@@ -2319,27 +2367,36 @@ function UsageRecordsPanel({
   filters,
   generatedAt,
   loading,
+  onChangePage,
+  onChangePageSize,
   onExportCsv,
   onRefresh,
   onReset,
   onUpdateFilters,
   options,
+  pageMeta,
   records,
   summary
 }: {
   filters: UsageFilterState;
   generatedAt: string;
   loading: boolean;
+  onChangePage: (page: number) => void;
+  onChangePageSize: (pageSize: string) => void;
   onExportCsv: () => void;
   onRefresh: () => void;
   onReset: () => void;
   onUpdateFilters: (patch: Partial<UsageFilterState>) => void;
   options: AdminUsageFilterOptionsView;
+  pageMeta: { page: number; pageSize: number; totalPages: number };
   records: AdminUsageRecordView[];
   summary: AdminUsageSummaryView | null;
 }) {
   const recordCount = summary?.records ?? records.length;
   const returnedRecords = summary?.returnedRecords ?? records.length;
+  const pageStart = records.length > 0 ? (pageMeta.page - 1) * pageMeta.pageSize + 1 : 0;
+  const pageEnd = records.length > 0 ? pageStart + records.length - 1 : 0;
+  const pageNumbers = paginationPages(pageMeta.page, pageMeta.totalPages);
 
   return (
     <section className="ios-panel motion-lift mb-5 overflow-hidden">
@@ -2506,22 +2563,17 @@ function UsageRecordsPanel({
         </div>
       ) : records.length > 0 ? (
         <>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[1560px] border-collapse text-left text-sm">
+          <div className="hidden overflow-x-auto md:block" aria-label="使用记录表格横向滚动区域">
+            <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-10 bg-white/90 text-xs text-slate-500 backdrop-blur">
                 <tr>
                   <th className="px-4 py-3 font-semibold">API 密钥 / 用户</th>
                   <th className="px-4 py-3 font-semibold">模型</th>
-                  <th className="px-4 py-3 font-semibold">推理强度</th>
-                  <th className="px-4 py-3 font-semibold">端点</th>
-                  <th className="px-4 py-3 font-semibold">类型</th>
-                  <th className="px-4 py-3 font-semibold">计费模式</th>
+                  <th className="px-4 py-3 font-semibold">端点 / 类型</th>
                   <th className="px-4 py-3 font-semibold">Token</th>
                   <th className="px-4 py-3 font-semibold">费用</th>
-                  <th className="px-4 py-3 font-semibold">首 Token</th>
                   <th className="px-4 py-3 font-semibold">耗时</th>
                   <th className="px-4 py-3 font-semibold">时间</th>
-                  <th className="px-4 py-3 font-semibold">User-Agent</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[color:var(--ios-separator)]">
@@ -2537,24 +2589,21 @@ function UsageRecordsPanel({
                     </td>
                     <td className="px-4 py-3">
                       <p className="max-w-44 truncate font-semibold text-slate-800">{record.model}</p>
-                      <p className="mt-1 text-xs ios-muted">{record.mode === "IMAGE" ? "图片" : "聊天"}</p>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-700">
-                      {reasoningEffortLabel(record.reasoningEffort)}
+                      <p className="mt-1 text-xs ios-muted">
+                        {record.mode === "IMAGE" ? "图片" : "聊天"} · 推理 {reasoningEffortLabel(record.reasoningEffort)}
+                      </p>
                     </td>
                     <td className="px-4 py-3">
                       <p className="max-w-44 truncate font-medium text-slate-800">{record.endpoint || "-"}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${usageKindTone(record.requestKind)}`}>
+                          {requestKindLabel(record.requestKind)}
+                        </span>
+                        <span className="rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                          {record.billingMode || "按量"}
+                        </span>
+                      </div>
                       <p className="mt-1 max-w-44 truncate text-xs ios-muted">{record.sourceLabel}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-md px-2 py-1 text-xs font-semibold ${usageKindTone(record.requestKind)}`}>
-                        {requestKindLabel(record.requestKind)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700">
-                        {record.billingMode || "按量"}
-                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <UsageTokenBreakdown record={record} />
@@ -2563,16 +2612,12 @@ function UsageRecordsPanel({
                       {formatCents(record.estimatedCostCents)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                      {formatDuration(record.firstTokenLatencyMs ?? null)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                      {formatDuration(record.durationMs ?? null)}
+                      <p className="font-medium">{formatDuration(record.durationMs ?? null)}</p>
+                      <p className="mt-1 text-xs ios-muted">首 {formatDuration(record.firstTokenLatencyMs ?? null)}</p>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
-                      {formatDateTime(record.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="max-w-56 truncate text-xs text-slate-600" title={record.userAgent || undefined}>
+                      <p>{formatDateTime(record.createdAt)}</p>
+                      <p className="mt-1 max-w-36 truncate" title={record.userAgent || undefined}>
                         {record.userAgent || "-"}
                       </p>
                     </td>
@@ -2615,6 +2660,18 @@ function UsageRecordsPanel({
               </div>
             ))}
           </div>
+          <UsagePagination
+            end={pageEnd}
+            loading={loading}
+            onChangePage={onChangePage}
+            onChangePageSize={onChangePageSize}
+            page={pageMeta.page}
+            pageNumbers={pageNumbers}
+            pageSize={pageMeta.pageSize}
+            start={pageStart}
+            total={recordCount}
+            totalPages={pageMeta.totalPages}
+          />
         </>
       ) : (
         <div className="grid min-h-48 place-items-center px-4 py-8 text-sm ios-muted">
@@ -2622,6 +2679,93 @@ function UsageRecordsPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function UsagePagination({
+  end,
+  loading,
+  onChangePage,
+  onChangePageSize,
+  page,
+  pageNumbers,
+  pageSize,
+  start,
+  total,
+  totalPages
+}: {
+  end: number;
+  loading: boolean;
+  onChangePage: (page: number) => void;
+  onChangePageSize: (pageSize: string) => void;
+  page: number;
+  pageNumbers: Array<number | string>;
+  pageSize: number;
+  start: number;
+  total: number;
+  totalPages: number;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-t border-[color:var(--ios-separator)] bg-white/45 px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-wrap items-center gap-2 text-xs ios-muted">
+        <span>
+          显示 {formatNumber(start)} 至 {formatNumber(end)}，共 {formatNumber(total)} 条
+        </span>
+        <label className="flex items-center gap-2">
+          每页
+          <select
+            className="ios-select h-9 w-24 text-sm"
+            disabled={loading}
+            onChange={(event) => onChangePageSize(event.target.value)}
+            value={String(pageSize)}
+          >
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          className="ios-button-secondary app-action-button h-9 px-3 text-sm disabled:opacity-40"
+          disabled={loading || page <= 1}
+          onClick={() => onChangePage(page - 1)}
+          type="button"
+        >
+          上一页
+        </button>
+        {pageNumbers.map((item) =>
+          typeof item === "number" ? (
+            <button
+              className={`app-action-button h-9 min-w-9 rounded-lg px-3 text-sm font-semibold ${
+                item === page
+                  ? "bg-[color:var(--claude-accent)] text-white"
+                  : "ios-button-secondary"
+              }`}
+              disabled={loading || item === page}
+              key={item}
+              onClick={() => onChangePage(item)}
+              type="button"
+            >
+              {item}
+            </button>
+          ) : (
+            <span className="grid h-9 min-w-8 place-items-center text-sm ios-muted" key={item}>
+              ...
+            </span>
+          )
+        )}
+        <button
+          className="ios-button-secondary app-action-button h-9 px-3 text-sm disabled:opacity-40"
+          disabled={loading || page >= totalPages}
+          onClick={() => onChangePage(page + 1)}
+          type="button"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -2676,6 +2820,31 @@ function formatDateTime(value: string) {
     minute: "2-digit",
     month: "2-digit"
   });
+}
+
+function paginationPages(page: number, totalPages: number) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages: Array<number | string> = [1];
+  const start = Math.max(2, page - 1);
+  const end = Math.min(totalPages - 1, page + 1);
+
+  if (start > 2) {
+    pages.push("ellipsis-start");
+  }
+
+  for (let current = start; current <= end; current += 1) {
+    pages.push(current);
+  }
+
+  if (end < totalPages - 1) {
+    pages.push("ellipsis-end");
+  }
+
+  pages.push(totalPages);
+  return pages;
 }
 
 function compactTokenCount(tokens: number) {

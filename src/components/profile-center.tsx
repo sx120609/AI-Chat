@@ -245,6 +245,14 @@ type AppConnectorView = {
   updatedAt?: string | null;
 };
 
+type ConnectorDraft = {
+  endpoint: string;
+  note: string;
+  permission: "catalog" | "invoke" | "project";
+  scope: "account" | "project" | "summary";
+  space: string;
+};
+
 type ConnectorsPayload = {
   connectors: AppConnectorView[];
 };
@@ -1087,6 +1095,132 @@ function connectorStatusLabel(status: AppConnectorStatus, enabled: boolean) {
   return "未授权";
 }
 
+function connectorMetadataString(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+
+  return typeof value === "string" ? value : "";
+}
+
+function connectorDraftFromMetadata(connector: AppConnectorView): ConnectorDraft {
+  const permission = connectorMetadataString(connector.metadata, "permission");
+  const scope = connectorMetadataString(connector.metadata, "scope");
+
+  return {
+    endpoint: connectorMetadataString(connector.metadata, "endpoint"),
+    note: connectorMetadataString(connector.metadata, "note"),
+    permission:
+      permission === "invoke" || permission === "project" || permission === "catalog"
+        ? permission
+        : "catalog",
+    scope: scope === "project" || scope === "summary" || scope === "account" ? scope : "account",
+    space: connectorMetadataString(connector.metadata, "space")
+  };
+}
+
+function connectorDraftsFromList(connectors: AppConnectorView[]) {
+  return Object.fromEntries(
+    connectors.map((connector) => [connector.provider, connectorDraftFromMetadata(connector)])
+  ) as Partial<Record<keyof PersonalizationSettings["apps"], ConnectorDraft>>;
+}
+
+function connectorPermissionLabel(value: ConnectorDraft["permission"]) {
+  if (value === "invoke") {
+    return "允许工具调用";
+  }
+
+  if (value === "project") {
+    return "仅项目内启用";
+  }
+
+  return "只读取工具清单";
+}
+
+function connectorKnowledgeScopeLabel(value: ConnectorDraft["scope"]) {
+  if (value === "project") {
+    return "仅项目知识";
+  }
+
+  if (value === "summary") {
+    return "只引用摘要";
+  }
+
+  return "账号可用";
+}
+
+function connectorMetadataForSave(
+  connector: AppConnectorView,
+  draft?: ConnectorDraft
+): Record<string, string> | undefined {
+  if (connector.provider === "mcpConnectors") {
+    return {
+      endpoint: draft?.endpoint ?? "",
+      note: draft?.note ?? "",
+      permission: draft?.permission ?? "catalog"
+    };
+  }
+
+  if (connector.provider === "knowledgeBase") {
+    return {
+      note: draft?.note ?? "",
+      scope: draft?.scope ?? "account",
+      space: draft?.space ?? ""
+    };
+  }
+
+  return undefined;
+}
+
+function connectorDetailRows(connector: AppConnectorView, draft?: ConnectorDraft) {
+  if (connector.provider === "mcpConnectors") {
+    return [
+      ["能力", connectorPermissionLabel(draft?.permission ?? "catalog")],
+      ["网关", draft?.endpoint || "未配置 MCP 网关"],
+      ["最近使用", connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"]
+    ];
+  }
+
+  if (connector.provider === "knowledgeBase") {
+    return [
+      ["能力", connectorKnowledgeScopeLabel(draft?.scope ?? "account")],
+      ["知识库", draft?.space || "未配置知识空间"],
+      ["最近使用", connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"]
+    ];
+  }
+
+  return [
+    ["范围", connector.scope],
+    [
+      "授权时间",
+      connector.authorizedAt ? new Date(connector.authorizedAt).toLocaleString() : "未授权"
+    ],
+    ["最近使用", connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"]
+  ];
+}
+
+function connectorNextStep(connector: AppConnectorView, draft?: ConnectorDraft) {
+  if (connector.provider === "mcpConnectors") {
+    if (!draft?.endpoint) {
+      return "填写 MCP 网关地址后即可启用；当前只保存授权状态，不会自动调用外部工具。";
+    }
+
+    return connector.enabled
+      ? "已保存 MCP 网关配置；后续接入运行时即可按这里的权限开放工具。"
+      : "配置已准备好，授权后会进入可用状态。";
+  }
+
+  if (connector.provider === "knowledgeBase") {
+    if (!draft?.space) {
+      return "填写知识库名称或空间标识后即可启用；聊天会按这里的范围显示授权状态。";
+    }
+
+    return connector.enabled
+      ? "已保存知识库范围；后续可在检索服务接入后引用这里的知识空间。"
+      : "配置已准备好，授权后会进入可用状态。";
+  }
+
+  return connector.enabled ? "已接入当前账号偏好。" : "授权后可在聊天页使用。";
+}
+
 function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title: string }) {
   return (
     <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/45 p-3">
@@ -1552,6 +1686,9 @@ export function ProfileCenter({
   const [notifications, setNotifications] = useState<UserNotificationView[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [connectors, setConnectors] = useState<AppConnectorView[]>([]);
+  const [connectorDrafts, setConnectorDrafts] = useState<
+    Partial<Record<keyof PersonalizationSettings["apps"], ConnectorDraft>>
+  >({});
   const [taskTitle, setTaskTitle] = useState("每日总结");
   const [taskPrompt, setTaskPrompt] = useState("请帮我总结今天的重点，并给出明天的优先事项。");
   const [taskSchedule, setTaskSchedule] = useState("daily");
@@ -1771,6 +1908,7 @@ export function ProfileCenter({
 
     if (response.ok && payload) {
       setConnectors(payload.connectors);
+      setConnectorDrafts(connectorDraftsFromList(payload.connectors));
     } else {
       setError(payload?.error || "读取连接器失败。");
     }
@@ -2327,6 +2465,7 @@ export function ProfileCenter({
         window.location.href = "/login";
       } else {
         setNotice("账号已停用。");
+        window.location.href = "/login";
       }
     }
 
@@ -2427,6 +2566,13 @@ export function ProfileCenter({
     }
 
     setSavingFileId(null);
+  }
+
+  function openProjectFiles(projectId: string) {
+    setFileProjectFilter(projectId);
+    setActiveTab("data");
+    setNotice("");
+    setError("");
   }
 
   async function createTask(event: FormEvent<HTMLFormElement>) {
@@ -2639,15 +2785,40 @@ export function ProfileCenter({
     setSavingNotificationId(null);
   }
 
+  function updateConnectorDraft(
+    provider: keyof PersonalizationSettings["apps"],
+    patch: Partial<ConnectorDraft>
+  ) {
+    setConnectorDrafts((current) => ({
+      ...current,
+      [provider]: {
+        ...connectorDraftFromMetadata(
+          connectors.find((connector) => connector.provider === provider) ??
+            ({
+              metadata: {},
+              provider
+            } as AppConnectorView)
+        ),
+        ...current[provider],
+        ...patch
+      }
+    }));
+  }
+
   async function updateConnector(connector: AppConnectorView, enabled: boolean) {
     setSavingConnectorProvider(connector.provider);
     setNotice("");
     setError("");
 
+    const draft = connectorDrafts[connector.provider] ?? connectorDraftFromMetadata(connector);
     const response = await fetch("/api/profile/connectors", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ enabled, provider: connector.provider })
+      body: JSON.stringify({
+        enabled,
+        metadata: connectorMetadataForSave(connector, draft),
+        provider: connector.provider
+      })
     });
     const payload = (await response.json().catch(() => null)) as
       | { connector?: AppConnectorView; connectors?: AppConnectorView[]; error?: string }
@@ -2661,6 +2832,7 @@ export function ProfileCenter({
         connectors.map((item) => (item.provider === connector.provider ? payload.connector! : item));
 
       setConnectors(nextConnectors);
+      setConnectorDrafts(connectorDraftsFromList(nextConnectors));
       setPersonalization((current) => ({
         ...current,
         apps: {
@@ -2668,7 +2840,13 @@ export function ProfileCenter({
           [connector.provider]: enabled
         }
       }));
-      setNotice(enabled ? `${connector.label} 已授权。` : `${connector.label} 已撤销授权。`);
+      setNotice(
+        enabled
+          ? payload.connector.status === "needs_setup"
+            ? `${connector.label} 已保存，仍需补全配置。`
+            : `${connector.label} 已授权。`
+          : `${connector.label} 已撤销授权。`
+      );
     }
 
     setSavingConnectorProvider(null);
@@ -3623,9 +3801,14 @@ export function ProfileCenter({
                               <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
                                 {project.counts?.conversations ?? 0} 个聊天
                               </span>
-                              <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                              <button
+                                className="app-action-button rounded-full bg-white/80 px-2 py-1 font-semibold text-[color:var(--claude-accent)] hover:bg-white"
+                                onClick={() => openProjectFiles(project.id)}
+                                title="查看这个项目的文件"
+                                type="button"
+                              >
                                 {project.counts?.attachments ?? 0} 个文件
-                              </span>
+                              </button>
                               <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
                                 {project.counts?.memories ?? 0} 条记忆
                               </span>
@@ -3860,6 +4043,10 @@ export function ProfileCenter({
                       } as AppConnectorView);
                     const saving = savingConnectorProvider === connector.provider;
                     const statusLabel = connectorStatusLabel(connector.status, connector.enabled);
+                    const draft = connectorDrafts[connector.provider] ?? connectorDraftFromMetadata(connector);
+                    const detailRows = connectorDetailRows(connector, draft);
+                    const advancedConnector =
+                      connector.provider === "mcpConnectors" || connector.provider === "knowledgeBase";
 
                     return (
                       <div
@@ -3894,45 +4081,141 @@ export function ProfileCenter({
                         </div>
 
                         <div className="grid gap-2 rounded-lg bg-white/55 px-3 py-2 text-xs ios-muted">
-                          <div className="flex items-center justify-between gap-3">
-                            <span>范围</span>
-                            <span className="font-semibold text-stone-700">{connector.scope}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <span>授权时间</span>
-                            <span className="font-semibold text-stone-700">
-                              {connector.authorizedAt
-                                ? new Date(connector.authorizedAt).toLocaleString()
-                                : "未授权"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <span>最近使用</span>
-                            <span className="font-semibold text-stone-700">
-                              {connector.lastUsedAt ? new Date(connector.lastUsedAt).toLocaleString() : "暂无"}
-                            </span>
-                          </div>
+                          {detailRows.map(([rowLabel, rowValue]) => (
+                            <div className="flex items-center justify-between gap-3" key={rowLabel}>
+                              <span>{rowLabel}</span>
+                              <span className="min-w-0 truncate text-right font-semibold text-stone-700">
+                                {rowValue}
+                              </span>
+                            </div>
+                          ))}
                         </div>
 
-                        <button
-                          className={`app-action-button flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold disabled:opacity-60 ${
-                            connector.enabled
-                              ? "ios-button-secondary text-red-600"
-                              : "ios-button-primary"
-                          }`}
-                          disabled={saving}
-                          onClick={() => void updateConnector(connector, !connector.enabled)}
-                          type="button"
-                        >
-                          {saving ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : connector.enabled ? (
-                            <X className="size-4" />
-                          ) : (
-                            <Check className="size-4" />
-                          )}
-                          {connector.enabled ? "撤销授权" : "授权并启用"}
-                        </button>
+                        {advancedConnector ? (
+                          <div className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/45 p-3">
+                            {connector.provider === "mcpConnectors" ? (
+                              <>
+                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
+                                  MCP 网关地址
+                                  <input
+                                    className="ios-input h-9 text-sm font-normal"
+                                    maxLength={240}
+                                    onChange={(event) =>
+                                      updateConnectorDraft(connector.provider, {
+                                        endpoint: event.target.value
+                                      })
+                                    }
+                                    placeholder="https://mcp.example.com/sse"
+                                    value={draft.endpoint}
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
+                                  调用权限
+                                  <select
+                                    className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold"
+                                    onChange={(event) =>
+                                      updateConnectorDraft(connector.provider, {
+                                        permission: event.target.value as ConnectorDraft["permission"]
+                                      })
+                                    }
+                                    value={draft.permission}
+                                  >
+                                    <option value="catalog">只读取工具清单</option>
+                                    <option value="invoke">允许工具调用</option>
+                                    <option value="project">仅项目内启用</option>
+                                  </select>
+                                </label>
+                              </>
+                            ) : (
+                              <>
+                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
+                                  知识库名称 / 空间
+                                  <input
+                                    className="ios-input h-9 text-sm font-normal"
+                                    maxLength={120}
+                                    onChange={(event) =>
+                                      updateConnectorDraft(connector.provider, {
+                                        space: event.target.value
+                                      })
+                                    }
+                                    placeholder="例如：公司文档、研发知识库"
+                                    value={draft.space}
+                                  />
+                                </label>
+                                <label className="grid gap-1 text-xs font-semibold text-stone-700">
+                                  引用范围
+                                  <select
+                                    className="ios-input h-9 bg-white/72 px-3 text-sm font-semibold"
+                                    onChange={(event) =>
+                                      updateConnectorDraft(connector.provider, {
+                                        scope: event.target.value as ConnectorDraft["scope"]
+                                      })
+                                    }
+                                    value={draft.scope}
+                                  >
+                                    <option value="account">账号可用</option>
+                                    <option value="project">仅项目知识</option>
+                                    <option value="summary">只引用摘要</option>
+                                  </select>
+                                </label>
+                              </>
+                            )}
+                            <label className="grid gap-1 text-xs font-semibold text-stone-700">
+                              备注
+                              <textarea
+                                className="ios-input min-h-16 resize-y py-2 text-sm font-normal leading-5"
+                                maxLength={500}
+                                onChange={(event) =>
+                                  updateConnectorDraft(connector.provider, {
+                                    note: event.target.value
+                                  })
+                                }
+                                placeholder="给自己看的授权说明、接入边界或负责人"
+                                value={draft.note}
+                              />
+                            </label>
+                            <p className="text-xs leading-5 ios-muted">{connectorNextStep(connector, draft)}</p>
+                          </div>
+                        ) : null}
+
+                        <div className={advancedConnector && connector.enabled ? "grid gap-2 sm:grid-cols-2" : ""}>
+                          <button
+                            className={`app-action-button flex h-10 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold disabled:opacity-60 ${
+                              connector.enabled && !advancedConnector
+                                ? "ios-button-secondary text-red-600"
+                                : "ios-button-primary"
+                            }`}
+                            disabled={saving}
+                            onClick={() => void updateConnector(connector, advancedConnector ? true : !connector.enabled)}
+                            type="button"
+                          >
+                            {saving ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : connector.enabled && !advancedConnector ? (
+                              <X className="size-4" />
+                            ) : (
+                              <Check className="size-4" />
+                            )}
+                            {advancedConnector
+                              ? connector.enabled
+                                ? "保存配置"
+                                : "授权并启用"
+                              : connector.enabled
+                                ? "撤销授权"
+                                : "授权并启用"}
+                          </button>
+                          {advancedConnector && connector.enabled ? (
+                            <button
+                              className="ios-button-secondary app-action-button flex h-10 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold text-red-600 disabled:opacity-60"
+                              disabled={saving}
+                              onClick={() => void updateConnector(connector, false)}
+                              type="button"
+                            >
+                              {saving ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+                              撤销授权
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })

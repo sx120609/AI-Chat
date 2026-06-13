@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
 type ConnectorBody = {
   action?: "authorize" | "revoke";
   enabled?: boolean;
+  metadata?: Record<string, unknown>;
   provider?: string;
 };
 
@@ -74,6 +75,10 @@ export async function PATCH(request: NextRequest) {
   const connector = await updateUserAppConnector({
     action,
     enabled: body.enabled,
+    metadata:
+      body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+        ? body.metadata
+        : undefined,
     provider,
     userId: currentUser.id
   });

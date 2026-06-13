@@ -44,14 +44,14 @@ export const APP_CONNECTOR_DEFINITIONS: ConnectorDefinition[] = [
   {
     provider: "mcpConnectors",
     label: "第三方 MCP",
-    description: "预留第三方工具与 MCP 授权状态。",
-    scope: "外部工具"
+    description: "配置远程或本地 MCP 网关，统一管理外部工具授权。",
+    scope: "工具清单 / 调用"
   },
   {
     provider: "knowledgeBase",
     label: "企业知识库",
-    description: "预留企业知识源授权状态。",
-    scope: "知识库"
+    description: "配置企业知识空间，控制聊天可引用的内部资料范围。",
+    scope: "知识空间"
   }
 ];
 
@@ -65,6 +65,68 @@ function safeJsonParse(value: string) {
   } catch {
     return {};
   }
+}
+
+function cleanMetadataText(value: unknown, maxLength: number) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function pickMetadataOption<T extends string>(value: unknown, options: readonly T[], fallback: T): T {
+  return typeof value === "string" && options.includes(value as T) ? (value as T) : fallback;
+}
+
+function normalizeConnectorMetadata(
+  provider: AppConnectorProvider,
+  metadata: Record<string, unknown> | undefined,
+  existing: Record<string, unknown>
+) {
+  const source = metadata ?? existing;
+
+  if (provider === "mcpConnectors") {
+    return {
+      endpoint: cleanMetadataText(source.endpoint, 240),
+      permission: pickMetadataOption(
+        source.permission,
+        ["catalog", "invoke", "project"] as const,
+        "catalog"
+      ),
+      note: cleanMetadataText(source.note, 500)
+    };
+  }
+
+  if (provider === "knowledgeBase") {
+    return {
+      space: cleanMetadataText(source.space, 120),
+      scope: pickMetadataOption(
+        source.scope,
+        ["account", "project", "summary"] as const,
+        "account"
+      ),
+      note: cleanMetadataText(source.note, 500)
+    };
+  }
+
+  return {};
+}
+
+function connectorStatusForMetadata(
+  provider: AppConnectorProvider,
+  enabled: boolean,
+  metadata: Record<string, unknown>
+): AppConnectorStatus {
+  if (!enabled) {
+    return "disconnected";
+  }
+
+  if (provider === "mcpConnectors" && !cleanMetadataText(metadata.endpoint, 240)) {
+    return "needs_setup";
+  }
+
+  if (provider === "knowledgeBase" && !cleanMetadataText(metadata.space, 120)) {
+    return "needs_setup";
+  }
+
+  return "connected";
 }
 
 function normalizeStatus(value: string): AppConnectorStatus {
@@ -136,17 +198,36 @@ export async function listUserAppConnectors(userId: string, aiStylePrompt: strin
 export async function updateUserAppConnector({
   action,
   enabled,
+  metadata,
   provider,
   userId
 }: {
   action?: "authorize" | "revoke";
   enabled?: boolean;
+  metadata?: Record<string, unknown>;
   provider: AppConnectorProvider;
   userId: string;
 }) {
   const now = new Date();
   const nextEnabled = action === "authorize" ? true : action === "revoke" ? false : Boolean(enabled);
-  const status: AppConnectorStatus = nextEnabled ? "connected" : "disconnected";
+  const existing = await prisma.userAppConnector.findUnique({
+    where: {
+      userId_provider: {
+        userId,
+        provider
+      }
+    }
+  });
+  const normalizedMetadata = normalizeConnectorMetadata(
+    provider,
+    metadata,
+    existing ? safeJsonParse(existing.metadataJson) : {}
+  );
+  const status = connectorStatusForMetadata(provider, nextEnabled, normalizedMetadata);
+  const metadataJson = JSON.stringify({
+    ...normalizedMetadata,
+    source: action ?? "toggle"
+  });
   const connector = await prisma.userAppConnector.upsert({
     where: {
       userId_provider: {
@@ -161,17 +242,13 @@ export async function updateUserAppConnector({
       status,
       authorizedAt: nextEnabled ? now : null,
       revokedAt: nextEnabled ? null : now,
-      metadataJson: JSON.stringify({
-        source: action ?? "toggle"
-      })
+      metadataJson
     },
     update: {
       enabled: nextEnabled,
       status,
       ...(nextEnabled ? { authorizedAt: now, revokedAt: null } : { revokedAt: now }),
-      metadataJson: JSON.stringify({
-        source: action ?? "toggle"
-      })
+      metadataJson
     }
   });
 

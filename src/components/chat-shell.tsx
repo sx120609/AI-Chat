@@ -501,8 +501,6 @@ export function ChatShell({
       !securityModeDefault
   );
   const [temporaryChatEnabled, setTemporaryChatEnabled] = useState(defaultTemporaryMode);
-  const [memoryWriteDisabledForConversation, setMemoryWriteDisabledForConversation] =
-    useState(false);
   const [model, setModel] = useState<string>(defaultModel);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
     personalizationSettings.toolPreferences.defaultReasoningEffort || initialDefaultReasoningEffort
@@ -1023,7 +1021,6 @@ export function ChatShell({
     setImageToolEnabled(false);
     setSourceImageMessage(null);
     setTemporaryChatEnabled(defaultTemporaryMode);
-    setMemoryWriteDisabledForConversation(false);
     setWebSearchEnabledForMessage(
       webSearchToolAvailable &&
         personalizationSettings.toolPreferences.webSearchDefault
@@ -1273,7 +1270,6 @@ export function ChatShell({
     setImageToolEnabled(false);
     setSourceImageMessage(null);
     setTemporaryChatEnabled(securityModeDefault);
-    setMemoryWriteDisabledForConversation(false);
     setWebSearchEnabledForMessage(
       webSearchToolAvailable &&
         personalizationSettings.toolPreferences.webSearchDefault
@@ -1488,8 +1484,7 @@ export function ChatShell({
     const reuseUserMessageId = reuseUserMessage?.id;
     const sourceImageMessageId = options.sourceImageMessage?.id;
     const requestTemporary = options.temporary ?? temporaryChatEnabled;
-    const requestDisableMemoryWrite =
-      options.disableMemoryWrite ?? (memoryWriteDisabledForConversation || requestTemporary);
+    const requestDisableMemoryWrite = options.disableMemoryWrite ?? requestTemporary;
     const temporaryMessages = requestTemporary
       ? messages
           .filter(
@@ -2891,7 +2886,7 @@ export function ChatShell({
     try {
       const useWebSearch = webSearchToolAvailable && webSearchEnabledForMessage;
       const requestTemporary = temporaryChatEnabled;
-      const requestDisableMemoryWrite = memoryWriteDisabledForConversation || requestTemporary;
+      const requestDisableMemoryWrite = requestTemporary;
 
       if (editingMessage) {
         setTemporaryChatEnabled(defaultTemporaryMode);
@@ -3378,6 +3373,32 @@ export function ChatShell({
                       </select>
                     </label>
                   ) : null}
+                  <button
+                    aria-pressed={temporaryChatEnabled}
+                    className={`app-action-button grid size-10 shrink-0 place-items-center rounded-full border transition disabled:opacity-70 ${
+                      temporaryChatEnabled
+                        ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
+                        : "app-glass-control text-stone-600"
+                    }`}
+                    disabled={securityModeDefault || loading || quotaBlocked || conversationSwitching}
+                    onClick={() => {
+                      if (securityModeDefault) {
+                        return;
+                      }
+
+                      setTemporaryChatEnabled((current) => !current);
+                    }}
+                    title={
+                      securityModeDefault
+                        ? "隐私 / 安全模式已强制开启临时聊天"
+                        : temporaryChatEnabled
+                          ? "已开启临时聊天：不保存历史，不读取或写入长期记忆"
+                          : "临时聊天：不保存历史，不读取或写入长期记忆"
+                    }
+                    type="button"
+                  >
+                    <Clock3 className="size-4" />
+                  </button>
                   <ModelReasoningPicker
                     activeModel={activeModel}
                     activeReasoningEffort={activeReasoningEffort}
@@ -3486,10 +3507,10 @@ export function ChatShell({
                 下一条将联网搜索（{webSearchProviderLabel}）
               </div>
             ) : null}
-            {temporaryChatEnabled || memoryWriteDisabledForConversation ? (
+            {temporaryChatEnabled ? (
               <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
-                <Shield className="size-3.5 text-[color:var(--claude-accent)]" />
-                {temporaryChatEnabled ? "临时聊天：不保存历史，不读取或写入长期记忆" : "本次对话不写入记忆"}
+                <Clock3 className="size-3.5 text-[color:var(--claude-accent)]" />
+                临时聊天：不保存历史，不读取或写入长期记忆
               </div>
             ) : null}
             {toolEvents.length > 0 && processStartedAt && !inlineProcessMessageId ? (
@@ -3653,58 +3674,6 @@ export function ChatShell({
                     </button>
                   </div>
                 ) : null}
-                <button
-                  aria-pressed={temporaryChatEnabled}
-                  className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
-                    temporaryChatEnabled
-                      ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
-                      : "app-glass-control text-stone-600 sm:text-stone-600"
-                  }`}
-                  disabled={securityModeDefault || loading || quotaBlocked || conversationSwitching}
-                  onClick={() => {
-                    if (securityModeDefault) {
-                      return;
-                    }
-
-                    const nextTemporaryChatEnabled = !temporaryChatEnabled;
-
-                    setTemporaryChatEnabled(nextTemporaryChatEnabled);
-
-                    if (nextTemporaryChatEnabled) {
-                      setMemoryWriteDisabledForConversation(false);
-                    }
-                  }}
-                  title={
-                    securityModeDefault
-                      ? "隐私 / 安全模式已强制开启临时聊天"
-                      : temporaryChatEnabled
-                      ? "已开启临时聊天：不保存历史，不读取或写入长期记忆"
-                      : "临时聊天：不保存历史，不读取或写入长期记忆"
-                  }
-                  type="button"
-                >
-                  <Clock3 className="size-4" />
-                </button>
-                <button
-                  aria-pressed={memoryWriteDisabledForConversation}
-                  className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
-                    memoryWriteDisabledForConversation
-                      ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
-                      : "app-glass-control text-stone-600 sm:text-stone-600"
-                  }`}
-                  disabled={temporaryChatEnabled || loading || quotaBlocked || conversationSwitching}
-                  onClick={() => setMemoryWriteDisabledForConversation((current) => !current)}
-                  title={
-                    temporaryChatEnabled
-                      ? "临时聊天已包含不写入记忆"
-                      : memoryWriteDisabledForConversation
-                        ? "已开启：本次对话不写入记忆"
-                        : "本次对话不写入记忆"
-                  }
-                  type="button"
-                >
-                  <Shield className="size-4" />
-                </button>
               </div>
               <ComposerInputArea
                 disabled={conversationSwitching}

@@ -17,10 +17,12 @@ import {
   Save,
   Settings2,
   SlidersHorizontal,
+  Trash2,
   UserCog,
   UserRound,
   X
 } from "lucide-react";
+import { SiteConfirmDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
 import { formatCents, formatNumber } from "@/lib/format";
 import {
@@ -258,6 +260,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>("access");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deleteUserTarget, setDeleteUserTarget] = useState<AdminUserView | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [testingSettings, setTestingSettings] = useState(false);
@@ -537,6 +540,32 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     setSavingId(null);
   }
 
+  async function deleteUser() {
+    if (!deleteUserTarget) {
+      return;
+    }
+
+    const target = deleteUserTarget;
+    setSavingId(target.id);
+    setError("");
+    setNotice("");
+
+    const response = await fetch(`/api/admin/users/${target.id}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "删除用户失败。");
+    } else {
+      setUsers((current) => current.filter((user) => user.id !== target.id));
+      setNotice(`用户 ${target.email} 已删除。`);
+      setDeleteUserTarget(null);
+    }
+
+    setSavingId(null);
+  }
+
   function patchUser(userId: string, patch: Partial<AdminUserView>) {
     setUsers((current) =>
       current.map((user) => (user.id === userId ? { ...user, ...patch } : user))
@@ -677,7 +706,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             </div>
           </div>
 
-          <form className="grid gap-3 lg:grid-cols-6" onSubmit={saveSettings}>
+          <form autoComplete="off" className="grid gap-3 lg:grid-cols-6" onSubmit={saveSettings}>
             {activeTab === "access" ? (
               <>
                 <div className="ios-list lg:col-span-6">
@@ -690,6 +719,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <label className="block lg:col-span-2">
                       <span className="mb-1 block text-xs font-medium ios-muted">站点名称</span>
                       <input
+                        autoComplete="organization"
                         className="ios-input w-full"
                         onChange={(event) =>
                           setSettingsForm((current) => ({ ...current, siteName: event.target.value }))
@@ -701,6 +731,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <label className="block lg:col-span-4">
                       <span className="mb-1 block text-xs font-medium ios-muted">站点地址</span>
                       <input
+                        autoComplete="off"
                         className="ios-input w-full"
                         onChange={(event) =>
                           setSettingsForm((current) => ({ ...current, siteUrl: event.target.value }))
@@ -712,6 +743,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <label className="block lg:col-span-3">
                       <span className="mb-1 block text-xs font-medium ios-muted">API 地址</span>
                       <input
+                        autoComplete="off"
                         className="ios-input w-full"
                         onChange={(event) =>
                           setSettingsForm((current) => ({ ...current, apiBaseUrl: event.target.value }))
@@ -723,7 +755,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <label className="block lg:col-span-2">
                       <span className="mb-1 block text-xs font-medium ios-muted">API Key</span>
                       <input
+                        autoComplete="new-password"
                         className="ios-input w-full"
+                        name="admin-upstream-api-key"
                         onChange={(event) =>
                           setSettingsForm((current) => ({
                             ...current,
@@ -739,6 +773,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <label className="block">
                       <span className="mb-1 block text-xs font-medium ios-muted">Org ID</span>
                       <input
+                        autoComplete="off"
                         className="ios-input w-full"
                         onChange={(event) =>
                           setSettingsForm((current) => ({ ...current, orgId: event.target.value }))
@@ -1269,7 +1304,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">账号</span>
                     <input
+                      autoComplete="off"
                       className="ios-input w-full"
+                      name="admin-smtp-username"
                       onChange={(event) =>
                         setSettingsForm((current) => ({ ...current, smtpUsername: event.target.value }))
                       }
@@ -1279,7 +1316,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">密码</span>
                     <input
+                      autoComplete="new-password"
                       className="ios-input w-full"
+                      name="admin-smtp-password"
                       onChange={(event) =>
                         setSettingsForm((current) => ({
                           ...current,
@@ -1295,7 +1334,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">发件邮箱</span>
                     <input
+                      autoComplete="off"
                       className="ios-input w-full"
+                      name="admin-smtp-from-email"
                       onChange={(event) =>
                         setSettingsForm((current) => ({ ...current, smtpFromEmail: event.target.value }))
                       }
@@ -1307,7 +1348,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">发件名称</span>
                     <input
+                      autoComplete="off"
                       className="ios-input w-full"
+                      name="admin-smtp-from-name"
                       onChange={(event) =>
                         setSettingsForm((current) => ({ ...current, smtpFromName: event.target.value }))
                       }
@@ -1318,7 +1361,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">测试收件邮箱</span>
                     <input
+                      autoComplete="off"
                       className="ios-input w-full"
+                      name="admin-smtp-test-email"
                       onChange={(event) => setTestEmail(event.target.value)}
                       type="email"
                       value={testEmail}
@@ -1488,7 +1533,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">PID *</span>
                     <input
+                      autoComplete="off"
                       className="ios-input w-full"
+                      name="admin-easypay-pid"
                       onChange={(event) =>
                         setSettingsForm((current) => ({ ...current, easyPayPid: event.target.value }))
                       }
@@ -1498,7 +1545,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">PKey *</span>
                     <input
+                      autoComplete="new-password"
                       className="ios-input w-full"
+                      name="admin-easypay-pkey"
                       onChange={(event) =>
                         setSettingsForm((current) => ({
                           ...current,
@@ -1514,7 +1563,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                   <label className="block lg:col-span-2">
                     <span className="mb-1 block text-xs font-medium ios-muted">API 基础地址 *</span>
                     <input
+                      autoComplete="off"
                       className="ios-input w-full"
+                      name="admin-easypay-api-base-url"
                       onChange={(event) =>
                         setSettingsForm((current) => ({
                           ...current,
@@ -1617,7 +1668,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             </div>
             <h2 className="text-base font-semibold">注册设置</h2>
           </div>
-          <form className="grid gap-3 lg:grid-cols-6" onSubmit={saveSettings}>
+          <form autoComplete="off" className="grid gap-3 lg:grid-cols-6" onSubmit={saveSettings}>
             <label className="admin-check-row lg:col-span-2">
               <input
                 checked={settingsForm.registrationEnabled}
@@ -1679,9 +1730,31 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
             </div>
             <h2 className="text-base font-semibold">创建用户</h2>
           </div>
-          <form className="grid gap-3 lg:grid-cols-6" onSubmit={createUser}>
+          <form autoComplete="off" className="grid gap-3 lg:grid-cols-6" onSubmit={createUser}>
             <input
+              aria-hidden="true"
+              autoComplete="username"
+              className="hidden"
+              name="username"
+              readOnly
+              tabIndex={-1}
+              type="text"
+              value=""
+            />
+            <input
+              aria-hidden="true"
+              autoComplete="current-password"
+              className="hidden"
+              name="password"
+              readOnly
+              tabIndex={-1}
+              type="password"
+              value=""
+            />
+            <input
+              autoComplete="off"
               className="ios-input lg:col-span-2"
+              name="admin-create-user-email"
               onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
               placeholder="邮箱"
               required
@@ -1689,14 +1762,18 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
               value={form.email}
             />
             <input
+              autoComplete="off"
               className="ios-input"
+              name="admin-create-user-name"
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
               placeholder="姓名"
               type="text"
               value={form.name}
             />
             <input
+              autoComplete="new-password"
               className="ios-input"
+              name="admin-create-user-password"
               onChange={(event) =>
                 setForm((current) => ({ ...current, password: event.target.value }))
               }
@@ -1882,6 +1959,15 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                           >
                             <RefreshCw className="size-4" />
                           </button>
+                          <button
+                            className="ios-icon-button app-action-button text-red-600 disabled:opacity-40"
+                            disabled={savingId === user.id || user.id === currentUser.id}
+                            onClick={() => setDeleteUserTarget(user)}
+                            title={user.id === currentUser.id ? "不能删除当前账号" : "删除用户"}
+                            type="button"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1988,7 +2074,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                     <p className="mt-1">Token {formatNumber(user.usage.tokensUsed)}</p>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-3 grid grid-cols-3 gap-2">
                     <button
                       className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 text-sm disabled:opacity-50"
                       disabled={savingId === user.id}
@@ -2011,6 +2097,15 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                       <RefreshCw className="size-4" />
                       清空累计
                     </button>
+                    <button
+                      className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 text-sm text-red-600 disabled:opacity-40"
+                      disabled={savingId === user.id || user.id === currentUser.id}
+                      onClick={() => setDeleteUserTarget(user)}
+                      type="button"
+                    >
+                      <Trash2 className="size-4" />
+                      删除
+                    </button>
                   </div>
                 </div>
               ))}
@@ -2022,6 +2117,18 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         ) : null}
         </div>
       </div>
+      <SiteConfirmDialog
+        confirmLabel="删除用户"
+        description={`确定删除 ${deleteUserTarget?.name || "这个用户"}（${
+          deleteUserTarget?.email || ""
+        }）吗？该用户的会话、附件、API Key、订单和用量记录都会被删除，此操作不可恢复。`}
+        loading={Boolean(deleteUserTarget && savingId === deleteUserTarget.id)}
+        onCancel={() => setDeleteUserTarget(null)}
+        onConfirm={deleteUser}
+        open={Boolean(deleteUserTarget)}
+        title="删除用户"
+        tone="danger"
+      />
     </main>
   );
 }

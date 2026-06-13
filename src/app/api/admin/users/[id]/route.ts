@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { deleteAttachmentFiles } from "@/lib/attachments";
 import { getUserFromRequest } from "@/lib/auth";
 import { cacheDelete } from "@/lib/cache";
 import { coerceInt, jsonError, readJson, requireAdmin } from "@/lib/http";
@@ -100,4 +101,45 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   await cacheDelete([usageCacheKey(user.id)]);
 
   return NextResponse.json({ id: user.id });
+}
+
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  const currentUser = await getUserFromRequest(request);
+  const error = requireAdmin(currentUser);
+
+  if (!currentUser) {
+    return jsonError("请先登录。", 401);
+  }
+
+  if (error) {
+    return error;
+  }
+
+  const { id } = await context.params;
+
+  if (id === currentUser.id) {
+    return jsonError("不能删除当前登录的管理员账号。", 400);
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      attachments: {
+        select: { storagePath: true }
+      }
+    }
+  });
+
+  if (!user) {
+    return jsonError("用户不存在。", 404);
+  }
+
+  await prisma.user.delete({
+    where: { id }
+  });
+  await cacheDelete([usageCacheKey(id)]);
+  await deleteAttachmentFiles(user.attachments);
+
+  return NextResponse.json({ id });
 }

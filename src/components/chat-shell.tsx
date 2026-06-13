@@ -455,6 +455,8 @@ export function ChatShell({
   const [deleteConversationTarget, setDeleteConversationTarget] =
     useState<ConversationSummary | null>(null);
   const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
+  const [deleteMessageTarget, setDeleteMessageTarget] = useState<MessageView | null>(null);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [sharingConversationId, setSharingConversationId] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<ShareNotice | null>(null);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
@@ -2509,14 +2511,14 @@ export function ChatShell({
     setStreamStatus("已复制。");
   }
 
-  async function deleteMessage(message: MessageView) {
+  async function deleteMessage(message: MessageView): Promise<boolean> {
     const conversationKey = activeConversationKeyRef.current;
 
     if (isLocalMessage(message)) {
       setMessages((current) => current.filter((item) => item.id !== message.id));
       setError("");
       setStreamStatus("消息已删除。");
-      return;
+      return true;
     }
 
     const response = await fetch(`/api/messages/${message.id}`, {
@@ -2532,13 +2534,13 @@ export function ChatShell({
           setError("");
           setStreamStatus("消息已从当前会话移除。");
         }
-        return;
+        return true;
       }
 
       if (isViewingConversationKey(conversationKey)) {
         setError(payload?.error || "删除消息失败。");
       }
-      return;
+      return false;
     }
 
     if (isViewingConversationKey(conversationKey)) {
@@ -2546,7 +2548,32 @@ export function ChatShell({
       setError("");
       setStreamStatus("消息已删除。");
     }
-    await refreshConversations(activeConversationId ?? undefined);
+    await refreshConversations(activeConversationId ?? undefined).catch(() => undefined);
+    return true;
+  }
+
+  function requestDeleteMessage(message: MessageView) {
+    setDeleteMessageTarget(message);
+  }
+
+  async function confirmDeleteMessage() {
+    if (!deleteMessageTarget) {
+      return;
+    }
+
+    const target = deleteMessageTarget;
+    setDeletingMessageId(target.id);
+
+    try {
+      const deleted = await deleteMessage(target);
+      if (deleted) {
+        setDeleteMessageTarget(null);
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? `删除消息失败：${deleteError.message}` : "删除消息失败。");
+    } finally {
+      setDeletingMessageId(null);
+    }
   }
 
   function startEditMessage(message: MessageView) {
@@ -2717,13 +2744,26 @@ export function ChatShell({
   }
 
   const copyMessageHandler = useEventCallback(copyMessage);
-  const deleteMessageHandler = useEventCallback(deleteMessage);
+  const deleteMessageHandler = useEventCallback(requestDeleteMessage);
+  const confirmDeleteMessageHandler = useEventCallback(confirmDeleteMessage);
   const editMessageHandler = useEventCallback(startEditMessage);
   const editImageHandler = useEventCallback(startEditImage);
   const regenerateMessageHandler = useEventCallback(regenerateMessage);
   const continueGeneratingHandler = useEventCallback(continueGenerating);
   const sendHandler = useEventCallback(send);
   const stopGenerationHandler = useEventCallback(stopGeneration);
+  const deleteMessagePreview = useMemo(() => {
+    if (!deleteMessageTarget) {
+      return "";
+    }
+
+    const content =
+      deleteMessageTarget.role === "ASSISTANT"
+        ? sanitizeIdentityLeak(deleteMessageTarget.content, deleteMessageTarget.model || "")
+        : deleteMessageTarget.content;
+
+    return content.trim() || (deleteMessageTarget.imageUrl ? "图片消息" : "空消息");
+  }, [deleteMessageTarget]);
 
   const sidebarContent = (
     <>
@@ -3424,6 +3464,27 @@ export function ChatShell({
         title="删除会话"
         tone="danger"
       />
+      <SiteConfirmDialog
+        confirmLabel="删除消息"
+        description={`确定删除这条${
+          deleteMessageTarget?.role === "USER" ? "用户消息" : "AI 回复"
+        }吗？删除后不可恢复。`}
+        loading={Boolean(deleteMessageTarget && deletingMessageId === deleteMessageTarget.id)}
+        onCancel={() => setDeleteMessageTarget(null)}
+        onConfirm={confirmDeleteMessageHandler}
+        open={Boolean(deleteMessageTarget)}
+        title="删除消息"
+        tone="danger"
+      >
+        {deleteMessageTarget ? (
+          <div className="max-h-28 overflow-hidden rounded-xl border border-[color:var(--ios-separator)] bg-white/45 px-3 py-2 text-xs leading-5 text-stone-600">
+            <p className="font-semibold text-stone-800">
+              {deleteMessageTarget.role === "USER" ? "你发送的消息" : "AI 回复"}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap break-words">{deleteMessagePreview}</p>
+          </div>
+        ) : null}
+      </SiteConfirmDialog>
       <PaymentDialog
         onClose={() => setPaymentDialogOpen(false)}
         open={paymentDialogOpen}

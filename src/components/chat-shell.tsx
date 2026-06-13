@@ -1272,7 +1272,7 @@ export function ChatShell({
     setProcessFinishedAt(null);
     setImageToolEnabled(false);
     setSourceImageMessage(null);
-    setTemporaryChatEnabled(false);
+    setTemporaryChatEnabled(securityModeDefault);
     setMemoryWriteDisabledForConversation(false);
     setWebSearchEnabledForMessage(
       webSearchToolAvailable &&
@@ -3072,7 +3072,7 @@ export function ChatShell({
 
         {groupedConversations.map((group) => (
           <section className="mb-3 max-lg:mb-2" key={group.label}>
-            <div className="px-0 py-2 text-[13px] font-semibold text-stone-500 lg:sticky lg:top-0 lg:z-10 lg:rounded-full lg:bg-white/30 lg:px-2 lg:py-1 lg:text-[11px] lg:backdrop-blur-xl">
+            <div className="px-0 py-2 text-[13px] font-semibold text-stone-500 lg:px-2 lg:py-1 lg:text-[11px]">
               {group.label}
             </div>
             <div className="space-y-1">
@@ -3660,8 +3660,12 @@ export function ChatShell({
                       ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
                       : "app-glass-control text-stone-600 sm:text-stone-600"
                   }`}
-                  disabled={loading || quotaBlocked || conversationSwitching}
+                  disabled={securityModeDefault || loading || quotaBlocked || conversationSwitching}
                   onClick={() => {
+                    if (securityModeDefault) {
+                      return;
+                    }
+
                     const nextTemporaryChatEnabled = !temporaryChatEnabled;
 
                     setTemporaryChatEnabled(nextTemporaryChatEnabled);
@@ -3671,7 +3675,9 @@ export function ChatShell({
                     }
                   }}
                   title={
-                    temporaryChatEnabled
+                    securityModeDefault
+                      ? "隐私 / 安全模式已强制开启临时聊天"
+                      : temporaryChatEnabled
                       ? "已开启临时聊天：不保存历史，不读取或写入长期记忆"
                       : "临时聊天：不保存历史，不读取或写入长期记忆"
                   }

@@ -7,6 +7,8 @@ import {
   BookOpen,
   Bot,
   Braces,
+  ChevronLeft,
+  ChevronRight,
   Check,
   Clock3,
   Copy,
@@ -34,7 +36,7 @@ import {
   X
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocumentTitle } from "@/components/document-title";
 import { SiteConfirmDialog, SiteNoticeDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
@@ -1531,6 +1533,9 @@ export function ProfileCenter({
     parsePersonalizationSettings(initialUser.aiStylePrompt)
   );
   const [activeTab, setActiveTab] = useState<ProfileTab>("overview");
+  const tabScrollerRef = useRef<HTMLDivElement | null>(null);
+  const tabButtonRefs = useRef(new Map<ProfileTab, HTMLButtonElement>());
+  const [tabScrollState, setTabScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [apiKeyName, setApiKeyName] = useState("个人 API Key");
@@ -2782,6 +2787,75 @@ export function ProfileCenter({
   }
 
   const personalizationPayloadSize = serializePersonalizationSettings(personalization).length;
+  const activeTabIndex = Math.max(
+    profileTabs.findIndex((tab) => tab.id === activeTab),
+    0
+  );
+  const updateTabScrollState = useCallback(() => {
+    const scroller = tabScrollerRef.current;
+
+    if (!scroller) {
+      return;
+    }
+
+    const maxScrollLeft = Math.max(scroller.scrollWidth - scroller.clientWidth, 0);
+
+    setTabScrollState({
+      canScrollLeft: scroller.scrollLeft > 4,
+      canScrollRight: scroller.scrollLeft < maxScrollLeft - 4
+    });
+  }, []);
+  const scrollProfileTabs = useCallback(
+    (direction: -1 | 1) => {
+      const scroller = tabScrollerRef.current;
+
+      if (!scroller) {
+        return;
+      }
+
+      scroller.scrollBy({
+        behavior: "smooth",
+        left: direction * Math.max(scroller.clientWidth * 0.78, 220)
+      });
+      window.setTimeout(updateTabScrollState, 280);
+    },
+    [updateTabScrollState]
+  );
+
+  useEffect(() => {
+    const scroller = tabScrollerRef.current;
+
+    if (!scroller) {
+      return;
+    }
+
+    const handleScroll = () => updateTabScrollState();
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => updateTabScrollState());
+
+    updateTabScrollState();
+    scroller.addEventListener("scroll", handleScroll, { passive: true });
+    resizeObserver?.observe(scroller);
+    window.addEventListener("resize", handleScroll);
+
+    return () => {
+      scroller.removeEventListener("scroll", handleScroll);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, [updateTabScrollState]);
+
+  useEffect(() => {
+    tabButtonRefs.current.get(activeTab)?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest"
+    });
+
+    const timer = window.setTimeout(updateTabScrollState, 280);
+
+    return () => window.clearTimeout(timer);
+  }, [activeTab, updateTabScrollState]);
 
   return (
     <main className="ios-page app-shell app-route-enter flex flex-col text-stone-950">
@@ -2815,34 +2889,76 @@ export function ProfileCenter({
             </div>
           ) : null}
 
-          <nav className="ios-panel motion-lift grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-            {profileTabs.map((tab) => {
-              const TabIcon = tab.icon;
-              const selected = activeTab === tab.id;
-
-              return (
-                <button
-                  className={`app-action-button flex min-h-14 items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
-                    selected ? "bg-white text-stone-950 shadow-sm" : "text-stone-600 hover:bg-white/60"
-                  }`}
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  type="button"
+          <nav className="ios-panel motion-lift p-2" aria-label="个人中心设置分类">
+            <div className="flex items-center gap-2">
+              <button
+                aria-label="上一组分类"
+                className="app-action-button app-glass-control grid size-10 shrink-0 place-items-center rounded-lg text-stone-700 disabled:opacity-35 sm:size-11"
+                disabled={!tabScrollState.canScrollLeft}
+                onClick={() => scrollProfileTabs(-1)}
+                title="上一组"
+                type="button"
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div
+                  aria-label={`个人中心分类 ${activeTabIndex + 1} / ${profileTabs.length}`}
+                  className="app-tab-scroll flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth"
+                  ref={tabScrollerRef}
+                  role="tablist"
                 >
-                  <span
-                    className={`grid size-8 shrink-0 place-items-center rounded-lg ${
-                      selected ? "bg-[color:var(--claude-accent)] text-white" : "bg-white/70"
-                    }`}
-                  >
-                    <TabIcon className="size-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">{tab.label}</span>
-                    <span className="block truncate text-[11px] ios-muted">{tab.description}</span>
-                  </span>
-                </button>
-              );
-            })}
+                  {profileTabs.map((tab) => {
+                    const TabIcon = tab.icon;
+                    const selected = activeTab === tab.id;
+
+                    return (
+                      <button
+                        aria-selected={selected}
+                        className={`app-action-button flex min-h-14 w-[9.4rem] shrink-0 snap-start items-center gap-2.5 rounded-lg px-3 py-2 text-left transition sm:w-[10.5rem] ${
+                          selected
+                            ? "border border-white/70 bg-white text-stone-950 shadow-sm"
+                            : "border border-transparent text-stone-600 hover:bg-white/60"
+                        }`}
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        ref={(node) => {
+                          if (node) {
+                            tabButtonRefs.current.set(tab.id, node);
+                          } else {
+                            tabButtonRefs.current.delete(tab.id);
+                          }
+                        }}
+                        role="tab"
+                        type="button"
+                      >
+                        <span
+                          className={`grid size-8 shrink-0 place-items-center rounded-lg ${
+                            selected ? "bg-[color:var(--claude-accent)] text-white" : "bg-white/70"
+                          }`}
+                        >
+                          <TabIcon className="size-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{tab.label}</span>
+                          <span className="block truncate text-[11px] ios-muted">{tab.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button
+                aria-label="下一组分类"
+                className="app-action-button app-glass-control grid size-10 shrink-0 place-items-center rounded-lg text-stone-700 disabled:opacity-35 sm:size-11"
+                disabled={!tabScrollState.canScrollRight}
+                onClick={() => scrollProfileTabs(1)}
+                title="下一组"
+                type="button"
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
           </nav>
 
           {activeTab === "overview" ? (

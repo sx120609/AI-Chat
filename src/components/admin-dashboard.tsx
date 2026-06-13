@@ -486,7 +486,6 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
     try {
       await loadUsage();
-      setNotice("用量记录已刷新。");
     } catch (usageError) {
       setError(usageError instanceof Error ? usageError.message : "加载用量记录失败。");
     } finally {

@@ -19,7 +19,6 @@ import {
 } from "@/lib/upstream";
 
 const decoder = new TextDecoder();
-const streamEncoder = new TextEncoder();
 
 type UpstreamResponsesResult =
   | {
@@ -215,10 +214,6 @@ function promptEstimateFromBody(body: Record<string, unknown>) {
   return Math.max(1, estimateTokens(JSON.stringify(body.input ?? body.messages ?? body)));
 }
 
-function maybeDefinedEntries(entries: Array<[string, unknown]>) {
-  return Object.fromEntries(entries.filter(([, value]) => value !== undefined && value !== null));
-}
-
 function cleanUpstreamErrorText(text: string) {
   const title = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
   const heading = text.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
@@ -347,6 +342,14 @@ function responseBodyFallbackCandidates(body: Record<string, unknown>) {
   return uniqueBodyCandidates([body, stripped]);
 }
 
+function chatCompletionBodyFallbackCandidates(body: Record<string, unknown>) {
+  const stripped = withoutKeys(body, ["metadata", "reasoning", "store", "user"]);
+  const withoutParallel = withoutKeys(stripped, ["parallel_tool_calls"]);
+  const withoutTools = withoutKeys(withoutParallel, ["tool_choice", "tools"]);
+
+  return uniqueBodyCandidates([body, stripped, withoutParallel, withoutTools]);
+}
+
 async function fetchUpstreamResponses({
   body,
   incomingHeaders,
@@ -398,6 +401,62 @@ async function fetchUpstreamResponses({
   return {
     failure: lastFailure || {
       message: "上游 API 调用失败。",
+      status: 502
+    }
+  };
+}
+
+async function fetchUpstreamChatCompletions({
+  body,
+  incomingHeaders,
+  settings,
+  signal
+}: {
+  body: Record<string, unknown>;
+  incomingHeaders: Headers;
+  settings: AiRuntimeSettings;
+  signal: AbortSignal;
+}): Promise<UpstreamResponsesResult> {
+  const url = `${settings.apiBaseUrl}/chat/completions`;
+  let lastFailure: UpstreamFailure | null = null;
+
+  for (const candidate of chatCompletionBodyFallbackCandidates(body)) {
+    let response: Response;
+
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: upstreamHeaders(settings, incomingHeaders),
+        body: JSON.stringify(candidate),
+        signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw error;
+      }
+
+      lastFailure = {
+        message: `无法连接上游 API：${error instanceof Error ? error.message : String(error)}`,
+        status: 502
+      };
+      break;
+    }
+
+    if (response.ok && response.body) {
+      return { response: response as ResponseWithBody };
+    }
+
+    const failure = await upstreamFailureFromResponse(response);
+    lastFailure = failure;
+
+    if (!shouldRetryUpstreamFailure(failure)) {
+      break;
+    }
+  }
+
+  return {
+    failure: lastFailure || {
+      message: "上游 Chat Completions 调用失败。",
       status: 502
     }
   };
@@ -522,7 +581,7 @@ function upstreamRequestBody({
   });
 }
 
-function chatCompletionRequestToResponsesBody({
+function chatCompletionRequestToUpstreamBody({
   body,
   model,
   settings
@@ -537,59 +596,35 @@ function chatCompletionRequestToResponsesBody({
     return null;
   }
 
-  const instructionMessages: string[] = [];
-  const input = messages
-    .map((message) => {
-      const object = jsonObject(message);
-
-      if (!object) {
-        return null;
-      }
-
-      const role = typeof object.role === "string" ? object.role : "user";
-      const content = object.content ?? "";
-
-      if (role === "system" || role === "developer") {
-        const text = textFromMessageContent(content).trim();
-
-        if (text) {
-          instructionMessages.push(text);
-        }
-
-        return null;
-      }
-
-      return {
-        role: role === "assistant" ? "assistant" : "user",
-        content
-      };
-    })
-    .filter(Boolean);
-
-  const callerInstructions = [
-    typeof body.instructions === "string" ? body.instructions.trim() : "",
-    ...instructionMessages
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  return upstreamRequestBody({
-    body: maybeDefinedEntries([
-      ["input", input.length ? input : messages],
-      ["instructions", callerInstructions],
-      ["stream", body.stream],
-      ["temperature", body.temperature],
-      ["top_p", body.top_p],
-      ["metadata", body.metadata],
-      ["tools", body.tools],
-      ["tool_choice", body.tool_choice],
-      ["parallel_tool_calls", body.parallel_tool_calls],
-      ["reasoning", body.reasoning],
-      ["max_output_tokens", body.max_completion_tokens ?? body.max_tokens]
-    ]),
-    model,
-    settings
+  const identityPrompt = resolveApiIdentityPrompt({
+    mode: settings.systemPromptMode,
+    modelLabel: model.label
   });
+  const callerInstructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
+  const injectedMessages = [identityPrompt, callerInstructions]
+    .filter(Boolean)
+    .map((content) => ({
+      role: "system",
+      content
+    }));
+  const upstreamMessages = messages.map((message) => {
+    const object = jsonObject(message);
+
+    if (!object) {
+      return message;
+    }
+
+    return object.role === "developer" ? { ...object, role: "system" } : object;
+  });
+  const upstreamBody: Record<string, unknown> = {
+    ...body,
+    messages: [...injectedMessages, ...upstreamMessages],
+    model: model.upstreamId || model.id
+  };
+
+  delete upstreamBody.instructions;
+
+  return upstreamBody;
 }
 
 function chatUsageFromResponsesUsage({
@@ -654,37 +689,6 @@ function chatCompletionResponse({
       promptTokensEstimate,
       upstreamUsage
     })
-  };
-}
-
-function chatCompletionChunk({
-  content,
-  finishReason,
-  id,
-  model,
-  role
-}: {
-  content?: string;
-  finishReason?: string | null;
-  id: string;
-  model: string;
-  role?: "assistant";
-}) {
-  return {
-    id,
-    object: "chat.completion.chunk",
-    created: Math.floor(Date.now() / 1000),
-    model,
-    choices: [
-      {
-        index: 0,
-        delta: maybeDefinedEntries([
-          ["role", role],
-          ["content", content]
-        ]),
-        finish_reason: finishReason ?? null
-      }
-    ]
   };
 }
 
@@ -1005,7 +1009,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
-  const upstreamBody = chatCompletionRequestToResponsesBody({
+  const upstreamBody = chatCompletionRequestToUpstreamBody({
     body,
     model,
     settings
@@ -1053,7 +1057,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  const upstream = await fetchUpstreamResponses({
+  const upstream = await fetchUpstreamChatCompletions({
     body: upstreamBody,
     incomingHeaders: request.headers,
     settings,
@@ -1065,10 +1069,8 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   }
 
   const { response } = upstream;
-  const responseModel = typeof body.model === "string" ? body.model : model.id;
 
   if (body.stream === true) {
-    const id = `chatcmpl_${Date.now()}`;
     let buffer = "";
     let upstreamUsage: UpstreamUsage | undefined;
     let outputText = "";
@@ -1077,14 +1079,6 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          controller.enqueue(
-            streamEncoder.encode(
-              `data: ${JSON.stringify(
-                chatCompletionChunk({ id, model: responseModel, role: "assistant" })
-              )}\n\n`
-            )
-          );
-
           while (true) {
             const { done, value } = await reader.read();
 
@@ -1092,6 +1086,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
               break;
             }
 
+            controller.enqueue(value);
             buffer += decoder.decode(value, { stream: true });
 
             let boundary = buffer.indexOf("\n\n");
@@ -1113,19 +1108,8 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
                 try {
                   const payload = JSON.parse(data);
-                  const delta = outputTextFromPayload(payload);
                   upstreamUsage = parseUsage(payload) ?? upstreamUsage;
-
-                  if (delta) {
-                    outputText += delta;
-                    controller.enqueue(
-                      streamEncoder.encode(
-                        `data: ${JSON.stringify(
-                          chatCompletionChunk({ content: delta, id, model: responseModel })
-                        )}\n\n`
-                      )
-                    );
-                  }
+                  outputText += outputTextFromPayload(payload);
                 } catch {
                   // Ignore non-JSON SSE data from custom providers.
                 }
@@ -1142,15 +1126,6 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
             upstreamUsage,
             userId: authenticated.user.id
           });
-
-          controller.enqueue(
-            streamEncoder.encode(
-              `data: ${JSON.stringify(
-                chatCompletionChunk({ finishReason: "stop", id, model: responseModel })
-              )}\n\n`
-            )
-          );
-          controller.enqueue(streamEncoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (error) {
           controller.error(error);
@@ -1162,12 +1137,8 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     });
 
     return new Response(stream, {
-      status: 200,
-      headers: {
-        "cache-control": "no-cache, no-transform",
-        "content-type": "text/event-stream; charset=utf-8",
-        "x-accel-buffering": "no"
-      }
+      status: response.status,
+      headers: passthroughHeaders(response)
     });
   }
 
@@ -1181,32 +1152,18 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   }
 
   const upstreamUsage = parseUsage(payload);
-  const completionText = outputTextFromPayload(payload) || (typeof payload === "string" ? payload : "");
-  const completionTokensEstimate = Math.max(1, estimateTokens(completionText));
-
   await recordUserApiUsage({
-    completionTokensEstimate,
+    completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(payload))),
     model,
     promptTokensEstimate,
     upstreamUsage,
     userId: authenticated.user.id
   });
 
-  const responseId =
-    jsonObject(payload) && typeof jsonObject(payload)?.id === "string"
-      ? (jsonObject(payload)?.id as string)
-      : undefined;
-
-  return Response.json(
-    chatCompletionResponse({
-      body,
-      completionText,
-      id: responseId,
-      model,
-      promptTokensEstimate,
-      upstreamUsage
-    })
-  );
+  return new Response(text, {
+    status: response.status,
+    headers: passthroughHeaders(response)
+  });
 }
 
 export async function handleUserModelsRequest(request: NextRequest) {

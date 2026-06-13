@@ -3,13 +3,13 @@ import { authenticateUserApiKey } from "@/lib/user-api-keys";
 import { jsonError } from "@/lib/http";
 import {
   estimateChatCostForModel,
+  getEnabledApiModels,
   getEnabledChatModels,
   type ChatModelConfig
 } from "@/lib/models";
-import { formatPersonalizationForPrompt } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
 import { assertQuotaAvailable, QuotaError } from "@/lib/quota";
-import { resolveSystemPrompt } from "@/lib/system-prompt";
+import { resolveApiIdentityPrompt } from "@/lib/system-prompt";
 import { estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
@@ -220,28 +220,19 @@ function textFromMessageContent(content: unknown): string {
 function gatewayInstructions({
   body,
   model,
-  settings,
-  userStylePrompt
+  settings
 }: {
   body: Record<string, unknown>;
   model: ChatModelConfig;
   settings: AiRuntimeSettings;
-  userStylePrompt: string;
 }) {
-  const baseSystemPrompt = resolveSystemPrompt({
+  const identityPrompt = resolveApiIdentityPrompt({
     mode: settings.systemPromptMode,
-    customSystemPrompt: settings.customSystemPrompt,
-    modelSystemPrompt:
-      settings.modelSystemPrompts[model.id] || settings.modelSystemPrompts[model.upstreamId],
     modelLabel: model.label
   });
   const callerInstructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
 
-  return [
-    baseSystemPrompt,
-    userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : "",
-    callerInstructions
-  ]
+  return [identityPrompt, callerInstructions]
     .filter(Boolean)
     .join("\n\n");
 }
@@ -249,19 +240,16 @@ function gatewayInstructions({
 function upstreamRequestBody({
   body,
   model,
-  settings,
-  userStylePrompt
+  settings
 }: {
   body: Record<string, unknown>;
   model: ChatModelConfig;
   settings: AiRuntimeSettings;
-  userStylePrompt: string;
 }) {
   const instructions = gatewayInstructions({
     body,
     model,
-    settings,
-    userStylePrompt
+    settings
   });
 
   return {
@@ -274,13 +262,11 @@ function upstreamRequestBody({
 function chatCompletionRequestToResponsesBody({
   body,
   model,
-  settings,
-  userStylePrompt
+  settings
 }: {
   body: Record<string, unknown>;
   model: ChatModelConfig;
   settings: AiRuntimeSettings;
-  userStylePrompt: string;
 }) {
   const messages = Array.isArray(body.messages) ? body.messages : null;
 
@@ -339,8 +325,7 @@ function chatCompletionRequestToResponsesBody({
       ["max_output_tokens", body.max_completion_tokens ?? body.max_tokens]
     ]),
     model,
-    settings,
-    userStylePrompt
+    settings
   });
 }
 
@@ -580,12 +565,10 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
-  const userStylePrompt = formatPersonalizationForPrompt(authenticated.user.aiStylePrompt);
   const upstreamBody = upstreamRequestBody({
     body,
     model,
-    settings,
-    userStylePrompt
+    settings
   });
   const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
   const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
@@ -762,12 +745,10 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
-  const userStylePrompt = formatPersonalizationForPrompt(authenticated.user.aiStylePrompt);
   const upstreamBody = chatCompletionRequestToResponsesBody({
     body,
     model,
-    settings,
-    userStylePrompt
+    settings
   });
 
   if (!upstreamBody) {
@@ -983,6 +964,6 @@ export async function handleUserModelsRequest(request: NextRequest) {
 
   return Response.json({
     object: "list",
-    data: getEnabledChatModels(settings.chatModels).map(serializeModel)
+    data: getEnabledApiModels(settings.chatModels).map(serializeModel)
   });
 }

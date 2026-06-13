@@ -207,8 +207,7 @@ function buildOpenCodeConfig({
     models.map((model) => [
       model.id,
       {
-        name: model.label || model.id,
-        limit: { context: model.contextWindowTokens }
+        name: model.label || model.id
       }
     ])
   );
@@ -1225,15 +1224,8 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                       className="rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-3 py-2 text-sm"
                       key={model.id}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate font-semibold">{model.id}</span>
-                        <span className="shrink-0 rounded-full bg-[color:var(--app-accent-soft)] px-2 py-0.5 text-[11px] font-semibold text-[color:var(--claude-accent)]">
-                          {model.contextNote}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs ios-muted">
-                        上游 {model.upstreamId} · 上下文 {formatNumber(model.contextWindowTokens)}
-                      </p>
+                      <p className="min-w-0 truncate font-semibold">{model.id}</p>
+                      <p className="mt-1 text-xs ios-muted">上游 {model.upstreamId}</p>
                     </div>
                   ))}
                 </div>
@@ -1291,12 +1283,12 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
                         {key.keyPrefix}... · 创建 {new Date(key.createdAt).toLocaleString()}
                         {key.lastUsedAt ? ` · 最近使用 ${new Date(key.lastUsedAt).toLocaleString()}` : ""}
                       </p>
-                      <div className="mt-2 flex gap-2">
-                        <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-white/80 px-2 py-2 text-xs">
+                      <div className="mt-2 flex items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/80 px-2 py-1.5">
+                        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-xs leading-7">
                           {key.apiKey || "旧 Key 无法查看明文，请重新创建后复制"}
                         </code>
                         <button
-                          className="ios-icon-button app-action-button shrink-0 disabled:opacity-50"
+                          className="app-action-button grid size-7 shrink-0 place-items-center rounded-lg text-stone-500 transition hover:bg-stone-100 hover:text-stone-900 disabled:opacity-40"
                           disabled={!key.apiKey}
                           onClick={() => void copyApiKey(key.apiKey)}
                           title="复制"

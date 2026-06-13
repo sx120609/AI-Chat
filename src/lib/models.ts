@@ -398,6 +398,39 @@ export function getEnabledChatModels(catalog: ChatModelConfig[]) {
   return enabled.length > 0 ? enabled : catalog.slice(0, 1);
 }
 
+function preferredApiModelVariant(models: ChatModelConfig[]) {
+  return (
+    models.find((model) => !/1m|long|长上下文/i.test(`${model.id} ${model.label} ${model.contextNote}`)) ??
+    models[0]
+  );
+}
+
+export function getEnabledApiModels(catalog: ChatModelConfig[]) {
+  const grouped = new Map<string, ChatModelConfig[]>();
+
+  for (const model of getEnabledChatModels(catalog)) {
+    const key = model.upstreamId || model.id;
+    grouped.set(key, [...(grouped.get(key) ?? []), model]);
+  }
+
+  return [...grouped.entries()].map(([upstreamId, models]) => {
+    const model = preferredApiModelVariant(models);
+    const contextWindowTokens = capContextWindowTokens(
+      Math.max(model.maxContextWindowTokens, inferContextWindowTokens(upstreamId))
+    );
+
+    return {
+      ...model,
+      id: upstreamId,
+      label: model.label.replace(/\s*[-–—]?\s*1M\b/i, "") || upstreamId,
+      upstreamId,
+      contextWindowTokens,
+      maxContextWindowTokens: contextWindowTokens,
+      contextNote: model.source === "upstream" ? "上游原生" : "原生上下文"
+    };
+  });
+}
+
 export function getChatModel(
   modelId: string | undefined,
   catalog = CHAT_MODELS,

@@ -212,16 +212,24 @@ export type AdminUsageRecordView = {
   conversationId?: string | null;
   conversationTitle?: string | null;
   createdAt: string;
+  durationMs?: number | null;
+  endpoint: string;
   estimatedCostCents: number;
+  firstTokenLatencyMs?: number | null;
   messageId?: string | null;
   mode: GenerationMode;
   model: string;
   promptTokens: number;
+  apiKeyPrefix?: string | null;
+  billingMode: string;
+  reasoningEffort: string;
   reasoningTokens: number;
+  requestKind: string;
   sourceLabel: string;
   surface: string;
   totalTokens: number;
   usageSource: string;
+  userAgent: string;
   userEmail: string;
   userId: string;
   userName: string;
@@ -229,7 +237,10 @@ export type AdminUsageRecordView = {
 
 export type AdminUsageSummaryView = {
   apiCalls: number;
+  avgDurationMs?: number | null;
+  avgFirstTokenLatencyMs?: number | null;
   cachedPromptTokens: number;
+  cacheRate: number;
   chatCalls: number;
   completionTokens: number;
   costCents: number;
@@ -237,7 +248,22 @@ export type AdminUsageSummaryView = {
   promptTokens: number;
   reasoningTokens: number;
   records: number;
+  returnedRecords: number;
+  taskCalls: number;
   totalTokens: number;
+};
+
+export type AdminUsageFilterOptionsView = {
+  apiKeys: Array<{
+    id: string;
+    label: string;
+    userLabel: string;
+  }>;
+  models: string[];
+  users: Array<{
+    id: string;
+    label: string;
+  }>;
 };
 
 export type AiSettingsView = {

@@ -1356,7 +1356,11 @@ export async function POST(request: NextRequest) {
                 mode: "IMAGE",
                 promptTokens,
                 totalTokens: promptTokens,
-                estimatedCostCents
+                estimatedCostCents,
+                endpoint: "/api/chat",
+                requestKind: "stream",
+                billingMode: "按量",
+                durationMs: finishedAt - routerStartedAt
               }
             });
 
@@ -1629,7 +1633,11 @@ export async function POST(request: NextRequest) {
               mode: "IMAGE",
               promptTokens,
               totalTokens: promptTokens,
-              estimatedCostCents
+              estimatedCostCents,
+              endpoint: "/api/chat",
+              requestKind: "stream",
+              billingMode: "按量",
+              durationMs: finishedAt - routerStartedAt
             }
           });
 
@@ -2035,7 +2043,12 @@ export async function POST(request: NextRequest) {
                 reasoningTokens: tokenUsage.reasoningTokens,
                 usageSource: tokenUsage.usageSource,
                 upstreamUsageJson: tokenUsage.upstreamUsageJson,
-                estimatedCostCents: tokenUsage.estimatedCostCents
+                estimatedCostCents: tokenUsage.estimatedCostCents,
+                endpoint: "/api/chat",
+                requestKind: "stream",
+                billingMode: "按量",
+                reasoningEffort,
+                durationMs: finishedAt - routerStartedAt
               }
             });
           }
@@ -2489,7 +2502,12 @@ export async function POST(request: NextRequest) {
               reasoningTokens: tokenUsage.reasoningTokens,
               usageSource: tokenUsage.usageSource,
               upstreamUsageJson: tokenUsage.upstreamUsageJson,
-              estimatedCostCents: tokenUsage.estimatedCostCents
+              estimatedCostCents: tokenUsage.estimatedCostCents,
+              endpoint: "/api/chat",
+              requestKind: "stream",
+              billingMode: "按量",
+              reasoningEffort,
+              durationMs: finishedAt - routerStartedAt
             }
           });
         }

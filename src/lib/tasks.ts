@@ -191,6 +191,7 @@ export async function runUserTask({
   ];
   const promptTokens = estimateTokens(`${systemPrompt}\n${taskPrompt}`);
   const estimatedCostCents = estimateChatCostForModel(model, promptTokens, 800);
+  const taskStartedAt = Date.now();
 
   try {
     await assertQuotaAvailable(userId, estimatedCostCents);
@@ -247,7 +248,11 @@ export async function runUserTask({
         completionTokens,
         totalTokens,
         estimatedCostCents: cost,
-        usageSource: "estimated"
+        usageSource: "estimated",
+        endpoint: "task",
+        requestKind: "sync",
+        billingMode: "按量",
+        durationMs: Date.now() - taskStartedAt
       }
     });
     await maybeNotifyLowBalance(userId).catch(() => undefined);

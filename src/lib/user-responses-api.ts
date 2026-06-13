@@ -653,6 +653,33 @@ function chatUsageFromResponsesUsage({
   };
 }
 
+type UsageAuditMetadata = {
+  billingMode?: string;
+  durationMs?: number | null;
+  endpoint?: string;
+  firstTokenLatencyMs?: number | null;
+  reasoningEffort?: string;
+  requestKind?: string;
+  userAgent?: string;
+};
+
+function usageRequestKind(body: Record<string, unknown>) {
+  return body.stream === true ? "stream" : "sync";
+}
+
+function usageReasoningEffort(body: Record<string, unknown>) {
+  const reasoning = jsonObject(body.reasoning);
+  const effort =
+    (typeof reasoning?.effort === "string" ? reasoning.effort : "") ||
+    (typeof body.reasoning_effort === "string" ? body.reasoning_effort : "");
+
+  return effort.slice(0, 32);
+}
+
+function usageUserAgent(request: NextRequest) {
+  return (request.headers.get("user-agent") || "").slice(0, 240);
+}
+
 function chatCompletionResponse({
   body,
   completionText,
@@ -713,6 +740,7 @@ function serializeModel(model: ChatModelConfig) {
 
 async function recordUserApiUsage({
   apiKeyPrefix,
+  audit,
   completionTokensEstimate,
   model,
   promptTokensEstimate,
@@ -720,6 +748,7 @@ async function recordUserApiUsage({
   userId
 }: {
   apiKeyPrefix?: string | null;
+  audit?: UsageAuditMetadata;
   completionTokensEstimate: number;
   model: ChatModelConfig;
   promptTokensEstimate: number;
@@ -747,7 +776,14 @@ async function recordUserApiUsage({
         ? `user_api:${apiKeyPrefix}:${tokenUsage.usageSource}`
         : `user_api:${tokenUsage.usageSource}`,
       upstreamUsageJson: tokenUsage.upstreamUsageJson,
-      estimatedCostCents: tokenUsage.estimatedCostCents
+      estimatedCostCents: tokenUsage.estimatedCostCents,
+      endpoint: audit?.endpoint ?? "",
+      requestKind: audit?.requestKind ?? "",
+      billingMode: audit?.billingMode ?? "按量",
+      reasoningEffort: audit?.reasoningEffort ?? "",
+      firstTokenLatencyMs: audit?.firstTokenLatencyMs ?? null,
+      durationMs: audit?.durationMs ?? null,
+      userAgent: audit?.userAgent ?? ""
     }
   });
   await maybeNotifyLowBalance(userId).catch(() => undefined);
@@ -810,6 +846,7 @@ function mockChatCompletionBody(
 }
 
 export async function handleUserResponsesRequest(request: NextRequest) {
+  const requestStartedAt = Date.now();
   const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
 
   if (!authenticated) {
@@ -838,6 +875,13 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
+  const auditBase: UsageAuditMetadata = {
+    billingMode: "按量",
+    endpoint: "/v1/responses",
+    reasoningEffort: usageReasoningEffort(body),
+    requestKind: usageRequestKind(body),
+    userAgent: usageUserAgent(request)
+  };
   const upstreamBody = upstreamRequestBody({
     body,
     model,
@@ -861,6 +905,11 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 
     await recordUserApiUsage({
       apiKeyPrefix: authenticated.apiKey.keyPrefix,
+      audit: {
+        ...auditBase,
+        durationMs: Date.now() - requestStartedAt,
+        firstTokenLatencyMs: 0
+      },
       completionTokensEstimate: numberFromUsage(payload.usage.output_tokens),
       model,
       promptTokensEstimate,
@@ -892,6 +941,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 
   if (body.stream === true) {
     let buffer = "";
+    let firstTokenLatencyMs: number | null = null;
     let upstreamUsage: UpstreamUsage | undefined;
     let outputText = "";
     const reader = response.body.getReader();
@@ -928,8 +978,14 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 
                 try {
                   const payload = JSON.parse(data);
+                  const text = outputTextFromPayload(payload);
+
+                  if (text && firstTokenLatencyMs === null) {
+                    firstTokenLatencyMs = Date.now() - requestStartedAt;
+                  }
+
                   upstreamUsage = parseUsage(payload) ?? upstreamUsage;
-                  outputText += outputTextFromPayload(payload);
+                  outputText += text;
                 } catch {
                   // Ignore non-JSON SSE data from custom providers.
                 }
@@ -941,6 +997,11 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 
           await recordUserApiUsage({
             apiKeyPrefix: authenticated.apiKey.keyPrefix,
+            audit: {
+              ...auditBase,
+              durationMs: Date.now() - requestStartedAt,
+              firstTokenLatencyMs
+            },
             completionTokensEstimate: Math.max(1, estimateTokens(outputText)),
             model,
             promptTokensEstimate,
@@ -976,6 +1037,10 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 
   await recordUserApiUsage({
     apiKeyPrefix: authenticated.apiKey.keyPrefix,
+    audit: {
+      ...auditBase,
+      durationMs: Date.now() - requestStartedAt
+    },
     completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(payload))),
     model,
     promptTokensEstimate,
@@ -990,6 +1055,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 }
 
 export async function handleUserChatCompletionsRequest(request: NextRequest) {
+  const requestStartedAt = Date.now();
   const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
 
   if (!authenticated) {
@@ -1018,6 +1084,13 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
+  const auditBase: UsageAuditMetadata = {
+    billingMode: "按量",
+    endpoint: "/v1/chat/completions",
+    reasoningEffort: usageReasoningEffort(body),
+    requestKind: usageRequestKind(body),
+    userAgent: usageUserAgent(request)
+  };
   const upstreamBody = chatCompletionRequestToUpstreamBody({
     body,
     model,
@@ -1047,6 +1120,11 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
     await recordUserApiUsage({
       apiKeyPrefix: authenticated.apiKey.keyPrefix,
+      audit: {
+        ...auditBase,
+        durationMs: Date.now() - requestStartedAt,
+        firstTokenLatencyMs: 0
+      },
       completionTokensEstimate: usage.completion_tokens,
       model,
       promptTokensEstimate,
@@ -1082,6 +1160,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
   if (body.stream === true) {
     let buffer = "";
+    let firstTokenLatencyMs: number | null = null;
     let upstreamUsage: UpstreamUsage | undefined;
     let outputText = "";
     const reader = response.body.getReader();
@@ -1118,8 +1197,14 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
                 try {
                   const payload = JSON.parse(data);
+                  const text = outputTextFromPayload(payload);
+
+                  if (text && firstTokenLatencyMs === null) {
+                    firstTokenLatencyMs = Date.now() - requestStartedAt;
+                  }
+
                   upstreamUsage = parseUsage(payload) ?? upstreamUsage;
-                  outputText += outputTextFromPayload(payload);
+                  outputText += text;
                 } catch {
                   // Ignore non-JSON SSE data from custom providers.
                 }
@@ -1131,6 +1216,11 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
           await recordUserApiUsage({
             apiKeyPrefix: authenticated.apiKey.keyPrefix,
+            audit: {
+              ...auditBase,
+              durationMs: Date.now() - requestStartedAt,
+              firstTokenLatencyMs
+            },
             completionTokensEstimate: Math.max(1, estimateTokens(outputText)),
             model,
             promptTokensEstimate,
@@ -1165,6 +1255,10 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   const upstreamUsage = parseUsage(payload);
   await recordUserApiUsage({
     apiKeyPrefix: authenticated.apiKey.keyPrefix,
+    audit: {
+      ...auditBase,
+      durationMs: Date.now() - requestStartedAt
+    },
     completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(payload))),
     model,
     promptTokensEstimate,

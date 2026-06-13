@@ -527,7 +527,11 @@ export async function POST(request: NextRequest) {
         mode: "IMAGE",
         promptTokens,
         totalTokens: promptTokens,
-        estimatedCostCents
+        estimatedCostCents,
+        endpoint: "/api/images",
+        requestKind: "sync",
+        billingMode: "按量",
+        durationMs: finishedAt - imageStartedAt
       }
     });
 

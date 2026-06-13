@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -44,6 +44,7 @@ import {
   SYSTEM_PROMPT_MODES
 } from "@/lib/system-prompt";
 import type {
+  AdminUsageFilterOptionsView,
   AdminUsageRecordView,
   AdminUsageSummaryView,
   AdminUserView,
@@ -143,10 +144,29 @@ type DiagnosticsResult = {
 };
 
 type AdminUsagePayload = {
+  filterOptions: AdminUsageFilterOptionsView;
   generatedAt: string;
   limit: number;
   records: AdminUsageRecordView[];
   summary: AdminUsageSummaryView;
+};
+
+type UsageFilterState = {
+  apiKey: string;
+  days: string;
+  model: string;
+  query: string;
+  surface: string;
+  userId: string;
+};
+
+const defaultUsageFilters: UsageFilterState = {
+  apiKey: "all",
+  days: "7",
+  model: "all",
+  query: "",
+  surface: "all",
+  userId: "all"
 };
 
 const emptyForm: CreateForm = {
@@ -269,8 +289,15 @@ const adminTabs: Array<{
 
 export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [users, setUsers] = useState<AdminUserView[]>([]);
+  const [usageFilters, setUsageFilters] = useState<UsageFilterState>(defaultUsageFilters);
+  const usageFiltersRef = useRef<UsageFilterState>(defaultUsageFilters);
   const [usageRecords, setUsageRecords] = useState<AdminUsageRecordView[]>([]);
   const [usageSummary, setUsageSummary] = useState<AdminUsageSummaryView | null>(null);
+  const [usageOptions, setUsageOptions] = useState<AdminUsageFilterOptionsView>({
+    apiKeys: [],
+    models: [],
+    users: []
+  });
   const [usageGeneratedAt, setUsageGeneratedAt] = useState("");
   const [settings, setSettings] = useState<AiSettingsView | null>(null);
   const [settingsForm, setSettingsForm] = useState<SettingsForm>(emptySettings);
@@ -301,8 +328,33 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     setUsers(payload.users);
   }, []);
 
-  const loadUsage = useCallback(async () => {
-    const response = await fetch("/api/admin/usage?limit=100");
+  const loadUsage = useCallback(async (filters: UsageFilterState = usageFiltersRef.current) => {
+    const params = new URLSearchParams({
+      limit: "500",
+      days: filters.days
+    });
+
+    if (filters.apiKey !== "all") {
+      params.set("apiKey", filters.apiKey);
+    }
+
+    if (filters.model !== "all") {
+      params.set("model", filters.model);
+    }
+
+    if (filters.surface !== "all") {
+      params.set("surface", filters.surface);
+    }
+
+    if (filters.userId !== "all") {
+      params.set("userId", filters.userId);
+    }
+
+    if (filters.query.trim()) {
+      params.set("q", filters.query.trim());
+    }
+
+    const response = await fetch(`/api/admin/usage?${params.toString()}`);
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -312,6 +364,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     const payload = (await response.json()) as AdminUsagePayload;
     setUsageRecords(payload.records);
     setUsageSummary(payload.summary);
+    setUsageOptions(payload.filterOptions);
     setUsageGeneratedAt(payload.generatedAt);
   }, []);
 
@@ -491,6 +544,62 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     } finally {
       setLoadingUsage(false);
     }
+  }
+
+  function updateUsageFilters(patch: Partial<UsageFilterState>) {
+    setUsageFilters((current) => {
+      const next = { ...current, ...patch };
+
+      usageFiltersRef.current = next;
+      return next;
+    });
+  }
+
+  async function resetUsageFilters() {
+    usageFiltersRef.current = defaultUsageFilters;
+    setUsageFilters(defaultUsageFilters);
+    setLoadingUsage(true);
+    setError("");
+    setNotice("");
+
+    try {
+      await loadUsage(defaultUsageFilters);
+    } catch (usageError) {
+      setError(usageError instanceof Error ? usageError.message : "加载用量记录失败。");
+    } finally {
+      setLoadingUsage(false);
+    }
+  }
+
+  function exportUsageCsv() {
+    const filters = usageFiltersRef.current;
+    const params = new URLSearchParams({
+      days: filters.days,
+      format: "csv",
+      limit: "5000"
+    });
+
+    if (filters.apiKey !== "all") {
+      params.set("apiKey", filters.apiKey);
+    }
+
+    if (filters.model !== "all") {
+      params.set("model", filters.model);
+    }
+
+    if (filters.surface !== "all") {
+      params.set("surface", filters.surface);
+    }
+
+    if (filters.userId !== "all") {
+      params.set("userId", filters.userId);
+    }
+
+    if (filters.query.trim()) {
+      params.set("q", filters.query.trim());
+    }
+
+    window.location.href = `/api/admin/usage?${params.toString()}`;
   }
 
   async function testSmtp() {
@@ -687,140 +796,18 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         </nav>
 
         {activeTab === "usage" ? (
-        <section className="ios-panel motion-lift mb-5 overflow-hidden">
-          <div className="flex flex-col gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <div className="grid size-9 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
-                <Activity className="size-4" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold">近期 Token 使用</h2>
-                <p className="text-xs ios-muted">
-                  最近 {formatNumber(usageSummary?.records ?? usageRecords.length)} 条 · 更新{" "}
-                  {usageGeneratedAt ? formatDateTime(usageGeneratedAt) : "未加载"}
-                </p>
-              </div>
-            </div>
-            <button
-              className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
-              disabled={loading || loadingUsage}
-              onClick={refreshUsage}
-              type="button"
-            >
-              {loadingUsage ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-              刷新
-            </button>
-          </div>
-
-          <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-            <UsageMetricCard label="总 Token" value={formatNumber(usageSummary?.totalTokens ?? 0)} />
-            <UsageMetricCard label="费用" value={formatCents(usageSummary?.costCents ?? 0)} />
-            <UsageMetricCard label="聊天" value={`${formatNumber(usageSummary?.chatCalls ?? 0)} 次`} />
-            <UsageMetricCard label="API 调用" value={`${formatNumber(usageSummary?.apiCalls ?? 0)} 次`} />
-          </div>
-
-          {loading || loadingUsage ? (
-            <div className="app-loading-pulse grid min-h-64 place-items-center text-slate-500">
-              <Loader2 className="size-6 animate-spin" />
-            </div>
-          ) : usageRecords.length > 0 ? (
-            <>
-              <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[1160px] border-collapse text-left text-sm">
-                  <thead className="bg-white/50 text-xs text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold">时间</th>
-                      <th className="px-4 py-3 font-semibold">用户</th>
-                      <th className="px-4 py-3 font-semibold">来源</th>
-                      <th className="px-4 py-3 font-semibold">模型</th>
-                      <th className="px-4 py-3 font-semibold">Token</th>
-                      <th className="px-4 py-3 font-semibold">费用</th>
-                      <th className="px-4 py-3 font-semibold">记录</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[color:var(--ios-separator)]">
-                    {usageRecords.map((record) => (
-                      <tr className="app-table-row align-top" key={record.id}>
-                        <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
-                          {formatDateTime(record.createdAt)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="max-w-40 truncate font-semibold text-slate-800">{record.userName}</p>
-                          <p className="max-w-48 truncate text-xs ios-muted">{record.userEmail}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${usageSurfaceTone(record.surface)}`}>
-                            {record.surface}
-                          </span>
-                          <p className="mt-2 max-w-44 truncate text-xs ios-muted">{record.sourceLabel}</p>
-                          {record.apiKeyLabel ? (
-                            <p className="mt-1 max-w-44 truncate text-xs ios-muted">{record.apiKeyLabel}</p>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="max-w-44 truncate font-semibold text-slate-800">{record.model}</p>
-                          <p className="mt-1 text-xs ios-muted">{record.mode === "IMAGE" ? "图片" : "聊天"}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <UsageTokenBreakdown record={record} />
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-800">
-                          {formatCents(record.estimatedCostCents)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="max-w-56 truncate text-sm font-medium text-slate-800">
-                            {usageRecordTitle(record)}
-                          </p>
-                          <p className="mt-1 max-w-56 truncate text-xs ios-muted">
-                            {record.messageId ? `消息 ${record.messageId}` : record.id}
-                          </p>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="grid gap-3 p-3 md:hidden">
-                {usageRecords.map((record) => (
-                  <div
-                    className="app-list-row rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3"
-                    key={record.id}
-                  >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-900">{usageRecordTitle(record)}</p>
-                        <p className="mt-1 truncate text-xs ios-muted">{record.userName} · {formatDateTime(record.createdAt)}</p>
-                      </div>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${usageSurfaceTone(record.surface)}`}>
-                        {record.surface}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-lg bg-white/60 px-3 py-2">
-                        <p className="ios-muted">模型</p>
-                        <p className="mt-1 truncate font-semibold text-slate-800">{record.model}</p>
-                      </div>
-                      <div className="rounded-lg bg-white/60 px-3 py-2">
-                        <p className="ios-muted">费用</p>
-                        <p className="mt-1 font-semibold text-slate-800">{formatCents(record.estimatedCostCents)}</p>
-                      </div>
-                      <div className="col-span-2 rounded-lg bg-white/60 px-3 py-2">
-                        <UsageTokenBreakdown record={record} />
-                      </div>
-                    </div>
-                    <p className="mt-3 truncate text-xs ios-muted">
-                      {record.apiKeyLabel || record.sourceLabel}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="grid min-h-48 place-items-center px-4 py-8 text-sm ios-muted">
-              暂无用量记录
-            </div>
-          )}
-        </section>
+          <UsageRecordsPanel
+            filters={usageFilters}
+            generatedAt={usageGeneratedAt}
+            loading={loading || loadingUsage}
+            onExportCsv={exportUsageCsv}
+            onRefresh={refreshUsage}
+            onReset={resetUsageFilters}
+            onUpdateFilters={updateUsageFilters}
+            options={usageOptions}
+            records={usageRecords}
+            summary={usageSummary}
+          />
         ) : null}
 
         {activeTab !== "users" && activeTab !== "usage" ? (
@@ -2328,11 +2315,339 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   );
 }
 
-function UsageMetricCard({ label, value }: { label: string; value: string }) {
+function UsageRecordsPanel({
+  filters,
+  generatedAt,
+  loading,
+  onExportCsv,
+  onRefresh,
+  onReset,
+  onUpdateFilters,
+  options,
+  records,
+  summary
+}: {
+  filters: UsageFilterState;
+  generatedAt: string;
+  loading: boolean;
+  onExportCsv: () => void;
+  onRefresh: () => void;
+  onReset: () => void;
+  onUpdateFilters: (patch: Partial<UsageFilterState>) => void;
+  options: AdminUsageFilterOptionsView;
+  records: AdminUsageRecordView[];
+  summary: AdminUsageSummaryView | null;
+}) {
+  const recordCount = summary?.records ?? records.length;
+  const returnedRecords = summary?.returnedRecords ?? records.length;
+
+  return (
+    <section className="ios-panel motion-lift mb-5 overflow-hidden">
+      <div className="flex flex-col gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <div className="grid size-9 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
+            <Activity className="size-4" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold">使用记录</h2>
+            <p className="text-xs ios-muted">
+              显示 {formatNumber(returnedRecords)} / {formatNumber(recordCount)} 条 · 更新{" "}
+              {generatedAt ? formatDateTime(generatedAt) : "未加载"}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+            disabled={loading}
+            onClick={onRefresh}
+            type="button"
+          >
+            {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            刷新
+          </button>
+          <button
+            className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+            disabled={loading}
+            onClick={onReset}
+            type="button"
+          >
+            重置
+          </button>
+          <button
+            className="ios-button-primary app-action-button flex h-9 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+            disabled={loading || recordCount === 0}
+            onClick={onExportCsv}
+            type="button"
+          >
+            导出 CSV
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
+        <UsageMetricCard
+          detail={`所选范围内 · 聊天 ${formatNumber(summary?.chatCalls ?? 0)} · API ${formatNumber(summary?.apiCalls ?? 0)}`}
+          label="总请求数"
+          value={formatNumber(recordCount)}
+        />
+        <UsageMetricCard
+          detail={`输入 ${formatNumber(summary?.promptTokens ?? 0)} · 输出 ${formatNumber(summary?.completionTokens ?? 0)} · 缓存 ${formatNumber(summary?.cachedPromptTokens ?? 0)}`}
+          label="总 Token"
+          value={compactTokenCount(summary?.totalTokens ?? 0)}
+        />
+        <UsageMetricCard
+          detail={`缓存命中率 ${formatPercent(summary?.cacheRate ?? 0)} · 推理 ${formatNumber(summary?.reasoningTokens ?? 0)}`}
+          label="总消费"
+          value={formatCents(summary?.costCents ?? 0)}
+        />
+        <UsageMetricCard
+          detail={`首 token ${formatDuration(summary?.avgFirstTokenLatencyMs ?? null)} · 图片 ${formatNumber(summary?.imageCalls ?? 0)} · 任务 ${formatNumber(summary?.taskCalls ?? 0)}`}
+          label="平均耗时"
+          value={formatDuration(summary?.avgDurationMs ?? null)}
+        />
+      </div>
+
+      <div className="border-y border-[color:var(--ios-separator)] bg-white/35 p-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">API 密钥</span>
+            <select
+              className="ios-select h-10 w-full text-sm"
+              onChange={(event) => onUpdateFilters({ apiKey: event.target.value })}
+              value={filters.apiKey}
+            >
+              <option value="all">全部密钥</option>
+              {options.apiKeys.map((apiKey) => (
+                <option key={apiKey.id} value={apiKey.id}>
+                  {apiKey.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">时间范围</span>
+            <select
+              className="ios-select h-10 w-full text-sm"
+              onChange={(event) => onUpdateFilters({ days: event.target.value })}
+              value={filters.days}
+            >
+              <option value="1">近 24 小时</option>
+              <option value="7">近 7 天</option>
+              <option value="30">近 30 天</option>
+              <option value="90">近 90 天</option>
+              <option value="all">全部时间</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">来源</span>
+            <select
+              className="ios-select h-10 w-full text-sm"
+              onChange={(event) => onUpdateFilters({ surface: event.target.value })}
+              value={filters.surface}
+            >
+              <option value="all">全部来源</option>
+              <option value="chat">聊天</option>
+              <option value="api">个人 API</option>
+              <option value="image">图片</option>
+              <option value="task">任务</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">用户</span>
+            <select
+              className="ios-select h-10 w-full text-sm"
+              onChange={(event) => onUpdateFilters({ userId: event.target.value })}
+              value={filters.userId}
+            >
+              <option value="all">全部用户</option>
+              {options.users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">模型</span>
+            <select
+              className="ios-select h-10 w-full text-sm"
+              onChange={(event) => onUpdateFilters({ model: event.target.value })}
+              value={filters.model}
+            >
+              <option value="all">全部模型</option>
+              {options.models.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">搜索</span>
+            <input
+              className="ios-input h-10 w-full text-sm"
+              onChange={(event) => onUpdateFilters({ query: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  onRefresh();
+                }
+              }}
+              placeholder="用户、模型、端点、UA"
+              value={filters.query}
+            />
+          </label>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="app-loading-pulse grid min-h-64 place-items-center text-slate-500">
+          <Loader2 className="size-6 animate-spin" />
+        </div>
+      ) : records.length > 0 ? (
+        <>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[1560px] border-collapse text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-white/90 text-xs text-slate-500 backdrop-blur">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">API 密钥 / 用户</th>
+                  <th className="px-4 py-3 font-semibold">模型</th>
+                  <th className="px-4 py-3 font-semibold">推理强度</th>
+                  <th className="px-4 py-3 font-semibold">端点</th>
+                  <th className="px-4 py-3 font-semibold">类型</th>
+                  <th className="px-4 py-3 font-semibold">计费模式</th>
+                  <th className="px-4 py-3 font-semibold">Token</th>
+                  <th className="px-4 py-3 font-semibold">费用</th>
+                  <th className="px-4 py-3 font-semibold">首 Token</th>
+                  <th className="px-4 py-3 font-semibold">耗时</th>
+                  <th className="px-4 py-3 font-semibold">时间</th>
+                  <th className="px-4 py-3 font-semibold">User-Agent</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[color:var(--ios-separator)]">
+                {records.map((record) => (
+                  <tr className="app-table-row align-top" key={record.id}>
+                    <td className="px-4 py-3">
+                      <p className="max-w-52 truncate font-semibold text-slate-900">
+                        {record.apiKeyLabel || usageRecordTitle(record)}
+                      </p>
+                      <p className="mt-1 max-w-52 truncate text-xs ios-muted">
+                        {record.userName} · {record.userEmail}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="max-w-44 truncate font-semibold text-slate-800">{record.model}</p>
+                      <p className="mt-1 text-xs ios-muted">{record.mode === "IMAGE" ? "图片" : "聊天"}</p>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-700">
+                      {reasoningEffortLabel(record.reasoningEffort)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="max-w-44 truncate font-medium text-slate-800">{record.endpoint || "-"}</p>
+                      <p className="mt-1 max-w-44 truncate text-xs ios-muted">{record.sourceLabel}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-md px-2 py-1 text-xs font-semibold ${usageKindTone(record.requestKind)}`}>
+                        {requestKindLabel(record.requestKind)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700">
+                        {record.billingMode || "按量"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <UsageTokenBreakdown record={record} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-emerald-700">
+                      {formatCents(record.estimatedCostCents)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                      {formatDuration(record.firstTokenLatencyMs ?? null)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                      {formatDuration(record.durationMs ?? null)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
+                      {formatDateTime(record.createdAt)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="max-w-56 truncate text-xs text-slate-600" title={record.userAgent || undefined}>
+                        {record.userAgent || "-"}
+                      </p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid gap-3 p-3 md:hidden">
+            {records.map((record) => (
+              <div
+                className="app-list-row rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3"
+                key={record.id}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {record.apiKeyLabel || usageRecordTitle(record)}
+                    </p>
+                    <p className="mt-1 truncate text-xs ios-muted">
+                      {record.model} · {formatDateTime(record.createdAt)}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${usageSurfaceTone(record.surface)}`}>
+                    {record.surface}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <UsageMiniBlock label="端点" value={record.endpoint || "-"} />
+                  <UsageMiniBlock label="费用" value={formatCents(record.estimatedCostCents)} />
+                  <UsageMiniBlock label="首 token" value={formatDuration(record.firstTokenLatencyMs ?? null)} />
+                  <UsageMiniBlock label="耗时" value={formatDuration(record.durationMs ?? null)} />
+                  <div className="col-span-2 rounded-lg bg-white/60 px-3 py-2">
+                    <UsageTokenBreakdown record={record} />
+                  </div>
+                </div>
+                <p className="mt-3 truncate text-xs ios-muted">
+                  {record.userName} · {record.userAgent || record.sourceLabel}
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="grid min-h-48 place-items-center px-4 py-8 text-sm ios-muted">
+          暂无用量记录
+        </div>
+      )}
+    </section>
+  );
+}
+
+function UsageMetricCard({
+  detail,
+  label,
+  value
+}: {
+  detail: string;
+  label: string;
+  value: string;
+}) {
   return (
     <div className="app-list-row rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-4 py-3">
       <p className="text-xs font-medium ios-muted">{label}</p>
-      <p className="mt-1 truncate text-lg font-semibold text-slate-900">{value}</p>
+      <p className="mt-1 truncate text-2xl font-semibold text-slate-900">{value}</p>
+      <p className="mt-1 line-clamp-2 text-xs ios-muted">{detail}</p>
+    </div>
+  );
+}
+
+function UsageMiniBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white/60 px-3 py-2">
+      <p className="ios-muted">{label}</p>
+      <p className="mt-1 truncate font-semibold text-slate-800">{value}</p>
     </div>
   );
 }
@@ -2342,7 +2657,8 @@ function UsageTokenBreakdown({ record }: { record: AdminUsageRecordView }) {
     <div className="space-y-1 text-xs ios-muted">
       <p className="font-semibold text-slate-800">总计 {formatNumber(record.totalTokens)}</p>
       <p>
-        输入 {formatNumber(record.promptTokens)} · 输出 {formatNumber(record.completionTokens)}
+        <span className="text-emerald-600">↓</span> {formatNumber(record.promptTokens)} ·{" "}
+        <span className="text-violet-600">↑</span> {formatNumber(record.completionTokens)}
       </p>
       {record.cachedPromptTokens > 0 || record.reasoningTokens > 0 ? (
         <p>
@@ -2360,6 +2676,73 @@ function formatDateTime(value: string) {
     minute: "2-digit",
     month: "2-digit"
   });
+}
+
+function compactTokenCount(tokens: number) {
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 1 : 2)}M`;
+  }
+
+  if (tokens >= 1_000) {
+    return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 1 : 2)}K`;
+  }
+
+  return formatNumber(tokens);
+}
+
+function formatDuration(value: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+
+  if (value < 1000) {
+    return `${Math.max(0, Math.round(value))}ms`;
+  }
+
+  return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)}s`;
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function requestKindLabel(kind: string) {
+  if (kind === "stream") {
+    return "流式";
+  }
+
+  if (kind === "sync") {
+    return "同步";
+  }
+
+  return "-";
+}
+
+function reasoningEffortLabel(value: string) {
+  if (!value) {
+    return "-";
+  }
+
+  const labels: Record<string, string> = {
+    high: "High",
+    low: "Low",
+    medium: "Medium",
+    xhigh: "XHigh"
+  };
+
+  return labels[value] || value;
+}
+
+function usageKindTone(kind: string) {
+  if (kind === "stream") {
+    return "bg-blue-50 text-blue-700";
+  }
+
+  if (kind === "sync") {
+    return "bg-slate-100 text-slate-700";
+  }
+
+  return "bg-stone-100 text-stone-600";
 }
 
 function usageSurfaceTone(surface: string) {

@@ -311,12 +311,21 @@ model UsageRecord {
   usageSource        String         @default("estimated")
   upstreamUsageJson  String?
   estimatedCostCents Float          @default(0)
+  endpoint           String         @default("")
+  requestKind        String         @default("")
+  billingMode        String         @default("按量")
+  reasoningEffort    String         @default("")
+  firstTokenLatencyMs Int?
+  durationMs         Int?
+  userAgent          String         @default("")
   createdAt          DateTime       @default(now())
   user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation       Conversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([conversationId])
+  @@index([usageSource, createdAt])
+  @@index([model, createdAt])
 }
 
 model AiSettings {

@@ -1911,9 +1911,10 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                           }`}
                           onClick={() => patchUser(user.id, { emailVerified: !user.emailVerified })}
                           type="button"
+                          title={user.role === "ADMIN" ? "管理员可登录；验证状态用于普通登录限制。" : undefined}
                         >
                           {user.emailVerified ? <Check className="size-4" /> : <Mail className="size-4" />}
-                          {user.emailVerified ? "已验证" : "未验证"}
+                          {user.emailVerified ? "已验证" : user.role === "ADMIN" ? "未验证 · 管理员可登录" : "未验证"}
                         </button>
                       </td>
                       <td className="px-4 py-3">
@@ -2047,9 +2048,10 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                         }`}
                         onClick={() => patchUser(user.id, { emailVerified: !user.emailVerified })}
                         type="button"
+                        title={user.role === "ADMIN" ? "管理员可登录；验证状态用于普通登录限制。" : undefined}
                       >
                         {user.emailVerified ? <Check className="size-4" /> : <Mail className="size-4" />}
-                        {user.emailVerified ? "已验证" : "未验证"}
+                        {user.emailVerified ? "已验证" : user.role === "ADMIN" ? "未验证 · 管理员可登录" : "未验证"}
                       </button>
                     </label>
                     <label className="block col-span-2">

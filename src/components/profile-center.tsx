@@ -661,6 +661,7 @@ function ApiGuideDialog({
   const [tool, setTool] = useState<ApiGuideTool>("codex");
   const [os, setOs] = useState<ApiGuideOs>("unix");
   const baseUrl = origin ? `${origin}/v1` : "/v1";
+  const hasApiKey = Boolean(apiKey);
   const keyValue = apiKey || "sk-user-在这里替换成你的 API Key";
   const primaryModel = models[0]?.id || "gpt-5.5";
   const codexCatalogPath =
@@ -750,9 +751,9 @@ function ApiGuideDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-          {!apiKey ? (
+          {!hasApiKey ? (
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-              还没有可查看的 API Key。先创建一个新 Key，或使用一次旧 Key 后再回来复制真实配置。
+              还没有可查看的 API Key。先创建一个新 Key，或使用一次旧 Key 后再回来复制可直接执行的命令。
             </div>
           ) : null}
 
@@ -822,6 +823,7 @@ function ApiGuideDialog({
                   </button>
                   <button
                     className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                    disabled={!hasApiKey}
                     onClick={() => void onCopy(codexInstallCommand, "Codex 一键安装命令已复制。")}
                     type="button"
                   >
@@ -847,11 +849,13 @@ function ApiGuideDialog({
                   onCopy={onCopy}
                   value={codexModelCatalog}
                 />
-                <ApiCodeBlock
-                  label={os === "windows" ? "PowerShell 一键安装命令" : "Shell 一键安装命令"}
-                  onCopy={(value) => onCopy(value, "Codex 一键安装命令已复制。")}
-                  value={codexInstallCommand}
-                />
+                {hasApiKey ? (
+                  <ApiCodeBlock
+                    label={os === "windows" ? "PowerShell 一键安装命令" : "Shell 一键安装命令"}
+                    onCopy={(value) => onCopy(value, "Codex 一键安装命令已复制。")}
+                    value={codexInstallCommand}
+                  />
+                ) : null}
                 <ApiCodeBlock
                   label={os === "windows" ? "PowerShell 环境变量" : "Shell 环境变量"}
                   onCopy={(value) => onCopy(value, `${LOWIQ_API_KEY_ENV} 设置命令已复制。`)}
@@ -879,6 +883,7 @@ function ApiGuideDialog({
                   </button>
                   <button
                     className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                    disabled={!hasApiKey}
                     onClick={() => void onCopy(openCodeImportCommand, "OpenCode 一键导入命令已复制。")}
                     type="button"
                   >
@@ -886,11 +891,13 @@ function ApiGuideDialog({
                     复制导入命令
                   </button>
                 </div>
-                <ApiCodeBlock
-                  label={os === "windows" ? "PowerShell 一键导入命令" : "Shell 一键导入命令"}
-                  onCopy={(value) => onCopy(value, "OpenCode 一键导入命令已复制。")}
-                  value={openCodeImportCommand}
-                />
+                {hasApiKey ? (
+                  <ApiCodeBlock
+                    label={os === "windows" ? "PowerShell 一键导入命令" : "Shell 一键导入命令"}
+                    onCopy={(value) => onCopy(value, "OpenCode 一键导入命令已复制。")}
+                    value={openCodeImportCommand}
+                  />
+                ) : null}
                 <ApiCodeBlock
                   label="opencode.json"
                   onCopy={onCopy}
@@ -923,6 +930,7 @@ function ApiGuideDialog({
                   </button>
                   <button
                     className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                    disabled={!hasApiKey}
                     onClick={() =>
                       void onCopy(claudeRouterSetupCommand, "Claude Router 一键安装命令已复制。")
                     }
@@ -932,11 +940,13 @@ function ApiGuideDialog({
                     复制安装命令
                   </button>
                 </div>
-                <ApiCodeBlock
-                  label={os === "windows" ? "PowerShell 一键安装命令" : "Shell 一键安装命令"}
-                  onCopy={(value) => onCopy(value, "Claude Router 一键安装命令已复制。")}
-                  value={claudeRouterSetupCommand}
-                />
+                {hasApiKey ? (
+                  <ApiCodeBlock
+                    label={os === "windows" ? "PowerShell 一键安装命令" : "Shell 一键安装命令"}
+                    onCopy={(value) => onCopy(value, "Claude Router 一键安装命令已复制。")}
+                    value={claudeRouterSetupCommand}
+                  />
+                ) : null}
                 <ApiCodeBlock
                   label="~/.claude-code-router/config.json"
                   onCopy={onCopy}

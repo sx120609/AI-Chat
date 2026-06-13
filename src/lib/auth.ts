@@ -26,6 +26,38 @@ export type CurrentUser = {
   quotaResetAt: Date;
 };
 
+type CurrentUserRecord = {
+  active?: boolean | null;
+  aiStylePrompt?: string | null;
+  email: string;
+  emailVerified?: boolean | null;
+  id: string;
+  monthlyCostLimitCents?: number | null;
+  name: string;
+  quotaResetAt?: Date | null;
+  role: "USER" | "ADMIN";
+  userGroup?: string | null;
+};
+
+function normalizeCurrentUserRecord(user: CurrentUserRecord | null): CurrentUser | null {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    userGroup: user.userGroup || (user.role === "ADMIN" ? "VIP" : "NORMAL"),
+    active: user.active ?? true,
+    emailVerified: user.emailVerified ?? true,
+    aiStylePrompt: user.aiStylePrompt || "",
+    monthlyCostLimitCents: user.monthlyCostLimitCents ?? 5000,
+    quotaResetAt: user.quotaResetAt || new Date()
+  };
+}
+
 function base64UrlEncode(value: string | Buffer) {
   return Buffer.from(value)
     .toString("base64")
@@ -118,21 +150,11 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     return null;
   }
 
-  return prisma.user.findUnique({
-    where: { id: session.sub },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      userGroup: true,
-      active: true,
-      emailVerified: true,
-      aiStylePrompt: true,
-      monthlyCostLimitCents: true,
-      quotaResetAt: true
-    }
+  const user = await prisma.user.findUnique({
+    where: { id: session.sub }
   });
+
+  return normalizeCurrentUserRecord(user);
 }
 
 export async function getUserFromRequest(request: NextRequest): Promise<CurrentUser | null> {
@@ -142,21 +164,11 @@ export async function getUserFromRequest(request: NextRequest): Promise<CurrentU
     return null;
   }
 
-  return prisma.user.findUnique({
-    where: { id: session.sub },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      userGroup: true,
-      active: true,
-      emailVerified: true,
-      aiStylePrompt: true,
-      monthlyCostLimitCents: true,
-      quotaResetAt: true
-    }
+  const user = await prisma.user.findUnique({
+    where: { id: session.sub }
   });
+
+  return normalizeCurrentUserRecord(user);
 }
 
 export function serializeCurrentUser(user: CurrentUser) {

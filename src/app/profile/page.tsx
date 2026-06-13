@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ProfilePage() {
   const user = await getCurrentUser();
 
-  if (!user || !user.active || !user.emailVerified) {
+  if (!user || !user.active || (user.role !== "ADMIN" && !user.emailVerified)) {
     redirect("/login");
   }
 

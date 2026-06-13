@@ -19,11 +19,7 @@ export function normalizeRegistrationCostLimitCents(value: unknown) {
 
 export async function getPublicAuthSettings(): Promise<PublicAuthSettings> {
   const settings = await prisma.aiSettings.findUnique({
-    where: { id: "default" },
-    select: {
-      registrationEnabled: true,
-      registrationRequireEmailVerification: true
-    }
+    where: { id: "default" }
   });
 
   return {

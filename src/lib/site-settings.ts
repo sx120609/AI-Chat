@@ -44,11 +44,7 @@ export async function getSiteSettings(): Promise<SiteSettings> {
   }
 
   const settings = await prisma.aiSettings.findUnique({
-    where: { id: "default" },
-    select: {
-      siteName: true,
-      siteUrl: true
-    }
+    where: { id: "default" }
   });
 
   if (settings) {

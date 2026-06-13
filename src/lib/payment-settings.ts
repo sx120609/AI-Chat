@@ -17,16 +17,7 @@ export type PublicPaymentSettings = {
 
 export async function getPublicPaymentSettings(): Promise<PublicPaymentSettings> {
   const settings = await prisma.aiSettings.findUnique({
-    where: { id: "default" },
-    select: {
-      easyPayEnabled: true,
-      easyPayDisplayMode: true,
-      easyPayMethodsJson: true,
-      easyPayBalanceCentsPerYuan: true,
-      easyPayPid: true,
-      easyPayKey: true,
-      easyPayApiBaseUrl: true
-    }
+    where: { id: "default" }
   });
 
   const configured = Boolean(

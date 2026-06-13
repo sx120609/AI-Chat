@@ -22,6 +22,11 @@ import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
+import {
+  applyMemoryInstructionsFromMessage,
+  formatMemoriesForPrompt,
+  listUserMemories
+} from "@/lib/memories";
 import { MESSAGE_ORDER_DESC, messagesAfter, messagesBefore } from "@/lib/message-order";
 import {
   mergePersistedToolEvent,
@@ -39,7 +44,7 @@ import {
   normalizeReasoningEffort
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
-import { formatPersonalizationForPrompt } from "@/lib/personalization";
+import { formatPersonalizationForPrompt, parsePersonalizationSettings } from "@/lib/personalization";
 import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
 import { normalizePromptClock, resolveSystemPrompt } from "@/lib/system-prompt";
 import { planMessageTools } from "@/lib/tool-router";
@@ -1307,8 +1312,24 @@ export async function POST(request: NextRequest) {
     modelLabel: model.label,
     promptClock
   });
+  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+
+  if (personalizationSettings.memoryEnabled) {
+    await applyMemoryInstructionsFromMessage({
+      content,
+      userId: user.id
+    }).catch(() => undefined);
+  }
+
+  const savedMemoryPrompt = personalizationSettings.memoryEnabled
+    ? formatMemoriesForPrompt(await listUserMemories(user.id))
+    : "";
   const userStylePrompt = formatPersonalizationForPrompt(user.aiStylePrompt);
-  const systemPrompt = [baseSystemPrompt, userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : ""]
+  const systemPrompt = [
+    baseSystemPrompt,
+    userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : "",
+    savedMemoryPrompt
+  ]
     .filter(Boolean)
     .join("\n\n");
   const webSearchStartedAt = Date.now();

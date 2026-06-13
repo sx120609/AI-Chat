@@ -38,6 +38,7 @@ import type {
   SiteSettingsView,
   UsageSummary,
   UserApiKeyView,
+  UserMemoryView,
   UserView
 } from "@/types/gateway";
 
@@ -53,12 +54,20 @@ type ApiKeysPayload = {
   keys: UserApiKeyView[];
 };
 
+type MemoriesPayload = {
+  memories: UserMemoryView[];
+};
+
 type ProfileTab = "overview" | "personalization" | "security" | "api";
 type ApiGuideTool = "codex" | "opencode" | "claude-router";
 type ApiGuideOs = "unix" | "windows";
 
 function groupLabel(group: string) {
   return group === "VIP" ? "VIP" : "普通";
+}
+
+function memorySourceLabel(source: string) {
+  return source === "chat" ? "聊天保存" : "手动添加";
 }
 
 type SelectOption<T extends string> = {
@@ -649,15 +658,21 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
   const [newPassword, setNewPassword] = useState("");
   const [apiKeyName, setApiKeyName] = useState("个人 API Key");
   const [apiKeys, setApiKeys] = useState<UserApiKeyView[]>([]);
+  const [memories, setMemories] = useState<UserMemoryView[]>([]);
+  const [newMemoryContent, setNewMemoryContent] = useState("");
   const [canCreateApiKey, setCanCreateApiKey] = useState(user.userGroup === "VIP");
   const [origin, setOrigin] = useState("");
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
+  const [deleteMemoryId, setDeleteMemoryId] = useState<string | null>(null);
+  const [clearMemoriesOpen, setClearMemoriesOpen] = useState(false);
   const [apiGuideOpen, setApiGuideOpen] = useState(false);
   const [apiGuideKeyId, setApiGuideKeyId] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(true);
+  const [loadingMemories, setLoadingMemories] = useState(true);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
+  const [savingMemory, setSavingMemory] = useState(false);
   const [creatingKey, setCreatingKey] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -679,10 +694,27 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
     setLoadingKeys(false);
   }, []);
 
+  const loadMemories = useCallback(async () => {
+    setLoadingMemories(true);
+    const response = await fetch("/api/profile/memories");
+    const payload = (await response.json().catch(() => null)) as
+      | (MemoriesPayload & { error?: string })
+      | null;
+
+    if (response.ok && payload) {
+      setMemories(payload.memories);
+    } else {
+      setError(payload?.error || "读取记忆失败。");
+    }
+
+    setLoadingMemories(false);
+  }, []);
+
   useEffect(() => {
     setOrigin(window.location.origin);
     void loadApiKeys();
-  }, [loadApiKeys]);
+    void loadMemories();
+  }, [loadApiKeys, loadMemories]);
 
   const revealableApiKeys = useMemo(() => apiKeys.filter((key) => key.apiKey), [apiKeys]);
   const selectedGuideApiKey = useMemo(
@@ -851,6 +883,87 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
     setSavingKeyId(null);
     setDeleteKeyId(null);
+  }
+
+  async function createMemory() {
+    const content = newMemoryContent.trim();
+
+    if (!content) {
+      setError("请输入要保存的记忆。");
+      return;
+    }
+
+    setSavingMemory(true);
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/memories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content })
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; memory?: UserMemoryView }
+      | null;
+
+    if (!response.ok || !payload?.memory) {
+      setError(payload?.error || "新增记忆失败。");
+    } else {
+      setMemories((current) => [
+        payload.memory as UserMemoryView,
+        ...current.filter((memory) => memory.id !== payload.memory?.id)
+      ]);
+      setNewMemoryContent("");
+      setNotice("记忆已保存。");
+    }
+
+    setSavingMemory(false);
+  }
+
+  async function deleteMemory() {
+    if (!deleteMemoryId) {
+      return;
+    }
+
+    setSavingMemory(true);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/memories/${deleteMemoryId}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "删除记忆失败。");
+    } else {
+      setMemories((current) => current.filter((memory) => memory.id !== deleteMemoryId));
+      setNotice("记忆已删除。");
+    }
+
+    setSavingMemory(false);
+    setDeleteMemoryId(null);
+  }
+
+  async function clearMemories() {
+    setSavingMemory(true);
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/memories", {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "清空记忆失败。");
+    } else {
+      setMemories([]);
+      setNotice("记忆已清空。");
+    }
+
+    setSavingMemory(false);
+    setClearMemoriesOpen(false);
   }
 
   async function copyText(value: string, message = "已复制。") {
@@ -1105,7 +1218,7 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
               <ToggleRow
                 checked={personalization.quickAnswers}
-                description="优先先给出直接答案，再根据问题补充必要细节。"
+                description="写入聊天提示词：先给直接答案，再根据问题补充必要细节。"
                 label="快速回答"
                 onChange={(checked) => updatePersonalization({ quickAnswers: checked })}
               />
@@ -1163,10 +1276,100 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
               <ToggleRow
                 checked={personalization.memoryEnabled}
-                description="把上面的昵称、职业和详情加入你的回答上下文。"
+                description="开启后，聊天会引用上面的个人信息和下方已保存记忆，并响应你明确说出的“记住/忘记”。"
                 label="记忆"
                 onChange={(checked) => updatePersonalization({ memoryEnabled: checked })}
               />
+
+              <div className="grid gap-4 px-4 py-4">
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-stone-950">保存的记忆</h3>
+                      <p className="mt-1 text-sm leading-5 ios-muted">
+                        AI 会把这些内容作为长期上下文；关闭上方开关后不会引用，也不会新增聊天记忆。
+                      </p>
+                    </div>
+                    {memories.length > 0 ? (
+                      <button
+                        className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm text-red-600 disabled:opacity-60"
+                        disabled={savingMemory}
+                        onClick={() => setClearMemoriesOpen(true)}
+                        type="button"
+                      >
+                        <Trash2 className="size-4" />
+                        清空
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <input
+                      className="ios-input"
+                      maxLength={280}
+                      onChange={(event) => setNewMemoryContent(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+
+                          if (newMemoryContent.trim()) {
+                            void createMemory();
+                          }
+                        }
+                      }}
+                      placeholder="例如：我更喜欢直接给结论，再补充关键原因"
+                      value={newMemoryContent}
+                    />
+                    <button
+                      className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
+                      disabled={savingMemory || !newMemoryContent.trim()}
+                      onClick={() => void createMemory()}
+                      type="button"
+                    >
+                      {savingMemory ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                      添加记忆
+                    </button>
+                  </div>
+                </div>
+
+                {loadingMemories ? (
+                  <div className="grid min-h-24 place-items-center rounded-lg bg-white/45 text-stone-500">
+                    <Loader2 className="size-5 animate-spin" />
+                  </div>
+                ) : memories.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-[color:var(--ios-separator)] bg-white/45 px-3 py-8 text-center text-sm ios-muted">
+                    暂无保存的记忆。你可以手动添加，或在聊天里说“记住……”。
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {memories.map((memory) => (
+                      <div
+                        className="grid gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 p-3 sm:grid-cols-[1fr_auto]"
+                        key={memory.id}
+                      >
+                        <div className="min-w-0">
+                          <p className="break-words text-sm leading-6 text-stone-900">{memory.content}</p>
+                          <p className="mt-2 flex flex-wrap items-center gap-2 text-xs ios-muted">
+                            <span className="rounded-full bg-white/80 px-2 py-1 font-semibold">
+                              {memorySourceLabel(memory.source)}
+                            </span>
+                            <span>更新 {new Date(memory.updatedAt).toLocaleString()}</span>
+                          </p>
+                        </div>
+                        <button
+                          className="ios-icon-button app-action-button self-start text-red-600 disabled:opacity-60"
+                          disabled={savingMemory}
+                          onClick={() => setDeleteMemoryId(memory.id)}
+                          title="删除记忆"
+                          type="button"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
                 <p className="text-xs ios-muted">{personalizationPayloadSize}/3000</p>
@@ -1366,6 +1569,24 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
         onConfirm={deleteApiKey}
         open={Boolean(deleteKeyId)}
         title="删除 API Key"
+        tone="danger"
+      />
+      <SiteConfirmDialog
+        confirmLabel="删除"
+        description="删除后这条记忆不会再进入聊天上下文。"
+        onCancel={() => setDeleteMemoryId(null)}
+        onConfirm={deleteMemory}
+        open={Boolean(deleteMemoryId)}
+        title="删除记忆"
+        tone="danger"
+      />
+      <SiteConfirmDialog
+        confirmLabel="清空"
+        description="清空后所有保存的记忆都会删除，不会再进入聊天上下文。"
+        onCancel={() => setClearMemoriesOpen(false)}
+        onConfirm={clearMemories}
+        open={clearMemoriesOpen}
+        title="清空全部记忆"
         tone="danger"
       />
       <ApiGuideDialog

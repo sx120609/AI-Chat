@@ -88,6 +88,14 @@ export type UserApiKeyView = {
   createdAt: string;
 };
 
+export type UserMemoryView = {
+  id: string;
+  content: string;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PublicAuthSettingsView = {
   registrationEnabled: boolean;
   registrationRequireEmailVerification: boolean;

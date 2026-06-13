@@ -457,7 +457,7 @@ const INSTRUCTION_PRESETS: Array<{
   { id: "professional", label: "专业", description: "准确、稳健、少口语。" },
   { id: "teaching", label: "教学", description: "分步骤解释原因。" },
   { id: "code", label: "代码助手", description: "重视实现、验证和边界。" },
-  { id: "life", label: "生活助手", description: "自然体贴，适合日常决策。" }
+  { id: "life", label: "生活助理", description: "自然体贴，适合日常决策。" }
 ];
 
 const APP_SETTING_OPTIONS: Array<{
@@ -1028,25 +1028,33 @@ function PreferenceSelect<T extends string>({
 function ToggleRow({
   checked,
   description,
+  disabled = false,
   label,
   onChange
 }: {
   checked: boolean;
   description?: string;
+  disabled?: boolean;
   label: string;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex min-h-16 items-center justify-between gap-4 px-4 py-3">
+    <div
+      className={`flex min-h-16 items-center justify-between gap-4 px-4 py-3 ${
+        disabled ? "opacity-60" : ""
+      }`}
+    >
       <div className="min-w-0">
         <p className="text-sm font-semibold text-stone-950">{label}</p>
         {description ? <p className="mt-1 text-sm leading-5 ios-muted">{description}</p> : null}
       </div>
       <button
         aria-checked={checked}
+        aria-disabled={disabled}
         className={`relative h-7 w-12 shrink-0 rounded-full transition ${
           checked ? "bg-[color:var(--claude-accent)]" : "bg-stone-200"
         }`}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         role="switch"
         type="button"
@@ -1867,10 +1875,18 @@ export function ProfileCenter({
   }
 
   function updatePersonalization(patch: Partial<PersonalizationSettings>) {
-    setPersonalization((current) => ({
-      ...current,
-      ...patch
-    }));
+    setPersonalization((current) => {
+      const next = {
+        ...current,
+        ...patch
+      };
+
+      if (!next.savedMemoryEnabled) {
+        next.chatHistoryMemoryEnabled = false;
+      }
+
+      return next;
+    });
   }
 
   function updateTrait(key: keyof PersonalizationSettings["traits"], value: PersonalizationLevel) {
@@ -3116,8 +3132,13 @@ export function ProfileCenter({
                   onChange={(checked) => updatePersonalization({ savedMemoryEnabled: checked })}
                 />
                 <ToggleRow
-                  checked={personalization.chatHistoryMemoryEnabled}
-                  description="开启后，AI 可以参考近期聊天作为背景；关闭后不再把聊天历史作为长期上下文。"
+                  checked={personalization.savedMemoryEnabled && personalization.chatHistoryMemoryEnabled}
+                  description={
+                    personalization.savedMemoryEnabled
+                      ? "开启后，AI 可以参考近期聊天作为背景；关闭后不再把聊天历史作为长期上下文。"
+                      : "需要先开启保存的记忆；关闭保存的记忆会同时关闭引用聊天历史。"
+                  }
+                  disabled={!personalization.savedMemoryEnabled}
                   label="引用聊天历史"
                   onChange={(checked) => updatePersonalization({ chatHistoryMemoryEnabled: checked })}
                 />
@@ -3975,7 +3996,7 @@ export function ProfileCenter({
 
                       <div className="grid gap-3 lg:grid-cols-2">
                         <UsageBucketList buckets={usageBreakdown.byModel.slice(0, 6)} title="按模型" />
-                        <UsageBucketList buckets={usageBreakdown.bySurface} title="按入口" />
+                        <UsageBucketList buckets={usageBreakdown.bySurface} title="按聊天 / API / 图片" />
                         <UsageBucketList buckets={(usageBreakdown.byApiKey ?? []).slice(0, 6)} title="按 API Key" />
                         <UsageBucketList buckets={usageBreakdown.byMode} title="按聊天 / 图片" />
                         <UsageBucketList buckets={usageBreakdown.byMonth.slice(0, 6)} title="月度明细" />

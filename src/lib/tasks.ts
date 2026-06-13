@@ -155,7 +155,9 @@ export async function runUserTask({
         })
       : "";
   const chatHistoryPrompt =
-    personalizationSettings.chatHistoryMemoryEnabled && projectAllowsMemory
+    personalizationSettings.savedMemoryEnabled &&
+    personalizationSettings.chatHistoryMemoryEnabled &&
+    projectAllowsMemory
       ? await formatRecentChatHistoryForPrompt({
           projectId: projectMemoryScope === "project" ? task.projectId : null,
           userId

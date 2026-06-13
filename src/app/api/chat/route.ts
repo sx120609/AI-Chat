@@ -1104,7 +1104,10 @@ export async function POST(request: NextRequest) {
   const memoryReadEnabled =
     personalizationSettings.savedMemoryEnabled && !temporaryChat && projectAllowsMemory;
   const chatHistoryReadEnabled =
-    personalizationSettings.chatHistoryMemoryEnabled && !temporaryChat && projectAllowsMemory;
+    personalizationSettings.savedMemoryEnabled &&
+    personalizationSettings.chatHistoryMemoryEnabled &&
+    !temporaryChat &&
+    projectAllowsMemory;
   const memoryWriteEnabled =
     personalizationSettings.savedMemoryEnabled &&
     projectAllowsMemory &&

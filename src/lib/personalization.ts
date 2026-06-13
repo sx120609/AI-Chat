@@ -127,6 +127,15 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
     "memoryEnabled" in input && typeof (input as { memoryEnabled?: unknown }).memoryEnabled === "boolean"
       ? Boolean((input as { memoryEnabled?: unknown }).memoryEnabled)
       : undefined;
+  const savedMemoryEnabled =
+    typeof input.savedMemoryEnabled === "boolean"
+      ? input.savedMemoryEnabled
+      : legacyMemoryEnabled ?? defaults.savedMemoryEnabled;
+  const chatHistoryMemoryEnabled =
+    savedMemoryEnabled &&
+    (typeof input.chatHistoryMemoryEnabled === "boolean"
+      ? input.chatHistoryMemoryEnabled
+      : legacyMemoryEnabled ?? defaults.chatHistoryMemoryEnabled);
 
   return {
     customizationEnabled:
@@ -148,14 +157,8 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
       occupation: cleanText(about.occupation, 120),
       details: cleanText(about.details, 900)
     },
-    savedMemoryEnabled:
-      typeof input.savedMemoryEnabled === "boolean"
-        ? input.savedMemoryEnabled
-        : legacyMemoryEnabled ?? defaults.savedMemoryEnabled,
-    chatHistoryMemoryEnabled:
-      typeof input.chatHistoryMemoryEnabled === "boolean"
-        ? input.chatHistoryMemoryEnabled
-        : legacyMemoryEnabled ?? defaults.chatHistoryMemoryEnabled,
+    savedMemoryEnabled,
+    chatHistoryMemoryEnabled,
     temporaryChatDefault:
       typeof input.temporaryChatDefault === "boolean"
         ? input.temporaryChatDefault

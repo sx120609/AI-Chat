@@ -171,8 +171,7 @@ export async function GET(request: NextRequest) {
 
   const records = await prisma.usageRecord.findMany({
     where: { userId: currentUser.id },
-    orderBy: { createdAt: "desc" },
-    take: 2000
+    orderBy: { createdAt: "desc" }
   });
   const apiKeys = await prisma.userApiKey.findMany({
     where: { userId: currentUser.id },

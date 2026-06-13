@@ -4186,7 +4186,7 @@ const ComposerInputArea = memo(function ComposerInputArea({
             </button>
           ) : null}
           <textarea
-            className={`min-h-9 w-full min-w-0 resize-none bg-transparent px-2 py-1.5 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:text-sm ${
+            className={`block min-h-9 w-full min-w-0 resize-none bg-transparent px-2 py-1.5 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:text-sm ${
               fullscreenButtonVisible ? "pr-10" : ""
             }`}
             disabled={composerDisabled}

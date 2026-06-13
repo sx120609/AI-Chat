@@ -527,9 +527,13 @@ export function ChatShell({
   const [processFinishedAt, setProcessFinishedAt] = useState<number | null>(null);
   const [processNow, setProcessNow] = useState(() => Date.now());
   const [lastContextStats, setLastContextStats] = useState<ContextStats | null>(null);
+  const [memoryWriteDisabledByConversation, setMemoryWriteDisabledByConversation] = useState<
+    Record<string, boolean>
+  >({});
   const activeConversationKey = activeConversationId ?? activeLocalConversationKey;
   const activeConversationKeyRef = useRef(activeConversationKey);
   const activeConversationIdRef = useRef<string | null>(null);
+  const memoryWriteDisabledByConversationRef = useRef(memoryWriteDisabledByConversation);
   const abortControllersRef = useRef(new Map<string, AbortController>());
   const autoScrollRef = useRef(true);
   const conversationListRequestSeqRef = useRef(0);
@@ -559,6 +563,22 @@ export function ChatShell({
   const conversationSwitching = Boolean(
     activeConversationId && loadingConversationId === activeConversationId
   );
+  const memoryWriteDisabledForActiveConversation = Boolean(
+    memoryWriteDisabledByConversation[activeConversationKey]
+  );
+  const memoryWriteToggleDisabled =
+    !personalizationSettings.savedMemoryEnabled ||
+    temporaryChatEnabled ||
+    loading ||
+    quotaBlocked ||
+    conversationSwitching;
+  const memoryWriteToggleTitle = !personalizationSettings.savedMemoryEnabled
+    ? "保存的记忆已在个人中心关闭"
+    : temporaryChatEnabled
+      ? "临时聊天不会保存历史，也不会读取或写入长期记忆"
+      : memoryWriteDisabledForActiveConversation
+        ? "本次对话不会写入长期记忆；聊天历史仍会保存"
+        : "本次对话不写入记忆，聊天历史仍会保存";
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === activeConversationId),
@@ -611,6 +631,10 @@ export function ChatShell({
     activeConversationKeyRef.current = activeConversationKey;
   }, [activeConversationId, activeConversationKey]);
 
+  useEffect(() => {
+    memoryWriteDisabledByConversationRef.current = memoryWriteDisabledByConversation;
+  }, [memoryWriteDisabledByConversation]);
+
   function markGenerationRunning(conversationKey: string) {
     setRunningGenerationKeys((current) =>
       current.includes(conversationKey) ? current : [...current, conversationKey]
@@ -647,6 +671,21 @@ export function ChatShell({
     inFlightChatsRef.current.delete(conversationKey);
   }
 
+  function setConversationMemoryWriteDisabled(conversationKey: string, disabled: boolean) {
+    setMemoryWriteDisabledByConversation((current) => {
+      const next = { ...current };
+
+      if (disabled) {
+        next[conversationKey] = true;
+      } else {
+        delete next[conversationKey];
+      }
+
+      memoryWriteDisabledByConversationRef.current = next;
+      return next;
+    });
+  }
+
   function resolveInFlightConversationKey(currentKey: string, conversationId: string) {
     if (currentKey === conversationId) {
       return conversationId;
@@ -671,6 +710,15 @@ export function ChatShell({
     setRunningGenerationKeys((current) =>
       current.map((key) => (key === currentKey ? conversationId : key))
     );
+    if (memoryWriteDisabledByConversationRef.current[currentKey]) {
+      setMemoryWriteDisabledByConversation((current) => {
+        const next = { ...current };
+        delete next[currentKey];
+        next[conversationId] = true;
+        memoryWriteDisabledByConversationRef.current = next;
+        return next;
+      });
+    }
 
     if (activeConversationKeyRef.current === currentKey) {
       activeConversationKeyRef.current = conversationId;
@@ -1484,7 +1532,13 @@ export function ChatShell({
     const reuseUserMessageId = reuseUserMessage?.id;
     const sourceImageMessageId = options.sourceImageMessage?.id;
     const requestTemporary = options.temporary ?? temporaryChatEnabled;
-    const requestDisableMemoryWrite = options.disableMemoryWrite ?? requestTemporary;
+    const startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
+    const startingConversationKey = startingConversationId ?? activeConversationKeyRef.current;
+    const conversationMemoryWriteDisabled = Boolean(
+      memoryWriteDisabledByConversationRef.current[startingConversationKey]
+    );
+    const requestDisableMemoryWrite =
+      options.disableMemoryWrite ?? (requestTemporary || conversationMemoryWriteDisabled);
     const temporaryMessages = requestTemporary
       ? messages
           .filter(
@@ -1507,9 +1561,8 @@ export function ChatShell({
     };
     const controller = new AbortController();
     const processStart = Date.now();
-    const startingConversationId = reuseUserMessage?.conversationId ?? activeConversationIdRef.current;
     // Rebound when the server returns the persisted conversation id for a new local chat.
-    let conversationKey = startingConversationId ?? activeConversationKeyRef.current;
+    let conversationKey = startingConversationKey;
     const initialStreamStatus = useWebSearch ? "正在联网搜索..." : "正在自动选择工具...";
     const initialToolEvents = [
       createToolEvent(
@@ -2886,7 +2939,9 @@ export function ChatShell({
     try {
       const useWebSearch = webSearchToolAvailable && webSearchEnabledForMessage;
       const requestTemporary = temporaryChatEnabled;
-      const requestDisableMemoryWrite = requestTemporary;
+      const requestDisableMemoryWrite =
+        requestTemporary ||
+        Boolean(memoryWriteDisabledByConversationRef.current[activeConversationKeyRef.current]);
 
       if (editingMessage) {
         setTemporaryChatEnabled(defaultTemporaryMode);
@@ -3350,6 +3405,11 @@ export function ChatShell({
                       contextWindowTokens={activeModel.contextWindowTokens}
                     />
                   ) : null}
+                  {memoryWriteDisabledForActiveConversation && !temporaryChatEnabled ? (
+                    <span className="rounded-full bg-white/70 px-2 py-0.5 font-semibold text-[color:var(--claude-accent)]">
+                      不写入记忆
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -3374,6 +3434,7 @@ export function ChatShell({
                     </label>
                   ) : null}
                   <button
+                    aria-label="临时聊天"
                     aria-pressed={temporaryChatEnabled}
                     className={`app-action-button grid size-10 shrink-0 place-items-center rounded-full border transition disabled:opacity-70 ${
                       temporaryChatEnabled
@@ -3398,6 +3459,26 @@ export function ChatShell({
                     type="button"
                   >
                     <Clock3 className="size-4" />
+                  </button>
+                  <button
+                    aria-label="本次对话不写入记忆"
+                    aria-pressed={memoryWriteDisabledForActiveConversation}
+                    className={`app-action-button grid size-10 shrink-0 place-items-center rounded-full border transition disabled:opacity-45 ${
+                      memoryWriteDisabledForActiveConversation && !temporaryChatEnabled
+                        ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
+                        : "app-glass-control text-stone-600"
+                    }`}
+                    disabled={memoryWriteToggleDisabled}
+                    onClick={() =>
+                      setConversationMemoryWriteDisabled(
+                        activeConversationKeyRef.current,
+                        !memoryWriteDisabledByConversationRef.current[activeConversationKeyRef.current]
+                      )
+                    }
+                    title={memoryWriteToggleTitle}
+                    type="button"
+                  >
+                    <Shield className="size-4" />
                   </button>
                   <ModelReasoningPicker
                     activeModel={activeModel}

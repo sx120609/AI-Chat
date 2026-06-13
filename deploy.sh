@@ -469,6 +469,35 @@ prepare_app_dir() {
   fi
 }
 
+clean_next_build() {
+  local build_dir
+
+  build_dir="$APP_DIR/.next"
+  if [[ -z "$APP_DIR" || "$APP_DIR" == "/" || "$build_dir" != "$APP_DIR/.next" ]]; then
+    fail "Refusing to clean unsafe Next.js build path: $build_dir"
+  fi
+
+  log "Cleaning previous Next.js build artifacts..."
+  as_root rm -rf -- "$build_dir"
+
+  if [[ "$(id -u)" -eq 0 && "$APP_USER" != "root" ]]; then
+    as_root install -d -o "$APP_USER" -g "$APP_GROUP" "$build_dir"
+  fi
+}
+
+verify_next_static_assets() {
+  local asset_file static_dir
+
+  static_dir="$APP_DIR/.next/static/chunks"
+  [[ -s "$APP_DIR/.next/BUILD_ID" ]] || fail "Next.js build is missing .next/BUILD_ID."
+  [[ -d "$static_dir" ]] || fail "Next.js build is missing static chunks at $static_dir."
+
+  asset_file="$(find "$static_dir" -maxdepth 1 -type f \( -name "*.css" -o -name "*.js" \) -readable -print -quit)"
+  if [[ -z "$asset_file" ]]; then
+    fail "Next.js static chunks are missing or not readable at $static_dir."
+  fi
+}
+
 install_node_dependencies() {
   log "Installing Node dependencies..."
   if [[ -f "$APP_DIR/package-lock.json" ]]; then
@@ -489,7 +518,9 @@ build_application() {
   fi
 
   log "Building Next.js application..."
+  clean_next_build
   run_as_app_user npm run build
+  verify_next_static_assets
 }
 
 write_systemd_service() {

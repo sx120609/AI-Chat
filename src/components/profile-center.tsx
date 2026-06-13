@@ -7,7 +7,6 @@ import {
   BookOpen,
   Bot,
   Braces,
-  ChevronLeft,
   ChevronRight,
   Check,
   Clock3,
@@ -36,7 +35,7 @@ import {
   X
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DocumentTitle } from "@/components/document-title";
 import { SiteConfirmDialog, SiteNoticeDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
@@ -1667,9 +1666,7 @@ export function ProfileCenter({
     parsePersonalizationSettings(initialUser.aiStylePrompt)
   );
   const [activeTab, setActiveTab] = useState<ProfileTab>("overview");
-  const tabScrollerRef = useRef<HTMLDivElement | null>(null);
-  const tabButtonRefs = useRef(new Map<ProfileTab, HTMLButtonElement>());
-  const [tabScrollState, setTabScrollState] = useState({ canScrollLeft: false, canScrollRight: false });
+  const [mobileProfileMenuOpen, setMobileProfileMenuOpen] = useState(true);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [apiKeyName, setApiKeyName] = useState("个人 API Key");
@@ -2965,75 +2962,8 @@ export function ProfileCenter({
   }
 
   const personalizationPayloadSize = serializePersonalizationSettings(personalization).length;
-  const activeTabIndex = Math.max(
-    profileTabs.findIndex((tab) => tab.id === activeTab),
-    0
-  );
-  const updateTabScrollState = useCallback(() => {
-    const scroller = tabScrollerRef.current;
-
-    if (!scroller) {
-      return;
-    }
-
-    const maxScrollLeft = Math.max(scroller.scrollWidth - scroller.clientWidth, 0);
-
-    setTabScrollState({
-      canScrollLeft: scroller.scrollLeft > 4,
-      canScrollRight: scroller.scrollLeft < maxScrollLeft - 4
-    });
-  }, []);
-  const scrollProfileTabs = useCallback(
-    (direction: -1 | 1) => {
-      const scroller = tabScrollerRef.current;
-
-      if (!scroller) {
-        return;
-      }
-
-      scroller.scrollBy({
-        behavior: "smooth",
-        left: direction * Math.max(scroller.clientWidth * 0.78, 220)
-      });
-      window.setTimeout(updateTabScrollState, 280);
-    },
-    [updateTabScrollState]
-  );
-
-  useEffect(() => {
-    const scroller = tabScrollerRef.current;
-
-    if (!scroller) {
-      return;
-    }
-
-    const handleScroll = () => updateTabScrollState();
-    const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => updateTabScrollState());
-
-    updateTabScrollState();
-    scroller.addEventListener("scroll", handleScroll, { passive: true });
-    resizeObserver?.observe(scroller);
-    window.addEventListener("resize", handleScroll);
-
-    return () => {
-      scroller.removeEventListener("scroll", handleScroll);
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", handleScroll);
-    };
-  }, [updateTabScrollState]);
-
-  useEffect(() => {
-    tabButtonRefs.current.get(activeTab)?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "nearest"
-    });
-
-    const timer = window.setTimeout(updateTabScrollState, 280);
-
-    return () => window.clearTimeout(timer);
-  }, [activeTab, updateTabScrollState]);
+  const activeTabMeta = profileTabs.find((tab) => tab.id === activeTab) ?? profileTabs[0];
+  const ActiveProfileTabIcon = activeTabMeta.icon;
 
   return (
     <main className="ios-page app-shell app-route-enter flex flex-col text-stone-950">
@@ -3067,77 +2997,98 @@ export function ProfileCenter({
             </div>
           ) : null}
 
-          <nav className="ios-panel motion-lift p-2" aria-label="个人中心设置分类">
-            <div className="flex items-center gap-2">
-              <button
-                aria-label="上一组分类"
-                className="app-action-button app-glass-control grid size-10 shrink-0 place-items-center rounded-lg text-stone-700 disabled:opacity-35 sm:size-11"
-                disabled={!tabScrollState.canScrollLeft}
-                onClick={() => scrollProfileTabs(-1)}
-                title="上一组"
-                type="button"
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <div className="min-w-0 flex-1">
-                <div
-                  aria-label={`个人中心分类 ${activeTabIndex + 1} / ${profileTabs.length}`}
-                  className="app-tab-scroll flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth"
-                  ref={tabScrollerRef}
-                  role="tablist"
-                >
-                  {profileTabs.map((tab) => {
-                    const TabIcon = tab.icon;
-                    const selected = activeTab === tab.id;
-
-                    return (
-                      <button
-                        aria-selected={selected}
-                        className={`app-action-button flex min-h-14 w-[9.4rem] shrink-0 snap-start items-center gap-2.5 rounded-lg px-3 py-2 text-left transition sm:w-[10.5rem] ${
-                          selected
-                            ? "border border-white/70 bg-white text-stone-950 shadow-sm"
-                            : "border border-transparent text-stone-600 hover:bg-white/60"
-                        }`}
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        ref={(node) => {
-                          if (node) {
-                            tabButtonRefs.current.set(tab.id, node);
-                          } else {
-                            tabButtonRefs.current.delete(tab.id);
-                          }
-                        }}
-                        role="tab"
-                        type="button"
-                      >
-                        <span
-                          className={`grid size-8 shrink-0 place-items-center rounded-lg ${
-                            selected ? "bg-[color:var(--claude-accent)] text-white" : "bg-white/70"
-                          }`}
-                        >
-                          <TabIcon className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-semibold">{tab.label}</span>
-                          <span className="block truncate text-[11px] ios-muted">{tab.description}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+          {mobileProfileMenuOpen ? (
+            <section className="ios-panel motion-lift p-3 md:hidden" aria-label="个人中心二级菜单">
+              <div className="mb-3">
+                <h2 className="text-base font-semibold">设置分类</h2>
+                <p className="mt-1 text-xs ios-muted">选择一个分类进入设置页。</p>
               </div>
-              <button
-                aria-label="下一组分类"
-                className="app-action-button app-glass-control grid size-10 shrink-0 place-items-center rounded-lg text-stone-700 disabled:opacity-35 sm:size-11"
-                disabled={!tabScrollState.canScrollRight}
-                onClick={() => scrollProfileTabs(1)}
-                title="下一组"
-                type="button"
-              >
-                <ChevronRight className="size-4" />
-              </button>
+              <div className="grid gap-2">
+                {profileTabs.map((tab) => {
+                  const TabIcon = tab.icon;
+
+                  return (
+                    <button
+                      className="app-action-button flex min-h-16 items-center gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-3 py-2 text-left transition hover:bg-white"
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        setMobileProfileMenuOpen(false);
+                      }}
+                      type="button"
+                    >
+                      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
+                        <TabIcon className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-stone-950">{tab.label}</span>
+                        <span className="mt-0.5 block text-xs ios-muted">{tab.description}</span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-stone-400" />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          <nav className="ios-panel motion-lift hidden p-2 md:block" aria-label="个人中心设置分类">
+            <div className="grid gap-2 md:grid-cols-4 lg:grid-cols-8" role="tablist">
+              {profileTabs.map((tab) => {
+                const TabIcon = tab.icon;
+                const selected = activeTab === tab.id;
+
+                return (
+                  <button
+                    aria-selected={selected}
+                    className={`app-action-button flex min-h-14 items-center gap-2.5 rounded-lg px-3 py-2 text-left transition ${
+                      selected
+                        ? "border border-white/70 bg-white text-stone-950 shadow-sm"
+                        : "border border-transparent text-stone-600 hover:bg-white/60"
+                    }`}
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    role="tab"
+                    type="button"
+                  >
+                    <span
+                      className={`grid size-8 shrink-0 place-items-center rounded-lg ${
+                        selected ? "bg-[color:var(--claude-accent)] text-white" : "bg-white/70"
+                      }`}
+                    >
+                      <TabIcon className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{tab.label}</span>
+                      <span className="block truncate text-[11px] ios-muted">{tab.description}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </nav>
+
+          {!mobileProfileMenuOpen ? (
+            <div className="ios-panel motion-lift flex items-center gap-3 p-3 md:hidden">
+              <button
+                className="app-action-button app-glass-control grid size-10 shrink-0 place-items-center rounded-lg text-stone-700"
+                onClick={() => setMobileProfileMenuOpen(true)}
+                title="返回设置分类"
+                type="button"
+              >
+                <ArrowLeft className="size-4" />
+              </button>
+              <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
+                <ActiveProfileTabIcon className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-stone-950">{activeTabMeta.label}</p>
+                <p className="truncate text-xs ios-muted">{activeTabMeta.description}</p>
+              </div>
+            </div>
+          ) : null}
+
+          <div className={mobileProfileMenuOpen ? "hidden md:block" : "block"}>
 
           {activeTab === "overview" ? (
             <>
@@ -4778,7 +4729,7 @@ export function ProfileCenter({
           ) : null}
 
           {activeTab === "api" ? (
-            <section className="ios-panel motion-lift overflow-hidden">
+          <section className="ios-panel motion-lift overflow-hidden">
             <div className="flex items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
               <div className="flex items-center gap-2">
                 <KeyRound className="size-4 text-[color:var(--claude-accent)]" />
@@ -4950,6 +4901,7 @@ export function ProfileCenter({
             </div>
           </section>
           ) : null}
+          </div>
         </div>
       </div>
 

@@ -1199,7 +1199,13 @@ export function ChatShell({
     setProcessFinishedAt(null);
     setImageToolEnabled(false);
     setSourceImageMessage(null);
-    setWebSearchEnabledForMessage(false);
+    setTemporaryChatEnabled(false);
+    setMemoryWriteDisabledForMessage(false);
+    setWebSearchEnabledForMessage(
+      webSearchToolAvailable &&
+        personalizationSettings.toolPreferences.webSearchDefault &&
+        !securityModeDefault
+    );
 
     if (nextConversation?.model && nextConversation.model !== "image2") {
       setModel(nextConversation.model);
@@ -1401,6 +1407,20 @@ export function ChatShell({
     const requestTemporary = options.temporary ?? temporaryChatEnabled;
     const requestDisableMemoryWrite =
       options.disableMemoryWrite ?? (memoryWriteDisabledForMessage || requestTemporary);
+    const temporaryMessages = requestTemporary
+      ? messages
+          .filter(
+            (message) =>
+              !message.pending &&
+              !message.imageUrl &&
+              (message.role === "USER" || message.role === "ASSISTANT")
+          )
+          .slice(-20)
+          .map((message) => ({
+            content: message.content,
+            role: message.role
+          }))
+      : [];
     const useWebSearch = Boolean(options.useWebSearch);
     const localUser = reuseUserMessage ?? emptyMessage("USER", prompt, "CHAT", attachments);
     const localAssistant = {
@@ -1499,7 +1519,7 @@ export function ChatShell({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId: startingConversationId,
+          conversationId: requestTemporary ? undefined : startingConversationId,
           model,
           reasoningEffort,
           content: prompt,
@@ -1508,6 +1528,7 @@ export function ChatShell({
           reuseUserMessageId,
           sourceImageMessageId,
           temporary: requestTemporary,
+          temporaryMessages,
           useWebSearch,
           webSearchProvider,
           clientDate: promptClock.date,
@@ -1707,13 +1728,17 @@ export function ChatShell({
       if (event.event === "meta") {
         const nextConversationId =
           typeof event.data.conversationId === "string" ? event.data.conversationId : "";
+        const temporaryMeta = event.data.temporary === true;
 
-        if (!nextConversationId) {
+        if (!nextConversationId && !temporaryMeta) {
           return;
         }
 
-        conversationKey = resolveInFlightConversationKey(conversationKey, nextConversationId);
-        persistedConversationId = nextConversationId;
+        if (!temporaryMeta) {
+          conversationKey = resolveInFlightConversationKey(conversationKey, nextConversationId);
+          persistedConversationId = nextConversationId;
+        }
+
         const assistantDraft = event.data.assistantMessage as MessageView | undefined;
         const routeIsImage = assistantDraft?.mode === "IMAGE" || Boolean(assistantDraft?.imageUrl);
         routedToImage = routedToImage || routeIsImage;
@@ -1730,13 +1755,13 @@ export function ChatShell({
           };
 
           localAssistant.id = assistantDraft.id;
-          localAssistant.conversationId = nextConversationId;
+          localAssistant.conversationId = temporaryMeta ? localAssistant.conversationId : nextConversationId;
 
           if (currentInFlight) {
             storeInFlightChat(conversationKey, {
               ...currentInFlight,
               assistantMessage: nextAssistant,
-              conversationId: nextConversationId
+              conversationId: temporaryMeta ? currentInFlight.conversationId : nextConversationId
             });
           }
 
@@ -1753,10 +1778,13 @@ export function ChatShell({
         } else {
           updateChatAssistantMessage((message) => ({
             ...message,
-            conversationId: nextConversationId
+            conversationId: temporaryMeta ? message.conversationId : nextConversationId
           }));
         }
-        void refreshConversations();
+
+        if (!temporaryMeta) {
+          void refreshConversations();
+        }
 
         if (event.data.context) {
           const contextStats = event.data.context as ContextStats;

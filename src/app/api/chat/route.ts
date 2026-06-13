@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextRequest } from "next/server";
 import {
   attachmentDataUrl,
@@ -81,6 +82,10 @@ type ChatBody = {
   clientTimeZone?: string;
   disableMemoryWrite?: boolean;
   temporary?: boolean;
+  temporaryMessages?: Array<{
+    content?: string;
+    role?: string;
+  }>;
 };
 
 const encoder = new TextEncoder();
@@ -614,6 +619,88 @@ function messageForClient<
   return view;
 }
 
+function temporaryMessageForClient(options: {
+  attachments?: ReturnType<typeof attachmentToView>[];
+  completionTokens?: number;
+  content: string;
+  estimatedCostCents?: number;
+  generationStatus?: MessageGenerationStatus;
+  imageUrl?: string | null;
+  mode: "CHAT" | "IMAGE";
+  model: string;
+  processFinishedAt?: number | null;
+  processStartedAt?: number | null;
+  promptTokens?: number;
+  reasoningContent?: string | null;
+  reasoningTokens?: number;
+  role: "USER" | "ASSISTANT";
+  streamStatus?: string | null;
+  toolEvents?: PersistedToolEvent[];
+  totalTokens?: number;
+  usageSource?: string;
+  webSources?: WebSearchSource[];
+}) {
+  const now = new Date().toISOString();
+
+  return {
+    id: `temporary-${options.role.toLowerCase()}-${randomUUID()}`,
+    conversationId: "temporary",
+    role: options.role,
+    content: options.content,
+    reasoningContent: options.reasoningContent ?? null,
+    imageUrl: options.imageUrl ?? null,
+    generationStatus: options.generationStatus ?? "done",
+    streamStatus: options.streamStatus ?? null,
+    toolEvents: options.toolEvents ?? [],
+    processStartedAt: options.processStartedAt ?? null,
+    processFinishedAt: options.processFinishedAt ?? null,
+    model: options.model,
+    mode: options.mode,
+    promptTokens: options.promptTokens ?? 0,
+    completionTokens: options.completionTokens ?? 0,
+    totalTokens: options.totalTokens ?? 0,
+    cachedPromptTokens: 0,
+    reasoningTokens: options.reasoningTokens ?? 0,
+    usageSource: options.usageSource ?? "estimated",
+    estimatedCostCents: options.estimatedCostCents ?? 0,
+    createdAt: now,
+    attachments: options.attachments ?? [],
+    webSources: options.webSources ?? []
+  };
+}
+
+function normalizeTemporaryContextMessages(value: ChatBody["temporaryMessages"]) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((message) => message.role === "USER" || message.role === "ASSISTANT")
+    .map((message) => ({
+      createdAt: new Date(),
+      id: `temporary-context-${randomUUID()}`,
+      role: message.role as "USER" | "ASSISTANT",
+      content: typeof message.content === "string" ? message.content.trim().slice(0, 8000) : ""
+    }))
+    .filter((message) => message.content)
+    .slice(-20);
+}
+
+async function cleanupTemporaryAttachments(attachments: ChatAttachment[], enabled: boolean) {
+  if (!enabled || attachments.length === 0) {
+    return;
+  }
+
+  await prisma.attachment
+    .deleteMany({
+      where: {
+        id: { in: attachments.map((attachment) => attachment.id) }
+      }
+    })
+    .catch(() => undefined);
+  await deleteAttachmentFiles(attachments).catch(() => undefined);
+}
+
 async function readWithIdleTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   timeoutMs: number
@@ -877,6 +964,10 @@ export async function POST(request: NextRequest) {
 
   const model = getChatModel(body.model, aiSettings.chatModels);
   const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
+  if (body.temporary === true && body.reuseUserMessageId) {
+    return jsonError("临时聊天不会改写已有聊天记录，请直接发送新消息。", 400);
+  }
+
   const reusedUserMessage = body.reuseUserMessageId
     ? await prisma.message.findFirst({
         where: {
@@ -930,7 +1021,7 @@ export async function POST(request: NextRequest) {
 
   const existingConversation = reusedUserMessage
     ? reusedUserMessage.conversation
-    : body.conversationId
+    : !temporaryChat && body.conversationId
     ? await prisma.conversation.findFirst({
         where: {
           id: body.conversationId,
@@ -944,7 +1035,7 @@ export async function POST(request: NextRequest) {
       })
     : null;
 
-  if ((body.conversationId || body.reuseUserMessageId) && !existingConversation) {
+  if (((!temporaryChat && body.conversationId) || body.reuseUserMessageId) && !existingConversation) {
     return jsonError("会话不存在。", 404);
   }
 
@@ -1041,6 +1132,7 @@ export async function POST(request: NextRequest) {
       : null;
 
     if (body.sourceImageMessageId && !sourceImageMessage?.imageUrl) {
+      await cleanupTemporaryAttachments(attachments, temporaryChat);
       return jsonError("源图片不存在或无权访问。", 404);
     }
 
@@ -1052,10 +1144,195 @@ export async function POST(request: NextRequest) {
       await assertQuotaAvailable(user.id, estimatedCostCents);
     } catch (error) {
       if (error instanceof QuotaError) {
+        await cleanupTemporaryAttachments(attachments, temporaryChat);
         return jsonError(error.message, error.status, { usage: error.summary });
       }
 
+      await cleanupTemporaryAttachments(attachments, temporaryChat);
       throw error;
+    }
+
+    if (temporaryChat) {
+      const imageUserMessageView = temporaryMessageForClient({
+        attachments: effectiveAttachments.map(attachmentToView),
+        content,
+        mode: "IMAGE",
+        model: "image2",
+        role: "USER"
+      });
+      const imageRouterFinishedAt = Date.now();
+      const imageStartedAt = imageRouterFinishedAt;
+      const imageInitialEvents: PersistedToolEvent[] = [
+        {
+          detail: toolRoutePlan.reason
+            ? `AI 路由选择 image2：${toolRoutePlan.reason}`
+            : "AI 路由选择 image2",
+          finishedAt: imageRouterFinishedAt,
+          id: "router",
+          label: "工具状态",
+          startedAt: routerStartedAt,
+          status: "done",
+          type: "router"
+        },
+        ...(effectiveAttachments.length > 0
+          ? [
+              {
+                detail: `已读取 ${effectiveAttachments.length} 个临时附件并加入生图上下文`,
+                finishedAt: attachmentFinishedAt,
+                id: "attachments",
+                label: "附件",
+                startedAt: attachmentStartedAt,
+                status: "done" as const,
+                type: "attachments" as const
+              }
+            ]
+          : []),
+        {
+          detail:
+            sourceImageMessage?.imageUrl || effectiveAttachments.some((attachment) => attachment.kind === "IMAGE")
+              ? "正在基于图片生成或编辑"
+              : "正在根据文字生成图片",
+          id: "image",
+          label: "image2",
+          startedAt: imageStartedAt,
+          status: "running",
+          type: "image"
+        }
+      ];
+      const imageAssistantDraft = temporaryMessageForClient({
+        content: "生成中...",
+        generationStatus: "running",
+        mode: "IMAGE",
+        model: "image2",
+        processStartedAt: routerStartedAt,
+        role: "ASSISTANT",
+        streamStatus: "正在使用 image2 生成图片...",
+        toolEvents: imageInitialEvents
+      });
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const stopKeepAlive = startSseKeepAlive(controller);
+          let imageEvents = imageInitialEvents;
+
+          sse(controller, "meta", {
+            temporary: true,
+            userMessage: imageUserMessageView,
+            assistantMessage: imageAssistantDraft
+          });
+          for (const toolEvent of imageEvents) {
+            sse(controller, "tool", toolEvent);
+          }
+
+          try {
+            const sourceImages = await Promise.all(
+              [
+                ...effectiveAttachments
+                  .filter((attachment) => attachment.kind === "IMAGE")
+                  .map(async (attachment) => ({
+                    buffer: await readAttachmentBuffer(attachment),
+                    mimeType: attachment.mimeType,
+                    originalName: attachment.originalName
+                  })),
+                ...(sourceImageMessage?.imageUrl
+                  ? [sourceImageFromMessageUrl(sourceImageMessage.imageUrl)]
+                  : [])
+              ]
+            );
+            const imageUrl = await generateImage(promptWithAttachmentContext, "1024x1024", {
+              sourceImages
+            });
+            const finishedAt = Date.now();
+            imageEvents = mergePersistedToolEvent(imageEvents, {
+              detail: "图片已生成",
+              finishedAt,
+              id: "image",
+              label: "image2",
+              status: "done",
+              type: "image"
+            }, finishedAt);
+
+            await prisma.usageRecord.create({
+              data: {
+                userId: user.id,
+                model: "image2",
+                mode: "IMAGE",
+                promptTokens,
+                totalTokens: promptTokens,
+                estimatedCostCents
+              }
+            });
+
+            const usage = await getUsageSummary(user.id, { readCache: false });
+            const assistantMessage = temporaryMessageForClient({
+              content: "Image generated",
+              estimatedCostCents,
+              generationStatus: "done",
+              imageUrl,
+              mode: "IMAGE",
+              model: "image2",
+              processFinishedAt: finishedAt,
+              processStartedAt: routerStartedAt,
+              promptTokens,
+              role: "ASSISTANT",
+              streamStatus: "生图完成。",
+              toolEvents: imageEvents,
+              totalTokens: promptTokens
+            });
+
+            sse(controller, "tool", imageEvents.find((event) => event.id === "image"));
+            sse(controller, "done", {
+              assistantMessage,
+              temporary: true,
+              usage
+            });
+          } catch (error) {
+            const finishedAt = Date.now();
+            const message = error instanceof Error ? error.message : "上游生图失败。";
+            imageEvents = mergePersistedToolEvent(imageEvents, {
+              detail: message,
+              finishedAt,
+              id: "image",
+              label: "image2",
+              status: "error",
+              type: "image"
+            }, finishedAt);
+            const assistantMessage = temporaryMessageForClient({
+              content: message,
+              generationStatus: "error",
+              mode: "IMAGE",
+              model: "image2",
+              processFinishedAt: finishedAt,
+              processStartedAt: routerStartedAt,
+              role: "ASSISTANT",
+              streamStatus: "生图失败。",
+              toolEvents: imageEvents
+            });
+
+            sse(controller, "tool", imageEvents.find((event) => event.id === "image"));
+            sse(controller, "error", {
+              assistantMessage,
+              error: message,
+              temporary: true
+            });
+          } finally {
+            await cleanupTemporaryAttachments(attachments, true);
+            stopKeepAlive();
+            try {
+              controller.close();
+            } catch {
+              // The browser may have closed the stream; temporary data has no persisted draft to recover.
+            }
+          }
+        }
+      });
+
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive"
+        }
+      });
     }
 
     const imageConversation =
@@ -1333,18 +1610,20 @@ export async function POST(request: NextRequest) {
         take: MAX_CONTEXT_HISTORY_MESSAGES
       })
     : [];
-  const previousContextMessages = await Promise.all(
-    previousMessages.map(async (message) => {
-      const messageAttachments = await ensureAttachmentsMetadata(message.attachments);
+  const previousContextMessages = temporaryChat
+    ? normalizeTemporaryContextMessages(body.temporaryMessages)
+    : await Promise.all(
+        previousMessages.map(async (message) => {
+          const messageAttachments = await ensureAttachmentsMetadata(message.attachments);
 
-      return {
-        createdAt: message.createdAt,
-        id: message.id,
-        role: message.role as "USER" | "ASSISTANT",
-        content: contentWithAttachmentContext(message.content, messageAttachments)
-      };
-    })
-  );
+          return {
+            createdAt: message.createdAt,
+            id: message.id,
+            role: message.role as "USER" | "ASSISTANT",
+            content: contentWithAttachmentContext(message.content, messageAttachments)
+          };
+        })
+      );
 
   // 网关侧身份系统提示词：覆盖 Sub2API 等订阅型上游自带的 Codex CLI 身份设定
   const baseSystemPrompt = resolveSystemPrompt({
@@ -1466,10 +1745,332 @@ export async function POST(request: NextRequest) {
     await assertQuotaAvailable(user.id, quotaCostEstimate);
   } catch (error) {
     if (error instanceof QuotaError) {
+      await cleanupTemporaryAttachments(attachments, temporaryChat);
       return jsonError(error.message, error.status, { usage: error.summary });
     }
 
+    await cleanupTemporaryAttachments(attachments, temporaryChat);
     throw error;
+  }
+
+  if (temporaryChat) {
+    const userMessageView = temporaryMessageForClient({
+      attachments: effectiveAttachments.map(attachmentToView),
+      content,
+      mode: "CHAT",
+      model: model.id,
+      role: "USER"
+    });
+    const routerFinishedAt = Date.now();
+    const toolEvents = buildToolEvents({
+      attachmentCount: effectiveAttachments.length,
+      attachmentFinishedAt,
+      attachmentStartedAt,
+      contextCompression: compressionResult.compression,
+      memoryResult: null,
+      routerFinishedAt,
+      routerStartedAt,
+      webSearchResult,
+      webSearchFinishedAt,
+      webSearchStartedAt
+    });
+    const initialProcessToolEvents = mergePersistedToolEvent(
+      normalizeToolEvents(toolEvents),
+      {
+        detail: MODEL_THINKING_DETAIL,
+        id: "generation",
+        label: "思考中",
+        startedAt: routerFinishedAt,
+        status: "running",
+        type: "generation"
+      },
+      routerFinishedAt
+    );
+    const assistantDraftMessage = temporaryMessageForClient({
+      content: "",
+      generationStatus: "running",
+      mode: "CHAT",
+      model: model.id,
+      processStartedAt: routerStartedAt,
+      role: "ASSISTANT",
+      streamStatus: MODEL_THINKING_STATUS,
+      toolEvents: initialProcessToolEvents,
+      webSources: webSearchSources
+    });
+    const streamAbortController = new AbortController();
+    const abortStream = () => streamAbortController.abort();
+
+    if (request.signal.aborted) {
+      abortStream();
+    } else {
+      request.signal.addEventListener("abort", abortStream, { once: true });
+    }
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const stopKeepAlive = startSseKeepAlive(controller);
+        let assistantContent = "";
+        let reasoningContent = "";
+        let streamedReasoningContent = "";
+        let processToolEvents: PersistedToolEvent[] = initialProcessToolEvents;
+        let generationStreamStarted = false;
+        let currentStreamStatus = MODEL_THINKING_STATUS;
+
+        const upsertProcessToolEvent = (
+          event: Omit<PersistedToolEvent, "startedAt"> & Partial<Pick<PersistedToolEvent, "startedAt">>,
+          now = Date.now()
+        ) => {
+          processToolEvents = mergePersistedToolEvent(processToolEvents, event, now);
+        };
+        const markModelOutputStarted = (detail: string, status: string) => {
+          if (generationStreamStarted) {
+            return;
+          }
+
+          generationStreamStarted = true;
+          currentStreamStatus = status;
+          upsertProcessToolEvent({
+            detail,
+            id: "generation",
+            label: "思考中",
+            status: "running",
+            type: "generation"
+          });
+        };
+        const emitReasoningDelta = () => {
+          const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
+
+          if (!visibleReasoningContent || visibleReasoningContent === streamedReasoningContent) {
+            return;
+          }
+
+          const delta = visibleReasoningContent.startsWith(streamedReasoningContent)
+            ? visibleReasoningContent.slice(streamedReasoningContent.length)
+            : visibleReasoningContent;
+
+          streamedReasoningContent = visibleReasoningContent;
+          sse(controller, "reasoning", { delta });
+        };
+        const finalizeTemporaryAssistant = async (options: {
+          errorMessage?: string;
+          finishedAt?: number;
+          status: MessageGenerationStatus;
+          streamStatus: string;
+          upstreamUsage?: UpstreamUsage;
+        }) => {
+          const finishedAt = options.finishedAt ?? Date.now();
+          currentStreamStatus = options.streamStatus;
+          processToolEvents = processToolEvents.map((event) =>
+            event.status === "running"
+              ? {
+                  ...event,
+                  detail: event.id === "generation" ? options.streamStatus : event.detail,
+                  finishedAt,
+                  status: options.status === "error" ? ("error" as const) : ("skipped" as const)
+                }
+              : event
+          );
+          const visibleAssistantContent = sanitizeIdentityLeak(assistantContent, model.label);
+          const visibleReasoningContent = sanitizeReasoningContent(reasoningContent, model.label);
+          const contentForHistory =
+            visibleAssistantContent ||
+            (options.errorMessage && !visibleReasoningContent ? options.errorMessage : "");
+          const shouldRecordUsage = Boolean(
+            options.upstreamUsage || visibleAssistantContent || visibleReasoningContent
+          );
+          const tokenUsage = shouldRecordUsage
+            ? resolveTokenUsage({
+                completionTokensEstimate: Math.max(
+                  1,
+                  estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
+                ),
+                model,
+                promptTokensEstimate,
+                upstreamUsage: options.upstreamUsage
+              })
+            : null;
+
+          if (tokenUsage) {
+            await prisma.usageRecord.create({
+              data: {
+                userId: user.id,
+                model: model.id,
+                mode: "CHAT",
+                promptTokens: tokenUsage.promptTokens,
+                completionTokens: tokenUsage.completionTokens,
+                totalTokens: tokenUsage.totalTokens,
+                cachedPromptTokens: tokenUsage.cachedPromptTokens,
+                reasoningTokens: tokenUsage.reasoningTokens,
+                usageSource: tokenUsage.usageSource,
+                upstreamUsageJson: tokenUsage.upstreamUsageJson,
+                estimatedCostCents: tokenUsage.estimatedCostCents
+              }
+            });
+          }
+
+          return temporaryMessageForClient({
+            content: contentForHistory,
+            completionTokens: tokenUsage?.completionTokens,
+            estimatedCostCents: tokenUsage?.estimatedCostCents,
+            generationStatus: options.status,
+            mode: "CHAT",
+            model: model.id,
+            processFinishedAt: finishedAt,
+            processStartedAt: routerStartedAt,
+            promptTokens: tokenUsage?.promptTokens,
+            reasoningContent: visibleReasoningContent || null,
+            reasoningTokens: tokenUsage?.reasoningTokens,
+            role: "ASSISTANT",
+            streamStatus: options.streamStatus,
+            toolEvents: processToolEvents,
+            totalTokens: tokenUsage?.totalTokens,
+            usageSource: tokenUsage?.usageSource,
+            webSources: webSearchSources
+          });
+        };
+
+        sse(controller, "meta", {
+          temporary: true,
+          userMessage: userMessageView,
+          assistantMessage: assistantDraftMessage,
+          context: contextStats
+        });
+        for (const toolEvent of toolEvents) {
+          sse(controller, "tool", toolEvent);
+        }
+
+        try {
+          let upstreamUsage: UpstreamUsage | undefined;
+
+          if (aiSettings.mockResponses) {
+            await streamMockAnswer(content, (delta) => {
+              assistantContent += delta;
+              markModelOutputStarted(MODEL_STREAMING_DETAIL, MODEL_STREAMING_STATUS);
+              sse(controller, "delta", { delta });
+            }, streamAbortController.signal);
+          } else {
+            const upstreamBody = await createResponseStream(
+              model.id,
+              upstreamMessages,
+              aiSettings,
+              {
+                fallbackMessages: buildFallbackUpstreamMessages,
+                reasoningEffort,
+                signal: streamAbortController.signal
+              }
+            );
+            upstreamUsage = await pipeOpenAiSse(upstreamBody, {
+              onDelta: (delta) => {
+                assistantContent += delta;
+                markModelOutputStarted(MODEL_STREAMING_DETAIL, MODEL_STREAMING_STATUS);
+                sse(controller, "delta", { delta });
+              },
+              onReasoning: (delta) => {
+                reasoningContent += delta;
+                markModelOutputStarted("正在思考并整理思路", "正在思考...");
+                emitReasoningDelta();
+              }
+            });
+          }
+
+          const finishedAt = Date.now();
+          const doneDetail = assistantContent
+            ? "回答已生成"
+            : reasoningContent
+              ? "思考过程已保存，但没有返回可见文本"
+              : "上游已完成，但没有返回可见文本";
+          const doneStatus = assistantContent
+            ? "已完成。"
+            : reasoningContent
+              ? "已完成，未返回可见文本。"
+              : "上游已完成，但没有返回可见文本。";
+
+          upsertProcessToolEvent(
+            {
+              detail: doneDetail,
+              finishedAt,
+              id: "generation",
+              label: "模型生成",
+              status: "done",
+              type: "generation"
+            },
+            finishedAt
+          );
+          upsertProcessToolEvent(
+            {
+              detail: "已更新余额和费用",
+              finishedAt,
+              id: "usage",
+              label: "用量统计",
+              status: "done",
+              type: "usage"
+            },
+            finishedAt
+          );
+          const assistantMessage = await finalizeTemporaryAssistant({
+            finishedAt,
+            status: "done",
+            streamStatus: doneStatus,
+            upstreamUsage
+          });
+          const usage = await getUsageSummary(user.id, { readCache: false });
+
+          sse(controller, "done", {
+            assistantMessage,
+            temporary: true,
+            usage
+          });
+        } catch (error) {
+          const finishedAt = Date.now();
+          const message =
+            error instanceof Error && streamAbortController.signal.aborted
+              ? "已停止。"
+              : error instanceof Error
+                ? error.message
+                : "上游调用失败。";
+          upsertProcessToolEvent(
+            {
+              detail: message,
+              finishedAt,
+              id: "generation",
+              label: "模型生成",
+              status: streamAbortController.signal.aborted ? "skipped" : "error",
+              type: "generation"
+            },
+            finishedAt
+          );
+          const assistantMessage = await finalizeTemporaryAssistant({
+            errorMessage: message,
+            finishedAt,
+            status: streamAbortController.signal.aborted ? "stopped" : "error",
+            streamStatus: message
+          });
+
+          sse(controller, "error", {
+            assistantMessage,
+            error: message,
+            temporary: true
+          });
+        } finally {
+          await cleanupTemporaryAttachments(attachments, true);
+          request.signal.removeEventListener("abort", abortStream);
+          stopKeepAlive();
+          try {
+            controller.close();
+          } catch {
+            // The browser may have closed the stream; temporary data has no persisted draft to recover.
+          }
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive"
+      }
+    });
   }
 
   const conversation =

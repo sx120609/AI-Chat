@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
         originalName: true,
         mimeType: true,
         sizeBytes: true,
+        temporary: true,
         createdAt: true
       }
     }),

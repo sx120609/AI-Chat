@@ -21,6 +21,8 @@ type RoutePlanBody = {
   model?: string;
   reuseUserMessageId?: string;
   sourceImageMessageId?: string;
+  disableMemoryWrite?: boolean;
+  temporary?: boolean;
   useWebSearch?: boolean;
 };
 
@@ -125,12 +127,17 @@ export async function POST(request: NextRequest) {
     timeZone: body.clientTimeZone
   });
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+  const memoryWriteEnabled =
+    personalizationSettings.savedMemoryEnabled &&
+    personalizationSettings.chatHistoryMemoryEnabled &&
+    body.temporary !== true &&
+    body.disableMemoryWrite !== true;
   const plan = await planMessageTools({
     attachmentCount: effectiveAttachments.length,
     forceSearch: body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
-    memoryEnabled: personalizationSettings.memoryEnabled,
+    memoryEnabled: memoryWriteEnabled,
     prompt: content,
     promptClock,
     settings: aiSettings,

@@ -56,6 +56,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
 import { DEFAULT_REASONING_EFFORT, REASONING_EFFORTS } from "@/lib/models";
+import { parsePersonalizationSettings } from "@/lib/personalization";
 import { formatCents, formatNumber } from "@/lib/format";
 import { formatPromptClock } from "@/lib/system-prompt";
 import { SiteConfirmDialog } from "@/components/site-dialog";
@@ -438,6 +439,17 @@ export function ChatShell({
   initialUsage,
   initialWebSearchEnabled
 }: ChatShellProps) {
+  const personalizationSettings = useMemo(
+    () => parsePersonalizationSettings(initialUser.aiStylePrompt),
+    [initialUser.aiStylePrompt]
+  );
+  const securityModeDefault = personalizationSettings.toolPreferences.securityMode;
+  const defaultTemporaryMode = personalizationSettings.temporaryChatDefault || securityModeDefault;
+  const defaultModel = initialModels.some(
+    (item) => item.id === personalizationSettings.toolPreferences.defaultModel
+  )
+    ? personalizationSettings.toolPreferences.defaultModel
+    : initialModels[0]?.id ?? "";
   const [user] = useState(initialUser);
   const [siteSettings, setSiteSettings] = useState(initialSiteSettings);
   const [usage, setUsage] = useState(initialUsage);
@@ -464,10 +476,16 @@ export function ChatShell({
   const [imageToolEnabled, setImageToolEnabled] = useState(false);
   const [sourceImageMessage, setSourceImageMessage] = useState<MessageView | null>(null);
   const [webSearchAvailable, setWebSearchAvailable] = useState(initialWebSearchEnabled);
-  const [webSearchEnabledForMessage, setWebSearchEnabledForMessage] = useState(false);
-  const [model, setModel] = useState<string>(initialModels[0]?.id ?? "");
+  const [webSearchEnabledForMessage, setWebSearchEnabledForMessage] = useState(
+    initialWebSearchEnabled &&
+      personalizationSettings.toolPreferences.webSearchDefault &&
+      !securityModeDefault
+  );
+  const [temporaryChatEnabled, setTemporaryChatEnabled] = useState(defaultTemporaryMode);
+  const [memoryWriteDisabledForMessage, setMemoryWriteDisabledForMessage] = useState(false);
+  const [model, setModel] = useState<string>(defaultModel);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
-    initialDefaultReasoningEffort
+    personalizationSettings.toolPreferences.defaultReasoningEffort || initialDefaultReasoningEffort
   );
   const [composerDraft, setComposerDraft] = useState<ComposerDraftState>({
     focusToken: 0,
@@ -507,6 +525,11 @@ export function ChatShell({
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const quotaBlocked = usage.remainingCostCents <= 0;
+  const imageGenerationAvailable =
+    personalizationSettings.toolPreferences.imageGenerationEnabled && !securityModeDefault;
+  const fileAnalysisAvailable =
+    personalizationSettings.toolPreferences.fileAnalysisEnabled && !securityModeDefault;
+  const webSearchToolAvailable = webSearchAvailable && !securityModeDefault;
   const runningGenerationKeySet = useMemo(
     () => new Set(runningGenerationKeys),
     [runningGenerationKeys]
@@ -956,7 +979,13 @@ export function ChatShell({
     setProcessFinishedAt(null);
     setImageToolEnabled(false);
     setSourceImageMessage(null);
-    setWebSearchEnabledForMessage(false);
+    setTemporaryChatEnabled(defaultTemporaryMode);
+    setMemoryWriteDisabledForMessage(false);
+    setWebSearchEnabledForMessage(
+      webSearchToolAvailable &&
+        personalizationSettings.toolPreferences.webSearchDefault &&
+        !securityModeDefault
+    );
     setMobileSidebarOpen(false);
     setOpenConversationMenuId(null);
     setRenamingConversationId(null);
@@ -1204,6 +1233,10 @@ export function ChatShell({
       formData.append("files", file);
     }
 
+    if (temporaryChatEnabled) {
+      formData.set("temporary", "1");
+    }
+
     try {
       const response = await fetch("/api/attachments", {
         method: "POST",
@@ -1354,15 +1387,20 @@ export function ChatShell({
     prompt: string,
     attachments: AttachmentView[],
     options: {
+      disableMemoryWrite?: boolean;
       imageToolRequested?: boolean;
       reuseUserMessage?: MessageView;
       sourceImageMessage?: MessageView | null;
+      temporary?: boolean;
       useWebSearch?: boolean;
     } = {}
   ) {
     const reuseUserMessage = options.reuseUserMessage;
     const reuseUserMessageId = reuseUserMessage?.id;
     const sourceImageMessageId = options.sourceImageMessage?.id;
+    const requestTemporary = options.temporary ?? temporaryChatEnabled;
+    const requestDisableMemoryWrite =
+      options.disableMemoryWrite ?? (memoryWriteDisabledForMessage || requestTemporary);
     const useWebSearch = Boolean(options.useWebSearch);
     const localUser = reuseUserMessage ?? emptyMessage("USER", prompt, "CHAT", attachments);
     const localAssistant = {
@@ -1465,9 +1503,11 @@ export function ChatShell({
           model,
           reasoningEffort,
           content: prompt,
+          disableMemoryWrite: requestDisableMemoryWrite,
           imageToolRequested: Boolean(options.imageToolRequested),
           reuseUserMessageId,
           sourceImageMessageId,
+          temporary: requestTemporary,
           useWebSearch,
           webSearchProvider,
           clientDate: promptClock.date,
@@ -2590,6 +2630,11 @@ export function ChatShell({
       return;
     }
 
+    if (!imageGenerationAvailable) {
+      setError("图片生成已在个人中心关闭，或当前处于安全模式。");
+      return;
+    }
+
     setEditingMessage(null);
     setSourceImageMessage(message);
     setImageToolEnabled(true);
@@ -2605,7 +2650,14 @@ export function ChatShell({
     setStreamStatus("");
   }
 
-  async function submitEditedMessage(prompt: string, useWebSearch: boolean) {
+  async function submitEditedMessage(
+    prompt: string,
+    useWebSearch: boolean,
+    options: {
+      disableMemoryWrite?: boolean;
+      temporary?: boolean;
+    } = {}
+  ) {
     if (!editingMessage) {
       return;
     }
@@ -2644,7 +2696,9 @@ export function ChatShell({
     }
 
     await sendChat(prompt, payload.message.attachments ?? [], {
+      disableMemoryWrite: options.disableMemoryWrite,
       reuseUserMessage: payload.message,
+      temporary: options.temporary,
       useWebSearch
     });
   }
@@ -2721,21 +2775,40 @@ export function ChatShell({
     setProcessFinishedAt(null);
 
     try {
-      const useWebSearch = webSearchAvailable && webSearchEnabledForMessage;
+      const useWebSearch = webSearchToolAvailable && webSearchEnabledForMessage;
+      const requestTemporary = temporaryChatEnabled;
+      const requestDisableMemoryWrite = memoryWriteDisabledForMessage || requestTemporary;
 
       if (editingMessage) {
-        setWebSearchEnabledForMessage(false);
-        await submitEditedMessage(prompt, useWebSearch);
+        setMemoryWriteDisabledForMessage(false);
+        setTemporaryChatEnabled(defaultTemporaryMode);
+        setWebSearchEnabledForMessage(
+          webSearchToolAvailable &&
+            personalizationSettings.toolPreferences.webSearchDefault &&
+            !securityModeDefault
+        );
+        await submitEditedMessage(prompt, useWebSearch, {
+          disableMemoryWrite: requestDisableMemoryWrite,
+          temporary: requestTemporary
+        });
         return;
       }
 
-      const imageToolRequested = imageToolEnabled || Boolean(sourceImage);
+      const imageToolRequested = imageGenerationAvailable && (imageToolEnabled || Boolean(sourceImage));
       setImageToolEnabled(false);
-      setWebSearchEnabledForMessage(false);
+      setMemoryWriteDisabledForMessage(false);
+      setTemporaryChatEnabled(defaultTemporaryMode);
+      setWebSearchEnabledForMessage(
+        webSearchToolAvailable &&
+          personalizationSettings.toolPreferences.webSearchDefault &&
+          !securityModeDefault
+      );
 
       await sendChat(prompt, attachments, {
+        disableMemoryWrite: requestDisableMemoryWrite,
         imageToolRequested,
         sourceImageMessage: sourceImage,
+        temporary: requestTemporary,
         useWebSearch
       });
     } finally {
@@ -3268,7 +3341,7 @@ export function ChatShell({
                 lastContextStats={lastContextStats}
               />
             ) : null}
-            {imageToolEnabled ? (
+            {imageGenerationAvailable && imageToolEnabled ? (
               <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
                 <ImageIcon className="size-3.5 text-[color:var(--claude-accent)]" />
                 {sourceImageMessage
@@ -3276,10 +3349,16 @@ export function ChatShell({
                   : "下一条会优先走 image2 生图"}
               </div>
             ) : null}
-            {webSearchAvailable && webSearchEnabledForMessage ? (
+            {webSearchToolAvailable && webSearchEnabledForMessage ? (
               <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
                 <Search className="size-3.5 text-[color:var(--claude-accent)]" />
                 下一条将联网搜索（{webSearchProviderLabel}）
+              </div>
+            ) : null}
+            {temporaryChatEnabled || memoryWriteDisabledForMessage ? (
+              <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
+                <Shield className="size-3.5 text-[color:var(--claude-accent)]" />
+                {temporaryChatEnabled ? "临时聊天：不读取或写入长期记忆" : "本次对话不写入记忆"}
               </div>
             ) : null}
             {toolEvents.length > 0 && processStartedAt && !inlineProcessMessageId ? (
@@ -3367,9 +3446,15 @@ export function ChatShell({
               <div className="flex shrink-0 items-center gap-1">
                 <button
                   className="app-action-button app-glass-control grid size-9 shrink-0 place-items-center rounded-full text-stone-600 transition disabled:opacity-50"
-                  disabled={loading || quotaBlocked || uploadingAttachments || conversationSwitching}
+                  disabled={
+                    !fileAnalysisAvailable ||
+                    loading ||
+                    quotaBlocked ||
+                    uploadingAttachments ||
+                    conversationSwitching
+                  }
                   onClick={() => fileInputRef.current?.click()}
-                  title="上传文件或图片"
+                  title={fileAnalysisAvailable ? "上传文件或图片" : "文件分析已关闭"}
                   type="button"
                 >
                   {uploadingAttachments ? (
@@ -3384,7 +3469,7 @@ export function ChatShell({
                       ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
                       : "app-glass-control text-stone-600 sm:text-stone-600"
                   }`}
-                  disabled={loading || quotaBlocked || conversationSwitching}
+                  disabled={!imageGenerationAvailable || loading || quotaBlocked || conversationSwitching}
                   onClick={() => {
                     const nextImageToolEnabled = !imageToolEnabled;
                     setImageToolEnabled(nextImageToolEnabled);
@@ -3397,12 +3482,18 @@ export function ChatShell({
                       setWebSearchEnabledForMessage(false);
                     }
                   }}
-                  title={imageToolEnabled ? "已开启：优先走 image2 生图" : "优先走 image2 生图"}
+                  title={
+                    imageGenerationAvailable
+                      ? imageToolEnabled
+                        ? "已开启：优先走 image2 生图"
+                        : "优先走 image2 生图"
+                      : "图片生成已关闭"
+                  }
                   type="button"
                 >
                   <ImageIcon className="size-4" />
                 </button>
-                {webSearchAvailable ? (
+                {webSearchToolAvailable ? (
                   <div className="relative flex min-w-0 shrink-0 items-center">
                     <button
                       aria-pressed={webSearchEnabledForMessage}
@@ -3431,12 +3522,40 @@ export function ChatShell({
                     </button>
                   </div>
                 ) : null}
+                <button
+                  aria-pressed={temporaryChatEnabled || memoryWriteDisabledForMessage}
+                  className={`app-action-button grid size-9 shrink-0 place-items-center rounded-full border transition ${
+                    temporaryChatEnabled || memoryWriteDisabledForMessage
+                      ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
+                      : "app-glass-control text-stone-600 sm:text-stone-600"
+                  }`}
+                  disabled={loading || quotaBlocked || conversationSwitching}
+                  onClick={() => {
+                    if (temporaryChatEnabled) {
+                      setTemporaryChatEnabled(false);
+                      setMemoryWriteDisabledForMessage(false);
+                      return;
+                    }
+
+                    setMemoryWriteDisabledForMessage((current) => !current);
+                  }}
+                  title={
+                    temporaryChatEnabled
+                      ? "已开启临时聊天：不读取或写入长期记忆"
+                      : memoryWriteDisabledForMessage
+                        ? "已开启：本次对话不写入记忆"
+                        : "本次对话不写入记忆"
+                  }
+                  type="button"
+                >
+                  <Shield className="size-4" />
+                </button>
               </div>
               <ComposerInputArea
                 disabled={conversationSwitching}
                 draftFocusToken={composerDraft.focusToken}
                 draftText={composerDraft.text}
-                imageToolEnabled={imageToolEnabled}
+                imageToolEnabled={imageGenerationAvailable && imageToolEnabled}
                 loading={loading}
                 onSend={sendHandler}
                 onStop={stopGenerationHandler}
@@ -3444,7 +3563,7 @@ export function ChatShell({
                 quotaBlocked={quotaBlocked}
                 sourceImageSelected={Boolean(sourceImageMessage)}
                 uploadingAttachments={uploadingAttachments}
-                webSearchEnabledForMessage={webSearchEnabledForMessage}
+                webSearchEnabledForMessage={webSearchToolAvailable && webSearchEnabledForMessage}
               />
             </div>
           </div>

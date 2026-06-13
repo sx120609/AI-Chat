@@ -1,8 +1,11 @@
 export type PersonalizationLevel = "default" | "low" | "medium" | "high";
 export type BaseStyle = "default" | "concise" | "balanced" | "detailed";
+export type ChatPersonality = "default" | "friendly" | "direct" | "encouraging" | "professional";
 
 export type PersonalizationSettings = {
+  customizationEnabled: boolean;
   baseStyle: BaseStyle;
+  personality: ChatPersonality;
   traits: {
     warmth: PersonalizationLevel;
     enthusiasm: PersonalizationLevel;
@@ -16,18 +19,50 @@ export type PersonalizationSettings = {
     occupation: string;
     details: string;
   };
-  memoryEnabled: boolean;
+  savedMemoryEnabled: boolean;
+  chatHistoryMemoryEnabled: boolean;
+  temporaryChatDefault: boolean;
+  toolPreferences: {
+    webSearchDefault: boolean;
+    imageGenerationEnabled: boolean;
+    fileAnalysisEnabled: boolean;
+    securityMode: boolean;
+    defaultReasoningEffort: "low" | "medium" | "high" | "xhigh";
+    defaultModel: string;
+  };
+  notifications: {
+    balanceLow: boolean;
+    apiKeyUsage: boolean;
+    taskComplete: boolean;
+    email: boolean;
+  };
+  apps: {
+    webSearch: boolean;
+    fileLibrary: boolean;
+    mcpConnectors: boolean;
+    knowledgeBase: boolean;
+  };
 };
 
 const PERSONALIZATION_KIND = "ai-chat-personalization";
 const PERSONALIZATION_VERSION = 1;
 
 const BASE_STYLES: BaseStyle[] = ["default", "concise", "balanced", "detailed"];
+const PERSONALITIES: ChatPersonality[] = [
+  "default",
+  "friendly",
+  "direct",
+  "encouraging",
+  "professional"
+];
 const LEVELS: PersonalizationLevel[] = ["default", "low", "medium", "high"];
+const REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 
 function defaultPersonalizationSettings(): PersonalizationSettings {
   return {
+    customizationEnabled: true,
     baseStyle: "default",
+    personality: "default",
     traits: {
       warmth: "default",
       enthusiasm: "default",
@@ -41,7 +76,29 @@ function defaultPersonalizationSettings(): PersonalizationSettings {
       occupation: "",
       details: ""
     },
-    memoryEnabled: true
+    savedMemoryEnabled: true,
+    chatHistoryMemoryEnabled: true,
+    temporaryChatDefault: false,
+    toolPreferences: {
+      webSearchDefault: false,
+      imageGenerationEnabled: true,
+      fileAnalysisEnabled: true,
+      securityMode: false,
+      defaultReasoningEffort: "medium",
+      defaultModel: ""
+    },
+    notifications: {
+      balanceLow: true,
+      apiKeyUsage: false,
+      taskComplete: false,
+      email: false
+    },
+    apps: {
+      webSearch: true,
+      fileLibrary: true,
+      mcpConnectors: false,
+      knowledgeBase: false
+    }
   };
 }
 
@@ -60,9 +117,24 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
     input.traits && typeof input.traits === "object" ? input.traits : {};
   const about: Partial<PersonalizationSettings["about"]> =
     input.about && typeof input.about === "object" ? input.about : {};
+  const toolPreferences: Partial<PersonalizationSettings["toolPreferences"]> =
+    input.toolPreferences && typeof input.toolPreferences === "object" ? input.toolPreferences : {};
+  const notifications: Partial<PersonalizationSettings["notifications"]> =
+    input.notifications && typeof input.notifications === "object" ? input.notifications : {};
+  const apps: Partial<PersonalizationSettings["apps"]> =
+    input.apps && typeof input.apps === "object" ? input.apps : {};
+  const legacyMemoryEnabled =
+    "memoryEnabled" in input && typeof (input as { memoryEnabled?: unknown }).memoryEnabled === "boolean"
+      ? Boolean((input as { memoryEnabled?: unknown }).memoryEnabled)
+      : undefined;
 
   return {
+    customizationEnabled:
+      typeof input.customizationEnabled === "boolean"
+        ? input.customizationEnabled
+        : defaults.customizationEnabled,
     baseStyle: pickOption(input.baseStyle, BASE_STYLES, defaults.baseStyle),
+    personality: pickOption(input.personality, PERSONALITIES, defaults.personality),
     traits: {
       warmth: pickOption(traits.warmth, LEVELS, defaults.traits.warmth),
       enthusiasm: pickOption(traits.enthusiasm, LEVELS, defaults.traits.enthusiasm),
@@ -76,7 +148,67 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
       occupation: cleanText(about.occupation, 120),
       details: cleanText(about.details, 900)
     },
-    memoryEnabled: typeof input.memoryEnabled === "boolean" ? input.memoryEnabled : defaults.memoryEnabled
+    savedMemoryEnabled:
+      typeof input.savedMemoryEnabled === "boolean"
+        ? input.savedMemoryEnabled
+        : legacyMemoryEnabled ?? defaults.savedMemoryEnabled,
+    chatHistoryMemoryEnabled:
+      typeof input.chatHistoryMemoryEnabled === "boolean"
+        ? input.chatHistoryMemoryEnabled
+        : legacyMemoryEnabled ?? defaults.chatHistoryMemoryEnabled,
+    temporaryChatDefault:
+      typeof input.temporaryChatDefault === "boolean"
+        ? input.temporaryChatDefault
+        : defaults.temporaryChatDefault,
+    toolPreferences: {
+      webSearchDefault:
+        typeof toolPreferences.webSearchDefault === "boolean"
+          ? toolPreferences.webSearchDefault
+          : defaults.toolPreferences.webSearchDefault,
+      imageGenerationEnabled:
+        typeof toolPreferences.imageGenerationEnabled === "boolean"
+          ? toolPreferences.imageGenerationEnabled
+          : defaults.toolPreferences.imageGenerationEnabled,
+      fileAnalysisEnabled:
+        typeof toolPreferences.fileAnalysisEnabled === "boolean"
+          ? toolPreferences.fileAnalysisEnabled
+          : defaults.toolPreferences.fileAnalysisEnabled,
+      securityMode:
+        typeof toolPreferences.securityMode === "boolean"
+          ? toolPreferences.securityMode
+          : defaults.toolPreferences.securityMode,
+      defaultReasoningEffort: pickOption(
+        toolPreferences.defaultReasoningEffort,
+        REASONING_EFFORTS,
+        defaults.toolPreferences.defaultReasoningEffort
+      ),
+      defaultModel: cleanText(toolPreferences.defaultModel, 80)
+    },
+    notifications: {
+      balanceLow:
+        typeof notifications.balanceLow === "boolean"
+          ? notifications.balanceLow
+          : defaults.notifications.balanceLow,
+      apiKeyUsage:
+        typeof notifications.apiKeyUsage === "boolean"
+          ? notifications.apiKeyUsage
+          : defaults.notifications.apiKeyUsage,
+      taskComplete:
+        typeof notifications.taskComplete === "boolean"
+          ? notifications.taskComplete
+          : defaults.notifications.taskComplete,
+      email:
+        typeof notifications.email === "boolean" ? notifications.email : defaults.notifications.email
+    },
+    apps: {
+      webSearch: typeof apps.webSearch === "boolean" ? apps.webSearch : defaults.apps.webSearch,
+      fileLibrary:
+        typeof apps.fileLibrary === "boolean" ? apps.fileLibrary : defaults.apps.fileLibrary,
+      mcpConnectors:
+        typeof apps.mcpConnectors === "boolean" ? apps.mcpConnectors : defaults.apps.mcpConnectors,
+      knowledgeBase:
+        typeof apps.knowledgeBase === "boolean" ? apps.knowledgeBase : defaults.apps.knowledgeBase
+    }
   };
 }
 
@@ -121,6 +253,14 @@ const BASE_STYLE_PROMPTS: Record<BaseStyle, string> = {
   detailed: "回复风格偏详细深入，解释关键推理、边界条件和可选方案。"
 };
 
+const PERSONALITY_PROMPTS: Record<ChatPersonality, string> = {
+  default: "",
+  friendly: "人格风格：自然友好，像可靠的同伴一样交流，但保持判断力。",
+  direct: "人格风格：直接、干脆、少铺垫，优先给结论和可执行建议。",
+  encouraging: "人格风格：鼓励型，指出下一步时保持支持感，帮助用户更有信心推进。",
+  professional: "人格风格：专业克制，表达准确、稳健，避免过度情绪化。"
+};
+
 const TRAIT_PROMPTS: Record<keyof PersonalizationSettings["traits"], Record<PersonalizationLevel, string>> = {
   warmth: {
     default: "",
@@ -151,10 +291,20 @@ const TRAIT_PROMPTS: Record<keyof PersonalizationSettings["traits"], Record<Pers
 export function formatPersonalizationForPrompt(value: unknown) {
   const settings = parsePersonalizationSettings(value);
   const lines: string[] = [];
+
+  if (!settings.customizationEnabled) {
+    return "";
+  }
+
   const baseStylePrompt = BASE_STYLE_PROMPTS[settings.baseStyle];
+  const personalityPrompt = PERSONALITY_PROMPTS[settings.personality];
 
   if (baseStylePrompt) {
     lines.push(baseStylePrompt);
+  }
+
+  if (personalityPrompt) {
+    lines.push(personalityPrompt);
   }
 
   (Object.keys(settings.traits) as Array<keyof PersonalizationSettings["traits"]>).forEach((key) => {
@@ -173,16 +323,14 @@ export function formatPersonalizationForPrompt(value: unknown) {
     lines.push(`自定义指令：${settings.customInstructions}`);
   }
 
-  if (settings.memoryEnabled) {
-    const aboutLines = [
-      settings.about.nickname ? `称呼用户为：${settings.about.nickname}` : "",
-      settings.about.occupation ? `用户职业或身份：${settings.about.occupation}` : "",
-      settings.about.details ? `用户补充信息：${settings.about.details}` : ""
-    ].filter(Boolean);
+  const aboutLines = [
+    settings.about.nickname ? `称呼用户为：${settings.about.nickname}` : "",
+    settings.about.occupation ? `用户职业或身份：${settings.about.occupation}` : "",
+    settings.about.details ? `用户补充信息：${settings.about.details}` : ""
+  ].filter(Boolean);
 
-    if (aboutLines.length > 0) {
-      lines.push(`关于用户：\n${aboutLines.join("\n")}`);
-    }
+  if (aboutLines.length > 0) {
+    lines.push(`你希望 AI 了解你的信息：\n${aboutLines.join("\n")}`);
   }
 
   return lines.join("\n");

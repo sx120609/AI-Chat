@@ -22,7 +22,11 @@ export async function GET(request: NextRequest) {
     return error;
   }
 
-  return NextResponse.json({ memories: await listUserMemories(currentUser.id) });
+  const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "1";
+
+  return NextResponse.json({
+    memories: await listUserMemories(currentUser.id, { includeArchived })
+  });
 }
 
 export async function POST(request: NextRequest) {

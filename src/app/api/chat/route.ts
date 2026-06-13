@@ -79,6 +79,8 @@ type ChatBody = {
   clientDate?: string;
   clientTime?: string;
   clientTimeZone?: string;
+  disableMemoryWrite?: boolean;
+  temporary?: boolean;
 };
 
 const encoder = new TextEncoder();
@@ -917,6 +919,14 @@ export async function POST(request: NextRequest) {
     timeZone: body.clientTimeZone
   });
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
+  const temporaryChat = body.temporary === true;
+  const memoryReadEnabled =
+    personalizationSettings.savedMemoryEnabled && !temporaryChat;
+  const memoryWriteEnabled =
+    personalizationSettings.savedMemoryEnabled &&
+    personalizationSettings.chatHistoryMemoryEnabled &&
+    !temporaryChat &&
+    body.disableMemoryWrite !== true;
 
   const existingConversation = reusedUserMessage
     ? reusedUserMessage.conversation
@@ -1004,7 +1014,7 @@ export async function POST(request: NextRequest) {
     forceSearch: body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
-    memoryEnabled: personalizationSettings.memoryEnabled,
+    memoryEnabled: memoryWriteEnabled,
     prompt: content,
     promptClock,
     settings: aiSettings,
@@ -1097,7 +1107,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const imageMemoryResult = personalizationSettings.memoryEnabled
+    const imageMemoryResult = memoryWriteEnabled
       ? await applyMemoryDecision({
           decision: toolRoutePlan.memory,
           sourceMessageId: imageUserMessage.id,
@@ -1345,8 +1355,10 @@ export async function POST(request: NextRequest) {
     modelLabel: model.label,
     promptClock
   });
-  const savedMemoryPrompt = personalizationSettings.memoryEnabled
-    ? formatMemoriesForPrompt(await listUserMemories(user.id))
+  const savedMemoryPrompt = memoryReadEnabled
+    ? formatMemoriesForPrompt(await listUserMemories(user.id), {
+        profileNickname: personalizationSettings.about.nickname
+      })
     : "";
   const userStylePrompt = formatPersonalizationForPrompt(user.aiStylePrompt);
   const systemPrompt = [
@@ -1501,7 +1513,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const memoryResult = personalizationSettings.memoryEnabled
+  const memoryResult = memoryWriteEnabled
     ? await applyMemoryDecision({
         decision: toolRoutePlan.memory,
         sourceMessageId: userMessage.id,

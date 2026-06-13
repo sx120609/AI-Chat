@@ -10,6 +10,8 @@ type LoginFormProps = {
 
 type AuthMode = "login" | "register";
 
+const VERIFICATION_EMAIL_HINT = "如果收件箱里没看到，可以检查垃圾邮件或广告邮件。";
+
 export function LoginForm({ authSettings }: LoginFormProps) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -52,7 +54,7 @@ export function LoginForm({ authSettings }: LoginFormProps) {
       if (payload?.needsVerification) {
         setMode("login");
         setPassword("");
-        setNotice(payload.message || "注册成功，请查收验证邮件后登录。");
+        setNotice(payload.message || `注册成功，请查收验证邮件后登录。${VERIFICATION_EMAIL_HINT}`);
         setLoading(false);
         return;
       }
@@ -78,7 +80,7 @@ export function LoginForm({ authSettings }: LoginFormProps) {
     if (!response.ok) {
       setError(payload?.error || "发送验证邮件失败。");
     } else {
-      setNotice(payload?.message || "验证邮件已发送，请查收。");
+      setNotice(payload?.message || `验证邮件已发送，请查收。${VERIFICATION_EMAIL_HINT}`);
       setErrorCode("");
     }
 

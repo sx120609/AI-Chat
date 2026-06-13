@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
   const files = formData
     .getAll("files")
     .filter((item): item is File => item instanceof File && item.size > 0);
+  const temporary = formData.get("temporary") === "1";
 
   if (files.length === 0) {
     return jsonError("请选择要上传的文件。", 400);
@@ -67,6 +68,7 @@ export async function POST(request: NextRequest) {
             mimeType,
             sizeBytes: buffer.byteLength,
             storagePath,
+            temporary,
             extractedText: null
           }
         });

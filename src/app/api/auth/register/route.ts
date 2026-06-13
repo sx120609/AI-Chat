@@ -9,6 +9,7 @@ import { describeSmtpError, normalizeEmail, normalizeSmtpSettings } from "@/lib/
 import { DEFAULT_REGISTRATION_COST_LIMIT_CENTS } from "@/lib/auth-settings";
 
 export const runtime = "nodejs";
+const VERIFICATION_EMAIL_HINT = "如果收件箱里没看到，可以检查垃圾邮件或广告邮件。";
 
 type RegisterBody = {
   email?: string;
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           needsVerification: true,
-          message: "注册成功，请查收验证邮件后登录。"
+          message: `注册成功，请查收验证邮件后登录。${VERIFICATION_EMAIL_HINT}`
         },
         { status: 201 }
       );

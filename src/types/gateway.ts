@@ -93,6 +93,7 @@ export type UserMemoryView = {
   id: string;
   content: string;
   source: string;
+  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -161,6 +162,7 @@ export type AttachmentView = {
   mimeType: string;
   sizeBytes: number;
   extractedText?: string | null;
+  temporary?: boolean;
   previewUrl?: string;
   createdAt: string;
 };

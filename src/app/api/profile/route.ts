@@ -11,7 +11,7 @@ type ProfileBody = {
 };
 
 function normalizeAiStylePrompt(value: unknown) {
-  return typeof value === "string" ? value.trim().slice(0, 3000) : "";
+  return typeof value === "string" ? value.trim().slice(0, 8000) : "";
 }
 
 export async function GET(request: NextRequest) {

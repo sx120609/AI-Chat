@@ -6,6 +6,7 @@ import { normalizeSiteName, normalizeSiteUrl } from "@/lib/site-settings";
 import { describeSmtpError, normalizeEmail, normalizeSmtpSettings } from "@/lib/smtp";
 
 export const runtime = "nodejs";
+const VERIFICATION_EMAIL_HINT = "如果收件箱里没看到，可以检查垃圾邮件或广告邮件。";
 
 type ResendBody = {
   email?: string;
@@ -77,5 +78,5 @@ export async function POST(request: NextRequest) {
     return jsonError(describeSmtpError(sendError), 502);
   }
 
-  return NextResponse.json({ message: "验证邮件已发送，请查收。" });
+  return NextResponse.json({ message: `验证邮件已发送，请查收。${VERIFICATION_EMAIL_HINT}` });
 }

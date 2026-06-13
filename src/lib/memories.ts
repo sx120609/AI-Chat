@@ -6,11 +6,14 @@ const MAX_PROMPT_MEMORIES = 40;
 
 const SENSITIVE_MEMORY_PATTERN =
   /(密码|口令|密钥|api\s*key|apikey|token|secret|验证码|身份证|银行卡|信用卡|私钥|助记词)/i;
+const CONVERSATION_UTTERANCE_MEMORY_PATTERN =
+  /^(?:我说|用户说|用户曾说|他说|她说)[：:，,\s“"']*(?:我是你的|我是你|你是我的|你是我)/i;
 
 type MemoryLike = {
   id: string;
   content: string;
   source: string;
+  archivedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -48,12 +51,49 @@ function cleanMemoryContent(value: string) {
     .slice(0, MAX_MEMORY_CONTENT_CHARS);
 }
 
+function extractCallNamePreference(value: string) {
+  const cleaned = cleanMemoryContent(value).replace(/[“”"']/g, "");
+  const patterns = [
+    /(?:称呼|叫)(?:用户|我)(?:为|作|做)?[：:，,\s]*(.+)$/i,
+    /(?:用户|我)(?:希望|想要|要求|以后要你?|以后希望你?|之后请你?|今后请你?)(?:叫|称呼)(?:用户|我)?(?:为|作|做)?[：:，,\s]*(.+)$/i,
+    /(?:以后|今后|之后)(?:每次)?(?:跟我说话)?(?:都)?(?:要|先)?(?:叫|称呼)(?:我|用户)?(?:为|作|做)?[：:，,\s]*(.+)$/i,
+    /(?:我的|用户的)(?:昵称|称呼|名字)(?:是|为)[：:，,\s]*(.+)$/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = cleaned.match(pattern);
+    const name = cleanMemoryContent((match?.[1] || "").split(/[，,。.!！?？；;\n]/)[0] || "")
+      .replace(/^[“”"']+|[“”"']+$/g, "");
+
+    if (name && name.length <= 40) {
+      return name;
+    }
+  }
+
+  return null;
+}
+
+function normalizeMemoryContentForStorage(value: string) {
+  const cleaned = cleanMemoryContent(value);
+  const callName = extractCallNamePreference(cleaned);
+
+  return callName ? `称呼用户为：${callName}` : cleaned;
+}
+
+function isLikelyConversationUtteranceMemory(value: string) {
+  return CONVERSATION_UTTERANCE_MEMORY_PATTERN.test(cleanMemoryContent(value));
+}
+
 function normalizeMemoryKey(value: string) {
   return value.toLowerCase().replace(/\s+/g, "");
 }
 
 function isUsefulMemory(value: string) {
-  return value.length >= 2 && !SENSITIVE_MEMORY_PATTERN.test(value);
+  return (
+    value.length >= 2 &&
+    !SENSITIVE_MEMORY_PATTERN.test(value) &&
+    !isLikelyConversationUtteranceMemory(value)
+  );
 }
 
 function firstSentence(value: string) {
@@ -131,14 +171,23 @@ export function memoryToView(memory: MemoryLike) {
     id: memory.id,
     content: memory.content,
     source: memory.source,
+    archivedAt: memory.archivedAt ? memory.archivedAt.toISOString() : null,
     createdAt: memory.createdAt.toISOString(),
     updatedAt: memory.updatedAt.toISOString()
   };
 }
 
-export async function listUserMemories(userId: string) {
+export async function listUserMemories(
+  userId: string,
+  options: {
+    includeArchived?: boolean;
+  } = {}
+) {
   const memories = await prisma.userMemory.findMany({
-    where: { userId },
+    where: {
+      userId,
+      ...(options.includeArchived ? {} : { archivedAt: null })
+    },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     take: MAX_MEMORIES_PER_USER
   });
@@ -155,7 +204,8 @@ export async function createUserMemory({
   source?: string;
   userId: string;
 }) {
-  const cleaned = cleanMemoryContent(content);
+  const cleaned = normalizeMemoryContentForStorage(content);
+  const callName = extractCallNamePreference(cleaned);
 
   if (!isUsefulMemory(cleaned)) {
     throw new Error("记忆内容无效，或包含不适合保存的敏感信息。");
@@ -170,10 +220,28 @@ export async function createUserMemory({
     (memory) => normalizeMemoryKey(memory.content) === normalizeMemoryKey(cleaned)
   );
 
+  if (callName) {
+    const conflictingCallNameIds = existing
+      .filter((memory) => memory.id !== existingMemory?.id && extractCallNamePreference(memory.content))
+      .map((memory) => memory.id);
+
+    if (conflictingCallNameIds.length > 0) {
+      await prisma.userMemory.updateMany({
+        where: {
+          id: { in: conflictingCallNameIds },
+          userId
+        },
+        data: {
+          archivedAt: new Date()
+        }
+      });
+    }
+  }
+
   if (existingMemory) {
     return prisma.userMemory.update({
       where: { id: existingMemory.id },
-      data: { source }
+      data: { archivedAt: null, content: cleaned, source }
     });
   }
 
@@ -199,11 +267,43 @@ export async function createUserMemory({
   return created;
 }
 
-export function formatMemoriesForPrompt(memories: Array<{ content: string }>) {
-  const lines = memories
-    .slice(0, MAX_PROMPT_MEMORIES)
-    .map((memory) => cleanMemoryContent(memory.content))
-    .filter(Boolean);
+export function formatMemoriesForPrompt(
+  memories: Array<{ content: string }>,
+  options: {
+    profileNickname?: string;
+  } = {}
+) {
+  const lines: string[] = [];
+  const profileNickname = cleanMemoryContent(options.profileNickname || "");
+  let callNameLine = "";
+
+  for (const memory of memories) {
+    const content = cleanMemoryContent(memory.content);
+
+    if (!content || isLikelyConversationUtteranceMemory(content)) {
+      continue;
+    }
+
+    const callName = extractCallNamePreference(content);
+
+    if (callName) {
+      if (!profileNickname && !callNameLine) {
+        callNameLine = `称呼用户为：${callName}`;
+      }
+
+      continue;
+    }
+
+    lines.push(content);
+
+    if (lines.length >= MAX_PROMPT_MEMORIES) {
+      break;
+    }
+  }
+
+  if (callNameLine) {
+    lines.unshift(callNameLine);
+  }
 
   if (lines.length === 0) {
     return "";
@@ -439,7 +539,8 @@ async function createOrRefreshChatMemory({
   sourceMessageId?: string;
   userId: string;
 }) {
-  const cleaned = cleanMemoryContent(content);
+  const cleaned = normalizeMemoryContentForStorage(content);
+  const callName = extractCallNamePreference(cleaned);
 
   if (!isUsefulMemory(cleaned)) {
     return null;
@@ -455,9 +556,28 @@ async function createOrRefreshChatMemory({
   );
 
   if (match) {
+    if (callName) {
+      const conflictingCallNameIds = existing
+        .filter((memory) => memory.id !== match.id && extractCallNamePreference(memory.content))
+        .map((memory) => memory.id);
+
+      if (conflictingCallNameIds.length > 0) {
+        await prisma.userMemory.updateMany({
+          where: {
+            id: { in: conflictingCallNameIds },
+            userId
+          },
+          data: {
+            archivedAt: new Date()
+          }
+        });
+      }
+    }
+
     return prisma.userMemory.update({
       where: { id: match.id },
       data: {
+        archivedAt: null,
         source: "chat",
         sourceMessageId
       }

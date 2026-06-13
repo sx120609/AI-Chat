@@ -23,6 +23,7 @@ type AttachmentLike = {
   sizeBytes: number;
   extractedText: string | null;
   storagePath: string;
+  temporary?: boolean | null;
   createdAt: Date;
 };
 
@@ -643,6 +644,7 @@ export function attachmentToView(attachment: AttachmentLike): AttachmentView {
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
     extractedText: attachment.extractedText,
+    temporary: Boolean(attachment.temporary),
     previewUrl: kind === "IMAGE" ? `/api/attachments/${attachment.id}/content` : undefined,
     createdAt: attachment.createdAt.toISOString()
   };

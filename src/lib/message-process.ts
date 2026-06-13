@@ -12,6 +12,7 @@ export type PersistedToolEvent = {
     | "attachments"
     | "web_search"
     | "file_analysis"
+    | "memory"
     | "context_compression"
     | "generation"
     | "usage"
@@ -24,6 +25,7 @@ const TOOL_EVENT_TYPES = new Set([
   "attachments",
   "web_search",
   "file_analysis",
+  "memory",
   "context_compression",
   "generation",
   "usage",

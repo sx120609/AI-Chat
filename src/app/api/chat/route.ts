@@ -23,9 +23,10 @@ import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
 import {
-  applyMemoryInstructionsFromMessage,
+  applyMemoryDecision,
   formatMemoriesForPrompt,
-  listUserMemories
+  listUserMemories,
+  type MemoryApplyResult
 } from "@/lib/memories";
 import { MESSAGE_ORDER_DESC, messagesAfter, messagesBefore } from "@/lib/message-order";
 import {
@@ -112,7 +113,7 @@ type ToolEventPayload = {
   label: string;
   startedAt?: number;
   status: "done" | "running" | "skipped" | "error";
-  type: "router" | "attachments" | "web_search" | "context_compression";
+  type: "router" | "attachments" | "web_search" | "context_compression" | "memory";
 };
 
 function normalizeRequestWebSearchProvider(value: string | undefined, fallback: string) {
@@ -736,11 +737,27 @@ async function streamMockAnswer(
   }
 }
 
+function memoryToolEvent(result: MemoryApplyResult): ToolEventPayload & {
+  finishedAt: number;
+  startedAt: number;
+} {
+  return {
+    detail: result.error ? `${result.detail}（${result.error}）` : result.detail,
+    finishedAt: result.finishedAt,
+    id: "memory",
+    label: result.action === "forget" ? "记忆清理" : "记忆保存",
+    startedAt: result.startedAt,
+    status: result.error ? "error" : result.skipped ? "skipped" : "done",
+    type: "memory"
+  };
+}
+
 function buildToolEvents(options: {
   attachmentCount: number;
   attachmentFinishedAt?: number;
   attachmentStartedAt?: number;
   contextCompression?: ContextCompressionResult | null;
+  memoryResult?: MemoryApplyResult | null;
   routerFinishedAt?: number;
   routerStartedAt?: number;
   webSearchResult: Awaited<ReturnType<typeof searchWeb>>;
@@ -750,7 +767,9 @@ function buildToolEvents(options: {
   const events: ToolEventPayload[] = [];
   const usedWebSearch = Boolean(options.webSearchResult);
   const usedContextCompression = Boolean(options.contextCompression);
+  const usedMemory = Boolean(options.memoryResult);
   const routeParts = [
+    usedMemory ? "记忆" : "",
     options.attachmentCount > 0 ? "附件上下文" : "",
     usedContextCompression ? "上下文压缩" : "",
     usedWebSearch ? "联网搜索" : ""
@@ -776,6 +795,10 @@ function buildToolEvents(options: {
       status: "done",
       type: "attachments"
     });
+  }
+
+  if (options.memoryResult) {
+    events.push(memoryToolEvent(options.memoryResult));
   }
 
   if (options.contextCompression) {
@@ -893,6 +916,7 @@ export async function POST(request: NextRequest) {
     time: body.clientTime,
     timeZone: body.clientTimeZone
   });
+  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
 
   const existingConversation = reusedUserMessage
     ? reusedUserMessage.conversation
@@ -980,6 +1004,7 @@ export async function POST(request: NextRequest) {
     forceSearch: body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
+    memoryEnabled: personalizationSettings.memoryEnabled,
     prompt: content,
     promptClock,
     settings: aiSettings,
@@ -1072,6 +1097,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const imageMemoryResult = personalizationSettings.memoryEnabled
+      ? await applyMemoryDecision({
+          decision: toolRoutePlan.memory,
+          sourceMessageId: imageUserMessage.id,
+          userId: user.id
+        })
+      : null;
     const imageUserMessageView = {
       ...imageUserMessage,
       attachments: effectiveAttachments.map(attachmentToView)
@@ -1103,6 +1135,7 @@ export async function POST(request: NextRequest) {
             }
           ]
         : []),
+      ...(imageMemoryResult ? [memoryToolEvent(imageMemoryResult)] : []),
       {
         detail:
           sourceImageMessage?.imageUrl || effectiveAttachments.some((attachment) => attachment.kind === "IMAGE")
@@ -1312,15 +1345,6 @@ export async function POST(request: NextRequest) {
     modelLabel: model.label,
     promptClock
   });
-  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
-
-  if (personalizationSettings.memoryEnabled) {
-    await applyMemoryInstructionsFromMessage({
-      content,
-      userId: user.id
-    }).catch(() => undefined);
-  }
-
   const savedMemoryPrompt = personalizationSettings.memoryEnabled
     ? formatMemoriesForPrompt(await listUserMemories(user.id))
     : "";
@@ -1477,6 +1501,13 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const memoryResult = personalizationSettings.memoryEnabled
+    ? await applyMemoryDecision({
+        decision: toolRoutePlan.memory,
+        sourceMessageId: userMessage.id,
+        userId: user.id
+      })
+    : null;
   const userMessageView = {
     ...userMessage,
     attachments: effectiveAttachments.map(attachmentToView)
@@ -1487,6 +1518,7 @@ export async function POST(request: NextRequest) {
     attachmentFinishedAt,
     attachmentStartedAt,
     contextCompression: compressionResult.compression,
+    memoryResult,
     routerFinishedAt,
     routerStartedAt,
     webSearchResult,

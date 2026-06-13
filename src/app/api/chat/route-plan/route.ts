@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { isChatModel } from "@/lib/models";
+import { parsePersonalizationSettings } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
 import { normalizePromptClock } from "@/lib/system-prompt";
 import { planMessageTools } from "@/lib/tool-router";
@@ -123,11 +124,13 @@ export async function POST(request: NextRequest) {
     time: body.clientTime,
     timeZone: body.clientTimeZone
   });
+  const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const plan = await planMessageTools({
     attachmentCount: effectiveAttachments.length,
     forceSearch: body.useWebSearch === true,
     hasImageAttachment: effectiveAttachments.some((attachment) => attachment.kind === "IMAGE"),
     imageToolRequested: Boolean(body.imageToolRequested || reusedUserMessage?.mode === "IMAGE"),
+    memoryEnabled: personalizationSettings.memoryEnabled,
     prompt: content,
     promptClock,
     settings: aiSettings,

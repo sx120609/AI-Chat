@@ -22,6 +22,7 @@ export type ToolEventView = {
     | "attachments"
     | "web_search"
     | "file_analysis"
+    | "memory"
     | "context_compression"
     | "generation"
     | "usage"

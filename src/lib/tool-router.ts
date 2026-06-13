@@ -4,10 +4,17 @@ import {
   type UpstreamMessage
 } from "@/lib/upstream";
 import { LIGHTWEIGHT_TASK_MODEL_ID } from "@/lib/models";
+import {
+  fallbackMemoryDecisionFromMessage,
+  normalizeMemoryDecision,
+  NO_MEMORY_DECISION,
+  type MemoryToolDecision
+} from "@/lib/memories";
 import { normalizePromptClock, type PromptClock } from "@/lib/system-prompt";
 import { shouldUseWebSearch } from "@/lib/web-search";
 
 export type ToolRoutePlan = {
+  memory: MemoryToolDecision;
   query: string;
   reason: string;
   shouldSearch: boolean;
@@ -129,6 +136,7 @@ function fallbackPlan(options: {
   forceSearch: boolean;
   hasImageAttachment: boolean;
   imageToolRequested: boolean;
+  memoryEnabled: boolean;
   prompt: string;
   sourceImageSelected: boolean;
 }) {
@@ -142,6 +150,9 @@ function fallbackPlan(options: {
     (options.forceSearch || shouldUseWebSearch(options.prompt));
 
   return {
+    memory: options.memoryEnabled
+      ? fallbackMemoryDecisionFromMessage(options.prompt)
+      : NO_MEMORY_DECISION,
     query,
     reason: tool === "image" ? "fallback-image-intent" : "fallback-chat-intent",
     shouldSearch,
@@ -149,7 +160,11 @@ function fallbackPlan(options: {
   } satisfies ToolRoutePlan;
 }
 
-function normalizePlan(value: Record<string, unknown> | null, fallback: ToolRoutePlan) {
+function normalizePlan(
+  value: Record<string, unknown> | null,
+  fallback: ToolRoutePlan,
+  options: { memoryEnabled: boolean }
+) {
   if (!value) {
     return fallback;
   }
@@ -165,8 +180,14 @@ function normalizePlan(value: Record<string, unknown> | null, fallback: ToolRout
         ? value.should_search
         : fallback.shouldSearch) &&
     hasSearchableQuery(query);
+  const memory = options.memoryEnabled
+    ? normalizeMemoryDecision(value.memory ?? value.memoryDecision ?? value.memory_decision)
+    : NO_MEMORY_DECISION;
+  const resolvedMemory =
+    memory.action === "none" && fallback.memory.action !== "none" ? fallback.memory : memory;
 
   return {
+    memory: resolvedMemory,
     query,
     reason: reason || fallback.reason,
     shouldSearch,
@@ -179,6 +200,7 @@ function buildRouterMessages(options: {
   forceSearch: boolean;
   hasImageAttachment: boolean;
   imageToolRequested: boolean;
+  memoryEnabled: boolean;
   prompt: string;
   promptClock?: Partial<PromptClock>;
   sourceImageSelected: boolean;
@@ -189,11 +211,11 @@ function buildRouterMessages(options: {
     {
       role: "system",
       content:
-        "你是工具路由器，不回答用户问题，只判断本条消息应该调用哪个工具。只返回 JSON，不要 Markdown，不要解释。JSON 必须是 {\"tool\":\"chat\"|\"image\",\"shouldSearch\":true|false,\"query\":\"搜索词\",\"reason\":\"一句话原因\"}。tool=image 表示用户想生成、绘制、设计、编辑或变换图片、海报、头像、logo、壁纸、封面、插画、表情包、视觉稿、构图或让模型输出新图。用户上传/选中了图片并要求修改、重绘、换风格、扩展、基于它生成，也选 image。用户只是问图片/附件里有什么、要求识别、总结、翻译、OCR、分析截图或文档，选 chat。image 工具不联网，shouldSearch 必须 false。tool=chat 时，再判断是否需要联网：当前/最新/价格/天气/政策/版本/新闻/赛程等可能变化的信息或用户明确要求联网时 shouldSearch=true；常识、写作、翻译、代码解释、附件总结等 shouldSearch=false。强制搜索=是时，只要 tool=chat 且问题有可搜索主题，shouldSearch=true。搜索词要保留关键实体、地点、时间、政策/价格/版本等限定词，不要只保留“这/这个/它”。"
+        "你是工具路由器，不回答用户问题，只判断本条消息应该调用哪些工具。只返回 JSON，不要 Markdown，不要解释。JSON 必须是 {\"tool\":\"chat\"|\"image\",\"shouldSearch\":true|false,\"query\":\"搜索词\",\"reason\":\"一句话原因\",\"memory\":{\"action\":\"none\"|\"remember\"|\"forget\",\"items\":[\"要保存的记忆\"],\"query\":\"要删除的记忆关键词\",\"all\":false,\"reason\":\"一句话原因\"}}。tool=image 表示用户想生成、绘制、设计、编辑或变换图片、海报、头像、logo、壁纸、封面、插画、表情包、视觉稿、构图或让模型输出新图。用户上传/选中了图片并要求修改、重绘、换风格、扩展、基于它生成，也选 image。用户只是问图片/附件里有什么、要求识别、总结、翻译、OCR、分析截图或文档，选 chat。image 工具不联网，shouldSearch 必须 false。tool=chat 时，再判断是否需要联网：当前/最新/价格/天气/政策/版本/新闻/赛程等可能变化的信息或用户明确要求联网时 shouldSearch=true；常识、写作、翻译、代码解释、附件总结等 shouldSearch=false。强制搜索=是时，只要 tool=chat 且问题有可搜索主题，shouldSearch=true。搜索词要保留关键实体、地点、时间、政策/价格/版本等限定词，不要只保留“这/这个/它”。记忆开关=关时 memory.action 必须为 none。记忆开关=开时，只在用户明确要求记住/忘记，或消息包含长期稳定、未来多次有用的用户偏好、称呼、工作方式、个人事实时保存记忆；不要保存一次性任务、临时话题、普通聊天内容、搜索问题、附件内容摘要、密码、密钥、token、验证码、身份证、银行卡、私钥等敏感信息。保存时把 items 写成第一人称事实或偏好，每条不超过 80 字；删除时用 forget，all=true 表示清空全部记忆，否则给 query。"
     },
     {
       role: "user",
-      content: `当前日期：${promptClock.date}\n当前时间：${promptClock.time}（${promptClock.timeZone}）\n强制搜索：${options.forceSearch ? "是" : "否"}\n用户点了生图工具：${options.imageToolRequested ? "是" : "否"}\n已选择待编辑源图片：${options.sourceImageSelected ? "是" : "否"}\n本条消息附件数：${options.attachmentCount}\n附件里有图片：${options.hasImageAttachment ? "是" : "否"}\n用户消息：${options.prompt}`
+      content: `当前日期：${promptClock.date}\n当前时间：${promptClock.time}（${promptClock.timeZone}）\n强制搜索：${options.forceSearch ? "是" : "否"}\n记忆开关：${options.memoryEnabled ? "开" : "关"}\n用户点了生图工具：${options.imageToolRequested ? "是" : "否"}\n已选择待编辑源图片：${options.sourceImageSelected ? "是" : "否"}\n本条消息附件数：${options.attachmentCount}\n附件里有图片：${options.hasImageAttachment ? "是" : "否"}\n用户消息：${options.prompt}`
     }
   ];
 }
@@ -203,6 +225,7 @@ export async function planMessageTools(options: {
   forceSearch?: boolean;
   hasImageAttachment?: boolean;
   imageToolRequested?: boolean;
+  memoryEnabled?: boolean;
   prompt: string;
   promptClock?: Partial<PromptClock>;
   settings: AiRuntimeSettings;
@@ -214,6 +237,7 @@ export async function planMessageTools(options: {
     forceSearch: Boolean(options.forceSearch),
     hasImageAttachment: Boolean(options.hasImageAttachment),
     imageToolRequested: Boolean(options.imageToolRequested),
+    memoryEnabled: Boolean(options.memoryEnabled),
     prompt: options.prompt,
     sourceImageSelected: Boolean(options.sourceImageSelected)
   });
@@ -230,6 +254,7 @@ export async function planMessageTools(options: {
         forceSearch: Boolean(options.forceSearch),
         hasImageAttachment: Boolean(options.hasImageAttachment),
         imageToolRequested: Boolean(options.imageToolRequested),
+        memoryEnabled: Boolean(options.memoryEnabled),
         prompt: options.prompt,
         promptClock: options.promptClock,
         sourceImageSelected: Boolean(options.sourceImageSelected)
@@ -238,7 +263,9 @@ export async function planMessageTools(options: {
       { allowDisabledModel: true, signal: options.signal }
     );
 
-    return normalizePlan(jsonFromRouterResponse(routerText), fallback);
+    return normalizePlan(jsonFromRouterResponse(routerText), fallback, {
+      memoryEnabled: Boolean(options.memoryEnabled)
+    });
   } catch (error) {
     console.warn(
       "[tool-router] Failed to plan tools:",

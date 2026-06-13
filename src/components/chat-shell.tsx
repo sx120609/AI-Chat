@@ -4252,6 +4252,10 @@ function ToolStatusIcon({ event }: { event: ToolEventView }) {
     return <FileText className="size-3.5" />;
   }
 
+  if (event.type === "memory") {
+    return <UserRound className="size-3.5" />;
+  }
+
   if (event.type === "context_compression") {
     return <Archive className="size-3.5" />;
   }
@@ -4321,9 +4325,10 @@ function processTimelineStatus(status: string, latestRunningEvent?: ToolEventVie
 
 const TOOL_EVENT_DISPLAY_ORDER: Record<ToolEventView["type"], number> = {
   router: 0,
-  attachments: 1,
-  web_search: 2,
-  context_compression: 3,
+  memory: 1,
+  attachments: 2,
+  web_search: 3,
+  context_compression: 4,
   file_analysis: 4,
   generation: 5,
   image: 5,

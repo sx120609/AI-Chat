@@ -1600,7 +1600,7 @@ export function ProfileCenter({ apiModels, initialUser, initialUsage, siteSettin
 
               <ToggleRow
                 checked={personalization.memoryEnabled}
-                description="开启后，聊天会引用上面的个人信息和下方已保存记忆，并响应你明确说出的“记住/忘记”。"
+                description="开启后，聊天会引用上面的个人信息和下方已保存记忆，并由 AI 判断是否需要新增或清理聊天记忆。"
                 label="记忆"
                 onChange={(checked) => updatePersonalization({ memoryEnabled: checked })}
               />

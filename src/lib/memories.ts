@@ -15,6 +15,30 @@ type MemoryLike = {
   updatedAt: Date;
 };
 
+export type MemoryToolDecision = {
+  action: "none" | "remember" | "forget";
+  all?: boolean;
+  items?: string[];
+  query?: string;
+  reason?: string;
+};
+
+export type MemoryApplyResult = {
+  action: MemoryToolDecision["action"];
+  created: number;
+  deleted: number;
+  detail: string;
+  error?: string;
+  finishedAt: number;
+  skipped: boolean;
+  startedAt: number;
+};
+
+export const NO_MEMORY_DECISION: MemoryToolDecision = {
+  action: "none",
+  reason: "本条消息不需要更新长期记忆。"
+};
+
 function cleanMemoryContent(value: string) {
   return value
     .replace(/^[：:，,\s]+/, "")
@@ -34,6 +58,72 @@ function isUsefulMemory(value: string) {
 
 function firstSentence(value: string) {
   return cleanMemoryContent(value.split(/[。.!！?？\n]/)[0] || value);
+}
+
+export function normalizeMemoryDecision(decision: unknown): MemoryToolDecision {
+  if (!decision || typeof decision !== "object") {
+    return NO_MEMORY_DECISION;
+  }
+
+  const source = decision as Record<string, unknown>;
+  const actionValue =
+    typeof source.action === "string"
+      ? source.action
+      : typeof source.type === "string"
+        ? source.type
+        : "";
+  const action = /remember|save|create|add|记住|保存/i.test(actionValue)
+    ? "remember"
+    : /forget|delete|clear|remove|忘记|删除|清除/i.test(actionValue)
+      ? "forget"
+      : "none";
+  const reason = cleanMemoryContent(typeof source.reason === "string" ? source.reason : "");
+
+  if (action === "remember") {
+    const rawItems = Array.isArray(source.items)
+      ? source.items
+      : Array.isArray(source.memories)
+        ? source.memories
+        : typeof source.content === "string" || typeof source.memory === "string"
+          ? [source.content ?? source.memory]
+          : [];
+    const items = [...new Set(rawItems.map((item) => cleanMemoryContent(String(item))).filter(isUsefulMemory))]
+      .slice(0, 3);
+
+    if (items.length === 0) {
+      return NO_MEMORY_DECISION;
+    }
+
+    return {
+      action,
+      items,
+      reason: reason || "AI 判断本条消息包含可长期使用的用户偏好或事实。"
+    };
+  }
+
+  if (action === "forget") {
+    const all = source.all === true || source.scope === "all";
+    const query = cleanMemoryContent(
+      typeof source.query === "string"
+        ? source.query
+        : typeof source.content === "string"
+          ? source.content
+          : ""
+    );
+
+    if (!all && !query) {
+      return NO_MEMORY_DECISION;
+    }
+
+    return {
+      action,
+      all,
+      query,
+      reason: reason || (all ? "用户要求清空记忆。" : "用户要求删除相关记忆。")
+    };
+  }
+
+  return reason ? { ...NO_MEMORY_DECISION, reason } : NO_MEMORY_DECISION;
 }
 
 export function memoryToView(memory: MemoryLike) {
@@ -182,31 +272,106 @@ function forgetRequest(message: string) {
   return { all: false, query: cleanMemoryContent(match?.[1] || "") };
 }
 
-export async function applyMemoryInstructionsFromMessage({
-  content,
-  sourceMessageId,
-  userId
-}: {
-  content: string;
-  sourceMessageId?: string;
-  userId: string;
-}) {
-  const forget = forgetRequest(content);
+export function fallbackMemoryDecisionFromMessage(message: string): MemoryToolDecision {
+  const forget = forgetRequest(message);
 
   if (forget?.all) {
-    const deleted = await prisma.userMemory.deleteMany({ where: { userId } });
-
-    return { created: 0, deleted: deleted.count };
+    return {
+      action: "forget",
+      all: true,
+      reason: "用户明确要求清空记忆。"
+    };
   }
 
   if (forget?.query) {
-    const memories = await prisma.userMemory.findMany({ where: { userId } });
-    const queryKey = normalizeMemoryKey(forget.query);
-    const matchedIds = memories
-      .filter((memory) => normalizeMemoryKey(memory.content).includes(queryKey))
-      .map((memory) => memory.id);
+    return {
+      action: "forget",
+      query: forget.query,
+      reason: "用户明确要求删除相关记忆。"
+    };
+  }
 
-    if (matchedIds.length > 0) {
+  const candidates = explicitRememberCandidates(message);
+
+  if (candidates.length > 0) {
+    return {
+      action: "remember",
+      items: candidates,
+      reason: "用户明确表达了需要记住的内容。"
+    };
+  }
+
+  return NO_MEMORY_DECISION;
+}
+
+export async function applyMemoryDecision({
+  decision,
+  sourceMessageId,
+  userId
+}: {
+  decision: MemoryToolDecision;
+  sourceMessageId?: string;
+  userId: string;
+}): Promise<MemoryApplyResult | null> {
+  const normalized = normalizeMemoryDecision(decision);
+
+  if (normalized.action === "none") {
+    return null;
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    if (normalized.action === "forget") {
+      if (normalized.all) {
+        const deleted = await prisma.userMemory.deleteMany({ where: { userId } });
+
+        return {
+          action: normalized.action,
+          created: 0,
+          deleted: deleted.count,
+          detail:
+            deleted.count > 0
+              ? `已清空 ${deleted.count} 条保存的记忆`
+              : "没有可清空的保存记忆",
+          finishedAt: Date.now(),
+          skipped: deleted.count === 0,
+          startedAt
+        };
+      }
+
+      const query = cleanMemoryContent(normalized.query || "");
+
+      if (!query) {
+        return {
+          action: normalized.action,
+          created: 0,
+          deleted: 0,
+          detail: "AI 判断需要删除记忆，但没有给出可匹配内容",
+          finishedAt: Date.now(),
+          skipped: true,
+          startedAt
+        };
+      }
+
+      const memories = await prisma.userMemory.findMany({ where: { userId } });
+      const queryKey = normalizeMemoryKey(query);
+      const matchedIds = memories
+        .filter((memory) => normalizeMemoryKey(memory.content).includes(queryKey))
+        .map((memory) => memory.id);
+
+      if (matchedIds.length === 0) {
+        return {
+          action: normalized.action,
+          created: 0,
+          deleted: 0,
+          detail: `没有找到匹配“${query}”的保存记忆`,
+          finishedAt: Date.now(),
+          skipped: true,
+          startedAt
+        };
+      }
+
       const deleted = await prisma.userMemory.deleteMany({
         where: {
           id: { in: matchedIds },
@@ -214,25 +379,55 @@ export async function applyMemoryInstructionsFromMessage({
         }
       });
 
-      return { created: 0, deleted: deleted.count };
+      return {
+        action: normalized.action,
+        created: 0,
+        deleted: deleted.count,
+        detail: `已删除 ${deleted.count} 条匹配“${query}”的记忆`,
+        finishedAt: Date.now(),
+        skipped: deleted.count === 0,
+        startedAt
+      };
     }
 
-    return { created: 0, deleted: 0 };
+    let created = 0;
+
+    for (const item of normalized.items ?? []) {
+      const memory = await createOrRefreshChatMemory({
+        content: item,
+        sourceMessageId,
+        userId
+      });
+
+      if (memory) {
+        created += 1;
+      }
+    }
+
+    return {
+      action: normalized.action,
+      created,
+      deleted: 0,
+      detail:
+        created > 0
+          ? `已保存/更新 ${created} 条长期记忆`
+          : "AI 判断需要保存记忆，但内容不适合长期保存",
+      finishedAt: Date.now(),
+      skipped: created === 0,
+      startedAt
+    };
+  } catch (error) {
+    return {
+      action: normalized.action,
+      created: 0,
+      deleted: 0,
+      detail: "记忆更新失败",
+      error: error instanceof Error ? error.message : String(error),
+      finishedAt: Date.now(),
+      skipped: false,
+      startedAt
+    };
   }
-
-  const candidates = explicitRememberCandidates(content);
-  let created = 0;
-
-  for (const candidate of candidates) {
-    await createOrRefreshChatMemory({
-      content: candidate,
-      sourceMessageId,
-      userId
-    });
-    created += 1;
-  }
-
-  return { created, deleted: 0 };
 }
 
 async function createOrRefreshChatMemory({

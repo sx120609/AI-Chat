@@ -204,6 +204,42 @@ export type AdminUserView = UserView & {
   usage: UsageSummary;
 };
 
+export type AdminUsageRecordView = {
+  id: string;
+  apiKeyLabel?: string | null;
+  cachedPromptTokens: number;
+  completionTokens: number;
+  conversationId?: string | null;
+  conversationTitle?: string | null;
+  createdAt: string;
+  estimatedCostCents: number;
+  messageId?: string | null;
+  mode: GenerationMode;
+  model: string;
+  promptTokens: number;
+  reasoningTokens: number;
+  sourceLabel: string;
+  surface: string;
+  totalTokens: number;
+  usageSource: string;
+  userEmail: string;
+  userId: string;
+  userName: string;
+};
+
+export type AdminUsageSummaryView = {
+  apiCalls: number;
+  cachedPromptTokens: number;
+  chatCalls: number;
+  completionTokens: number;
+  costCents: number;
+  imageCalls: number;
+  promptTokens: number;
+  reasoningTokens: number;
+  records: number;
+  totalTokens: number;
+};
+
 export type AiSettingsView = {
   siteName: string;
   siteUrl: string;

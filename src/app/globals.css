@@ -47,6 +47,43 @@
   --app-safe-area-top: 0px;
 }
 
+.dark {
+  color-scheme: dark;
+  --background: #111816;
+  --foreground: #f4f8f5;
+  --app-ink: #f4f8f5;
+  --app-ink-soft: #a8b8b3;
+  --app-muted: rgba(168, 184, 179, 0.68);
+  --app-muted-strong: rgba(220, 230, 226, 0.82);
+  --app-accent: #135144;
+  --app-accent-dark: #0d3c35;
+  --app-accent-soft: rgba(19, 81, 68, 0.25);
+  --app-accent-ring: rgba(19, 81, 68, 0.4);
+  --app-signal: #b8752b;
+  --app-signal-soft: rgba(184, 117, 43, 0.25);
+  --app-success: #237a5d;
+  --app-danger: #b64b43;
+  --ios-blue: var(--app-accent);
+  --ios-green: var(--app-success);
+  --ios-red: var(--app-danger);
+  --ios-orange: var(--app-signal);
+  --ios-fill: rgba(24, 32, 29, 0.88);
+  --ios-separator: rgba(200, 210, 205, 0.14);
+  --ios-secondary: var(--app-muted);
+  --claude-cream: var(--background);
+  --claude-surface: #17211e;
+  --claude-accent: var(--app-accent);
+  --claude-accent-dark: var(--app-accent-dark);
+  --claude-ink: var(--app-ink);
+  --app-surface: rgba(24, 32, 29, 0.88);
+  --app-surface-solid: #17211e;
+  --app-surface-muted: rgba(34, 44, 40, 0.82);
+  --app-border: rgba(200, 210, 205, 0.14);
+  --app-border-strong: rgba(200, 210, 205, 0.24);
+  --app-shadow-panel: 0 18px 48px rgba(0, 0, 0, 0.4);
+  --app-shadow-popover: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
 @media (display-mode: standalone), (display-mode: fullscreen) {
   :root {
     --app-safe-area-top: env(safe-area-inset-top, 0px);
@@ -70,9 +107,6 @@ body {
   width: 100%;
   background: var(--background);
   color: var(--foreground);
-  font-family:
-    ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    "Segoe UI", sans-serif;
   letter-spacing: 0;
 }
 
@@ -310,6 +344,14 @@ button:disabled {
     var(--background);
 }
 
+.dark .ios-page {
+  background:
+    linear-gradient(90deg, rgba(200, 210, 205, 0.03) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(180deg, rgba(184, 117, 43, 0.1) 0%, transparent 22rem),
+    linear-gradient(180deg, rgba(24, 32, 29, 0.8) 0%, rgba(17, 24, 22, 1) 100%),
+    var(--background);
+}
+
 .app-shell {
   height: 100vh;
   height: 100dvh;
@@ -322,6 +364,11 @@ button:disabled {
   background: rgba(249, 252, 248, 0.88);
   border-bottom: 1px solid var(--app-border);
   backdrop-filter: blur(18px) saturate(130%);
+}
+
+.dark .ios-glass {
+  background: rgba(24, 32, 29, 0.88);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .ios-panel {
@@ -345,6 +392,14 @@ button:disabled {
   backdrop-filter: blur(22px) saturate(145%);
 }
 
+.dark .app-glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(24, 32, 29, 0.72);
+  box-shadow:
+    0 24px 76px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
 .app-glass-sidebar {
   background:
     linear-gradient(180deg, rgba(249, 252, 248, 0.78), rgba(229, 240, 233, 0.66)),
@@ -353,6 +408,15 @@ button:disabled {
     18px 0 60px rgba(18, 42, 35, 0.12),
     inset -1px 0 0 rgba(255, 255, 255, 0.54);
   backdrop-filter: blur(26px) saturate(150%);
+}
+
+.dark .app-glass-sidebar {
+  background:
+    linear-gradient(180deg, rgba(24, 32, 29, 0.78), rgba(17, 24, 22, 0.66)),
+    rgba(17, 24, 22, 0.72);
+  box-shadow:
+    18px 0 60px rgba(0, 0, 0, 0.4),
+    inset -1px 0 0 rgba(255, 255, 255, 0.05);
 }
 
 .app-glass-header {
@@ -364,6 +428,14 @@ button:disabled {
   backdrop-filter: blur(24px) saturate(150%);
 }
 
+.dark .app-glass-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(24, 32, 29, 0.72);
+  box-shadow:
+    0 14px 42px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
 .app-glass-control {
   border: 1px solid rgba(255, 255, 255, 0.58);
   background: rgba(249, 252, 248, 0.68);
@@ -371,6 +443,14 @@ button:disabled {
     0 12px 34px rgba(18, 42, 35, 0.09),
     inset 0 1px 0 rgba(255, 255, 255, 0.74);
   backdrop-filter: blur(18px) saturate(140%);
+}
+
+.dark .app-glass-control {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(24, 32, 29, 0.68);
+  box-shadow:
+    0 12px 34px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .app-glass-control:not(:disabled):hover {
@@ -423,6 +503,10 @@ button:disabled {
     box-shadow var(--motion-base) var(--motion-ease);
 }
 
+.dark .ios-list {
+  background: rgba(24, 32, 29, 0.84);
+}
+
 .ios-cell {
   border-bottom: 1px solid var(--app-border);
   background: var(--app-surface-muted);
@@ -446,6 +530,10 @@ button:disabled {
     border-color var(--motion-base) var(--motion-ease),
     box-shadow var(--motion-base) var(--motion-ease),
     transform var(--motion-fast) var(--motion-ease);
+}
+
+.dark .ios-input {
+  background: rgba(24, 32, 29, 0.72);
 }
 
 .ios-input:hover {
@@ -480,6 +568,11 @@ button:disabled {
     border-color var(--motion-base) var(--motion-ease),
     box-shadow var(--motion-base) var(--motion-ease),
     transform var(--motion-fast) var(--motion-ease);
+}
+
+.dark .ios-select {
+  background-color: rgba(24, 32, 29, 0.76);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23f4f8f5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 .ios-select:hover {
@@ -532,6 +625,10 @@ button:disabled {
     transform var(--motion-fast) var(--motion-ease);
 }
 
+.dark .ios-button-secondary {
+  background: rgba(24, 32, 29, 0.72);
+}
+
 .ios-button-secondary:not(:disabled):hover {
   border-color: rgba(33, 52, 46, 0.24);
   background: var(--app-surface-solid);
@@ -558,6 +655,10 @@ button:disabled {
     box-shadow var(--motion-base) var(--motion-ease),
     color var(--motion-base) var(--motion-ease),
     transform var(--motion-fast) var(--motion-ease);
+}
+
+.dark .ios-icon-button {
+  background: rgba(24, 32, 29, 0.72);
 }
 
 .ios-icon-button:not(:disabled):hover {

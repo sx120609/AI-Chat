@@ -6,6 +6,7 @@ import { DocumentTitle } from "@/components/document-title";
 import { LoginForm } from "@/components/login-form";
 import { SiteLogo } from "@/components/site-logo";
 import { getSiteSettings } from "@/lib/site-settings";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteSettings = await getSiteSettings();
@@ -26,8 +27,11 @@ export default async function LoginPage() {
   const authSettings = await getPublicAuthSettings();
 
   return (
-    <main className="ios-page app-shell app-route-enter grid place-items-center px-5 py-10">
+    <main className="ios-page app-shell app-route-enter grid place-items-center px-5 py-10 relative">
       <DocumentTitle title={siteSettings.siteName} />
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="ios-panel app-card-enter motion-lift w-full max-w-sm p-6">
         <div className="mb-6">
           <div className="flex items-center gap-2">
@@ -36,7 +40,7 @@ export default async function LoginPage() {
               {siteSettings.siteName}
             </p>
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-stone-950">
+          <h1 className="mt-2 text-2xl font-semibold text-stone-950 dark:text-stone-100">
             {authSettings.registrationEnabled ? "登录或注册" : "登录"}
           </h1>
         </div>

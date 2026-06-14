@@ -64,6 +64,7 @@ import { formatCents, formatNumber } from "@/lib/format";
 import { formatPromptClock } from "@/lib/system-prompt";
 import { SiteConfirmDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type {
   AttachmentView,
   ChatModelView,
@@ -2970,6 +2971,7 @@ export function ChatShell({
             >
               <LogOut className="size-4" />
             </button>
+            <ThemeToggle className={`${sidebarHeaderButtonClass} hidden lg:grid border-none shadow-none`} />
           </div>
         </div>
         <div className="mt-4 hidden gap-2 lg:flex">

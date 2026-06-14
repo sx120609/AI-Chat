@@ -4,7 +4,6 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 import { GlobalImageViewer } from "@/components/global-image-viewer";
 import { getSiteSettings } from "@/lib/site-settings";
-import { ThemeProvider } from "@/components/theme-provider";
 
 const inter = Inter({ subsets: ["latin"], display: "swap" });
 
@@ -47,11 +46,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f8f5" },
-    { media: "(prefers-color-scheme: dark)", color: "#111816" }
-  ],
-  colorScheme: "light dark"
+  themeColor: "#f4f8f5",
+  colorScheme: "light"
 };
 
 export default function RootLayout({
@@ -60,17 +56,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className={inter.className} suppressHydrationWarning>
+    <html lang="zh-CN" className={inter.className}>
       <body>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          {children}
-          <GlobalImageViewer />
-        </ThemeProvider>
+        {children}
+        <GlobalImageViewer />
       </body>
     </html>
   );

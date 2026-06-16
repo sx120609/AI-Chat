@@ -84,25 +84,26 @@ function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title
 }
 
 function UsageTrendChart({ buckets }: { buckets: UsageBucketView[] }) {
-  const chronological = [...buckets].sort((left, right) => left.key.localeCompare(right.key)).slice(-12);
+  const chronological = [...buckets].sort((left, right) => left.key.localeCompare(right.key)).slice(-30);
   const maxCost = Math.max(1, ...chronological.map((bucket) => bucket.costCents));
 
   return (
     <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/45 p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-stone-950">月度趋势图</h3>
-        <span className="text-xs ios-muted">{chronological.length} 个月</span>
+        <h3 className="text-sm font-semibold text-stone-950">每日趋势图</h3>
+        <span className="text-xs ios-muted">{chronological.length} 天</span>
       </div>
       {chronological.length === 0 ? (
-        <p className="py-8 text-center text-sm ios-muted">暂无月度数据</p>
+        <p className="py-8 text-center text-sm ios-muted">暂无每日数据</p>
       ) : (
-        <div className="grid min-h-52 grid-cols-[repeat(auto-fit,minmax(3.25rem,1fr))] items-end gap-3">
+        <div className="grid min-h-52 grid-cols-[repeat(auto-fit,minmax(2.5rem,1fr))] items-end gap-2">
           {chronological.map((bucket) => {
             const percent = Math.max(7, Math.round((bucket.costCents / maxCost) * 100));
+            const dayLabel = bucket.key.slice(5);
 
             return (
               <div className="grid h-52 grid-rows-[1fr_auto] gap-2" key={bucket.key}>
-                <div className="flex h-full items-end rounded-lg bg-white/60 px-2 py-2">
+                <div className="flex h-full items-end rounded-lg bg-white/60 px-1.5 py-2">
                   <div
                     aria-label={`${bucket.label} ${formatCents(bucket.costCents)}`}
                     className="w-full rounded-md bg-[color:var(--claude-accent)] shadow-sm"
@@ -111,7 +112,7 @@ function UsageTrendChart({ buckets }: { buckets: UsageBucketView[] }) {
                   />
                 </div>
                 <div className="min-w-0 text-center">
-                  <p className="truncate text-xs font-semibold text-stone-900">{bucket.label}</p>
+                  <p className="truncate text-xs font-semibold text-stone-900">{dayLabel}</p>
                   <p className="truncate text-[11px] ios-muted">{formatCents(bucket.costCents)}</p>
                   <p className="truncate text-[11px] ios-muted">{formatNumber(bucket.records)} 条</p>
                 </div>
@@ -319,14 +320,14 @@ export function DataTab({
                 </div>
               </div>
 
-              <UsageTrendChart buckets={usageBreakdown.byMonth} />
+              <UsageTrendChart buckets={usageBreakdown.byDay} />
 
               <div className="grid gap-3 lg:grid-cols-2">
                 <UsageBucketList buckets={usageBreakdown.byModel.slice(0, 6)} title="按模型" />
                 <UsageBucketList buckets={usageBreakdown.bySurface} title="按聊天 / API / 图片" />
                 <UsageBucketList buckets={(usageBreakdown.byApiKey ?? []).slice(0, 6)} title="按 API Key" />
                 <UsageBucketList buckets={usageBreakdown.byMode} title="按聊天 / 图片" />
-                <UsageBucketList buckets={usageBreakdown.byMonth.slice(0, 6)} title="月度明细" />
+                <UsageBucketList buckets={usageBreakdown.byDay.slice(0, 6)} title="日度明细" />
               </div>
 
               <div className="grid gap-2">

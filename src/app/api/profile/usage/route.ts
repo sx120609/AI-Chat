@@ -189,16 +189,19 @@ export async function GET(request: NextRequest) {
   }
 
   const byModel = new Map<string, UsageBucket>();
+  const byDay = new Map<string, UsageBucket>();
   const byMonth = new Map<string, UsageBucket>();
   const byMode = new Map<string, UsageBucket>();
   const bySurface = new Map<string, UsageBucket>();
   const byApiKey = new Map<string, UsageBucket>();
 
   for (const record of records) {
+    const day = record.createdAt.toISOString().slice(0, 10);
     const month = record.createdAt.toISOString().slice(0, 7);
     const apiKeyInfo = usageApiKeyInfo(record, apiKeyNames);
 
     addToBucket(byModel, record.model, record.model, record);
+    addToBucket(byDay, day, day, record);
     addToBucket(byMonth, month, month, record);
     addToBucket(byMode, record.mode, record.mode === "IMAGE" ? "图片" : "聊天", record);
     addToBucket(bySurface, usageSurface(record), usageSurface(record), record);
@@ -232,6 +235,7 @@ export async function GET(request: NextRequest) {
       totalTokens: records.reduce((total, record) => total + record.totalTokens, 0)
     },
     byApiKey: sortedBuckets(byApiKey),
+    byDay: sortedMonthBuckets(byDay),
     byModel: sortedBuckets(byModel),
     byMonth: sortedMonthBuckets(byMonth),
     byMode: sortedBuckets(byMode),

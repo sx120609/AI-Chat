@@ -351,6 +351,19 @@ export function ProfileCenter({
     }));
   }
 
+  function updateToolPreference<Key extends keyof PersonalizationSettings["toolPreferences"]>(
+    key: Key,
+    value: PersonalizationSettings["toolPreferences"][Key]
+  ) {
+    setPersonalization((current) => ({
+      ...current,
+      toolPreferences: {
+        ...current.toolPreferences,
+        [key]: value
+      }
+    }));
+  }
+
   function applyInstructionPreset(preset: InstructionPreset) {
     const presets: Record<
       InstructionPreset,
@@ -1027,8 +1040,10 @@ export function ProfileCenter({
 
             {activeTab === "personalization" && (
               <PersonalizationTab
+                apiModels={apiModels}
                 personalization={personalization}
                 updatePersonalization={updatePersonalization}
+                updateToolPreference={updateToolPreference}
                 updateTrait={updateTrait}
                 updateAbout={updateAbout}
                 applyInstructionPreset={applyInstructionPreset}

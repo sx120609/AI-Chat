@@ -95,6 +95,7 @@ export type UsageBucketView = {
 
 export type UsageBreakdownPayload = {
   byApiKey?: UsageBucketView[];
+  byDay: UsageBucketView[];
   byMode: UsageBucketView[];
   byModel: UsageBucketView[];
   byMonth: UsageBucketView[];

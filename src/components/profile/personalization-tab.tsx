@@ -1,6 +1,8 @@
 import { FormEvent } from "react";
 import { Sparkles, Loader2, Save } from "lucide-react";
 import { PersonalizationSettings, PersonalizationLevel } from "@/lib/personalization";
+import { REASONING_EFFORTS } from "@/lib/models";
+import type { ChatModelView } from "@/types/gateway";
 import {
   BASE_STYLE_OPTIONS,
   PERSONALITY_OPTIONS,
@@ -12,8 +14,13 @@ import {
 import { InstructionPreset } from "./types";
 
 type PersonalizationTabProps = {
+  apiModels: ChatModelView[];
   personalization: PersonalizationSettings;
   updatePersonalization: (patch: Partial<PersonalizationSettings>) => void;
+  updateToolPreference: <Key extends keyof PersonalizationSettings["toolPreferences"]>(
+    key: Key,
+    value: PersonalizationSettings["toolPreferences"][Key]
+  ) => void;
   updateTrait: (key: keyof PersonalizationSettings["traits"], value: PersonalizationLevel) => void;
   updateAbout: (key: keyof PersonalizationSettings["about"], value: string) => void;
   applyInstructionPreset: (preset: InstructionPreset) => void;
@@ -23,8 +30,10 @@ type PersonalizationTabProps = {
 };
 
 export function PersonalizationTab({
+  apiModels,
   personalization,
   updatePersonalization,
+  updateToolPreference,
   updateTrait,
   updateAbout,
   applyInstructionPreset,
@@ -32,6 +41,23 @@ export function PersonalizationTab({
   onSaveProfile,
   personalizationPayloadSize
 }: PersonalizationTabProps) {
+  const selectedDefaultModel = personalization.toolPreferences.defaultModel;
+  const defaultModelIsAvailable =
+    !selectedDefaultModel ||
+    apiModels.some((model) => model.id === selectedDefaultModel || model.upstreamId === selectedDefaultModel);
+  const defaultModelOptions = [
+    { label: "跟随系统默认", value: "" },
+    ...apiModels.map((model) => ({ label: model.label, value: model.id })),
+    ...(defaultModelIsAvailable
+      ? []
+      : [{ label: `已保存：${selectedDefaultModel}`, value: selectedDefaultModel }])
+  ];
+  const reasoningOptions = REASONING_EFFORTS.map((item) => ({
+    label: item.label,
+    value: item.id
+  }));
+  const securityMode = personalization.toolPreferences.securityMode;
+
   return (
     <form className="ios-panel motion-lift overflow-hidden" onSubmit={onSaveProfile}>
       <div className="flex items-center gap-2 border-b border-[color:var(--ios-separator)] px-4 py-4">
@@ -128,6 +154,71 @@ export function PersonalizationTab({
           label="快速回答"
           onChange={(checked) => updatePersonalization({ quickAnswers: checked })}
         />
+
+        <div className="px-4 py-4">
+          <p className="text-sm font-semibold text-stone-950">工具默认值</p>
+          <p className="mt-1 text-sm leading-5 ios-muted">
+            控制新聊天和每次发送后恢复到的默认工具状态。
+          </p>
+        </div>
+
+        <ToggleRow
+          checked={personalization.toolPreferences.webSearchDefault}
+          description={
+            securityMode
+              ? "安全模式开启时不会默认联网；关闭安全模式后此偏好会继续生效。"
+              : "开启后，新聊天和每次发送后都会默认打开下一条联网搜索。"
+          }
+          disabled={securityMode}
+          label="默认联网搜索"
+          onChange={(checked) => updateToolPreference("webSearchDefault", checked)}
+        />
+        <ToggleRow
+          checked={personalization.toolPreferences.imageGenerationEnabled}
+          description="关闭后，聊天页不会启用 image2 生图或图片编辑入口。"
+          disabled={securityMode}
+          label="允许生图和图片编辑"
+          onChange={(checked) => updateToolPreference("imageGenerationEnabled", checked)}
+        />
+        <ToggleRow
+          checked={personalization.toolPreferences.fileAnalysisEnabled}
+          description="关闭后，聊天页不会允许上传附件做分析。"
+          disabled={securityMode}
+          label="允许附件分析"
+          onChange={(checked) => updateToolPreference("fileAnalysisEnabled", checked)}
+        />
+        <ToggleRow
+          checked={securityMode}
+          description="开启后默认临时聊天，并禁用联网搜索、生图和附件分析。"
+          label="安全模式"
+          onChange={(checked) => updateToolPreference("securityMode", checked)}
+        />
+
+        <div className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">默认聊天模型</p>
+            <p className="mt-1 text-sm leading-5 ios-muted">新聊天默认选择的模型。</p>
+          </div>
+          <PreferenceSelect
+            ariaLabel="默认聊天模型"
+            onChange={(value) => updateToolPreference("defaultModel", value)}
+            options={defaultModelOptions}
+            value={selectedDefaultModel}
+          />
+        </div>
+
+        <div className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">默认思考强度</p>
+            <p className="mt-1 text-sm leading-5 ios-muted">用于支持 reasoning 的模型。</p>
+          </div>
+          <PreferenceSelect
+            ariaLabel="默认思考强度"
+            onChange={(value) => updateToolPreference("defaultReasoningEffort", value)}
+            options={reasoningOptions}
+            value={personalization.toolPreferences.defaultReasoningEffort}
+          />
+        </div>
 
         <div className="grid gap-2 px-4 py-4">
           <label className="text-sm font-semibold text-stone-950" htmlFor="custom-instructions">

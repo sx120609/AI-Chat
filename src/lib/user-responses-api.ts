@@ -313,11 +313,8 @@ async function upstreamFailureFromResponse(response: Response): Promise<Upstream
 }
 
 function shouldRetryUpstreamFailure(failure: UpstreamFailure) {
-  return (
-    failure.status >= 500 ||
-    /instructions|store|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|tool_choice|parallel_tool_calls|metadata|max_output_tokens|unsupported|unrecognized|unknown|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数/i.test(
-      failure.message
-    )
+  return /instructions|store|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|tool_choice|parallel_tool_calls|metadata|max_output_tokens|unsupported|unrecognized|unknown|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数/i.test(
+    failure.message
   );
 }
 

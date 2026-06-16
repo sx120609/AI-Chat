@@ -4,7 +4,6 @@ import { jsonError } from "@/lib/http";
 import {
   estimateChatCostForModel,
   getEnabledApiModels,
-  getEnabledChatModels,
   type ChatModelConfig
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
@@ -206,8 +205,26 @@ function findEnabledModel(modelId: unknown, catalog: ChatModelConfig[]) {
   }
 
   const id = modelId.trim();
+  const apiModels = getEnabledApiModels(catalog);
+  const exactApiModel =
+    apiModels.find((model) => model.id === id || model.upstreamId === id || model.label === id) ?? null;
 
-  return getEnabledChatModels(catalog).find((model) => model.id === id || model.upstreamId === id) ?? null;
+  if (exactApiModel) {
+    return exactApiModel;
+  }
+
+  const normalizedId = id.toLowerCase();
+  const chatModel = catalog.find(
+    (model) =>
+      model.enabled &&
+      (model.id.toLowerCase() === normalizedId ||
+        model.upstreamId.toLowerCase() === normalizedId ||
+        model.label.toLowerCase() === normalizedId)
+  );
+
+  return chatModel
+    ? apiModels.find((model) => model.upstreamId === chatModel.upstreamId) ?? null
+    : null;
 }
 
 function promptEstimateFromBody(body: Record<string, unknown>) {

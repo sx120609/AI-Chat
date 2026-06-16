@@ -3,8 +3,7 @@ import { formatCents, formatNumber } from "@/lib/format";
 import {
   CHAT_MODELS,
   DEFAULT_UPSTREAM_MODEL_MAP,
-  DEFAULT_IMAGE_UPSTREAM_MODEL,
-  UNLIMITED_CONTEXT_WINDOW_TOKENS
+  DEFAULT_IMAGE_UPSTREAM_MODEL
 } from "@/lib/models";
 import type { AiSettingsView, ChatModelView } from "@/types/gateway";
 import type { SettingsForm } from "./types";
@@ -19,8 +18,35 @@ type ModelsTabProps = {
   onRefreshUpstreamModels: () => void;
 };
 
-function formatContextWindow(tokens: number) {
-  return tokens >= UNLIMITED_CONTEXT_WINDOW_TOKENS ? "不限制" : formatNumber(tokens);
+function commonContextTokensForModel(model: ChatModelView) {
+  const signature = `${model.id} ${model.label} ${model.upstreamId}`.toLowerCase();
+
+  if (signature.includes("spark") || signature.includes("gpt-5.3")) {
+    return 400_000;
+  }
+
+  if (signature.includes("gpt-5.5") || signature.includes("gpt-5.4")) {
+    return 1_000_000;
+  }
+
+  return model.contextWindowTokens >= 1_000_000_000 ? 1_000_000 : model.contextWindowTokens;
+}
+
+function formatCompactContext(tokens: number) {
+  if (tokens >= 1_000_000) {
+    const value = tokens / 1_000_000;
+    return Number.isInteger(value) ? `${value}M` : `${value.toFixed(1)}M`;
+  }
+
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}K`;
+  }
+
+  return formatNumber(tokens);
+}
+
+function formatContextWindow(model: ChatModelView) {
+  return `上下文 ${formatCompactContext(commonContextTokensForModel(model))}`;
 }
 
 function ModelToggle({
@@ -46,7 +72,7 @@ function ModelToggle({
           {model.upstreamId} · {model.source === "upstream" ? "上游" : model.contextNote}
         </span>
         <span className="mt-1 block truncate text-[11px] ios-muted">
-          上下文 {formatContextWindow(model.contextWindowTokens)} · 输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 缓存{" "}
+          {formatContextWindow(model)} · 输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 缓存{" "}
           {formatCents(model.cachedInputCentsPerMillionTokens)}/百万 · 输出{" "}
           {formatCents(model.outputCentsPerMillionTokens)}/百万
         </span>

@@ -26,7 +26,7 @@ function getModelPickerDetail(model: ChatModelView) {
           ? "轻量代码"
           : model.contextNote || "通用";
 
-  return `${role} · 上下文不限制`;
+  return `${role} · ${formatModelContext(model)} 上下文`;
 }
 
 function getReasoningUiCopy(id: ReasoningEffort) {
@@ -45,9 +45,23 @@ function getReasoningUiCopy(id: ReasoningEffort) {
   return { label: "均衡", hint: "默认" };
 }
 
+function commonContextTokensForModel(model: ChatModelView | undefined, fallbackTokens: number) {
+  const signature = `${model?.id || ""} ${model?.label || ""} ${model?.upstreamId || ""}`.toLowerCase();
+
+  if (signature.includes("spark") || signature.includes("gpt-5.3")) {
+    return 400_000;
+  }
+
+  if (signature.includes("gpt-5.5") || signature.includes("gpt-5.4")) {
+    return 1_000_000;
+  }
+
+  return fallbackTokens >= 1_000_000_000 ? 1_000_000 : fallbackTokens;
+}
+
 function formatCompactContext(tokens: number) {
   if (tokens >= 1_000_000_000) {
-    return "不限";
+    return "1M";
   }
 
   if (tokens >= 1_000_000) {
@@ -62,6 +76,10 @@ function formatCompactContext(tokens: number) {
   return formatNumber(tokens);
 }
 
+function formatModelContext(model: ChatModelView | undefined, fallbackTokens = model?.contextWindowTokens ?? 1_000_000) {
+  return formatCompactContext(commonContextTokensForModel(model, fallbackTokens));
+}
+
 const REASONING_EFFORTS_ARRAY = [
   { id: "low" as const, name: "low" },
   { id: "medium" as const, name: "medium" },
@@ -72,31 +90,34 @@ const REASONING_EFFORTS_ARRAY = [
 export function ContextBadge({
   compact = false,
   contextStats,
+  model,
   contextWindowTokens
 }: {
   compact?: boolean;
   contextStats: ContextStats | null;
+  model?: ChatModelView;
   contextWindowTokens: number;
 }) {
   const usedTokens = contextStats?.promptTokensEstimate ?? 0;
+  const contextLabel = formatModelContext(model, contextWindowTokens);
 
   return (
     <span
       className="app-status-pill inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-white/50 bg-white/40 px-2 py-0.5 text-[11px] text-stone-500 shadow-[0_8px_22px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"
-      title="后端不再按模型上下文窗口裁剪历史；此处只显示当前请求体估算，最终计费以上游 usage 为准。"
+      title="后端会保留完整会话历史；此处只显示当前请求体估算，最终计费以上游 usage 为准。"
     >
       {compact ? (
         <>
           <span className="shrink-0">上下文</span>
-          <span className="min-w-0 truncate">{formatCompactContext(contextWindowTokens)}</span>
+          <span className="min-w-0 truncate">{contextLabel}</span>
         </>
       ) : (
         <>
           <span className="shrink-0">上下文</span>
           {contextStats ? (
-            <span className="min-w-0 truncate">已用约 {formatNumber(usedTokens)} · 不限制</span>
+            <span className="min-w-0 truncate">已用约 {formatNumber(usedTokens)} · {contextLabel}</span>
           ) : (
-            <span className="min-w-0 truncate">不限制</span>
+            <span className="min-w-0 truncate">{contextLabel}</span>
           )}
         </>
       )}
@@ -388,6 +409,7 @@ export function Header({
               <ContextBadge
                 compact
                 contextStats={lastContextStats}
+                model={activeModel}
                 contextWindowTokens={activeModel.contextWindowTokens}
               />
             </div>
@@ -405,6 +427,7 @@ export function Header({
               {activeModel ? (
                 <ContextBadge
                   contextStats={lastContextStats}
+                  model={activeModel}
                   contextWindowTokens={activeModel.contextWindowTokens}
                 />
               ) : null}

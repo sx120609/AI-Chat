@@ -8,7 +8,6 @@ import {
   readAttachmentBuffer
 } from "@/lib/attachments";
 import { ensureAttachmentsMetadata } from "@/lib/attachment-repair";
-import { resetContextSummaryData } from "@/lib/context-compression";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { messagesAfter } from "@/lib/message-order";
@@ -397,7 +396,7 @@ export async function POST(request: NextRequest) {
 
     await prisma.conversation.update({
       where: { id: reusedUserMessage.conversationId },
-      data: resetContextSummaryData()
+      data: { updatedAt: new Date() }
     });
   }
 

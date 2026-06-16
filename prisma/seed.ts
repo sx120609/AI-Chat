@@ -1,14 +1,10 @@
 import { prisma } from "../src/lib/prisma";
 import { hashPassword } from "../src/lib/password";
 import {
-  DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-  DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
   DEFAULT_IMAGE_UPSTREAM_MODEL,
-  DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_PARAM_MODE,
   DEFAULT_UPSTREAM_MODEL_MAP,
-  normalizeLongContextThresholdTokens,
   normalizeReasoningEffort
 } from "../src/lib/models";
 import {
@@ -76,14 +72,6 @@ async function main() {
         existingSettings?.defaultReasoningEffort || DEFAULT_REASONING_EFFORT
       ),
       reasoningParamMode: existingSettings?.reasoningParamMode || DEFAULT_REASONING_PARAM_MODE,
-      contextCompressionEnabled:
-        existingSettings?.contextCompressionEnabled ?? DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-      contextCompressionThresholdPercent:
-        existingSettings?.contextCompressionThresholdPercent ??
-        DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
-      longContextThresholdTokens: normalizeLongContextThresholdTokens(
-        existingSettings?.longContextThresholdTokens || DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS
-      ),
       systemPromptMode: existingSettings?.systemPromptMode || DEFAULT_SYSTEM_PROMPT_MODE,
       customSystemPrompt: existingSettings?.customSystemPrompt || "",
       modelSystemPromptsJson: existingSettings?.modelSystemPromptsJson || "{}",
@@ -186,9 +174,6 @@ async function main() {
       imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
       defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
       reasoningParamMode: DEFAULT_REASONING_PARAM_MODE,
-      contextCompressionEnabled: DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-      contextCompressionThresholdPercent: DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
-      longContextThresholdTokens: DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
       systemPromptMode: DEFAULT_SYSTEM_PROMPT_MODE,
       customSystemPrompt: "",
       modelSystemPromptsJson: "{}",

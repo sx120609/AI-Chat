@@ -14,11 +14,6 @@ import {
   ensureAttachmentsMetadata,
   ensureAttachmentsText
 } from "@/lib/attachment-repair";
-import {
-  maybeCompressConversationContext,
-  resetContextSummaryData,
-  type ContextCompressionResult
-} from "@/lib/context-compression";
 import { formatRecentChatHistoryForPrompt } from "@/lib/chat-history";
 import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
@@ -93,7 +88,6 @@ type ChatBody = {
 const encoder = new TextEncoder();
 // Codex 类模型高推理档位可能长时间不输出可见内容，看门狗放宽到 5 分钟
 const IDLE_TIMEOUT_MS = 300_000;
-const MAX_CONTEXT_HISTORY_MESSAGES = 120;
 const DRAFT_PERSIST_INTERVAL_MS = 1000;
 const SSE_KEEPALIVE_INTERVAL_MS = 15_000;
 const MAX_DIRECT_FILE_INPUT_BYTES = 50 * 1024 * 1024;
@@ -123,7 +117,7 @@ type ToolEventPayload = {
   label: string;
   startedAt?: number;
   status: "done" | "running" | "skipped" | "error";
-  type: "router" | "attachments" | "web_search" | "context_compression" | "memory";
+  type: "router" | "attachments" | "web_search" | "memory";
 };
 
 function normalizeRequestWebSearchProvider(value: string | undefined, fallback: string) {
@@ -848,7 +842,6 @@ function buildToolEvents(options: {
   attachmentCount: number;
   attachmentFinishedAt?: number;
   attachmentStartedAt?: number;
-  contextCompression?: ContextCompressionResult | null;
   memoryResult?: MemoryApplyResult | null;
   routerFinishedAt?: number;
   routerStartedAt?: number;
@@ -858,12 +851,10 @@ function buildToolEvents(options: {
 }): ToolEventPayload[] {
   const events: ToolEventPayload[] = [];
   const usedWebSearch = Boolean(options.webSearchResult);
-  const usedContextCompression = Boolean(options.contextCompression);
   const usedMemory = Boolean(options.memoryResult);
   const routeParts = [
     usedMemory ? "记忆" : "",
     options.attachmentCount > 0 ? "附件上下文" : "",
-    usedContextCompression ? "上下文压缩" : "",
     usedWebSearch ? "联网搜索" : ""
   ].filter(Boolean);
 
@@ -891,20 +882,6 @@ function buildToolEvents(options: {
 
   if (options.memoryResult) {
     events.push(memoryToolEvent(options.memoryResult));
-  }
-
-  if (options.contextCompression) {
-    const result = options.contextCompression;
-
-    events.push({
-      detail: result.error ? `${result.detail}（${result.error}）` : result.detail,
-      finishedAt: result.finishedAt,
-      id: "context-compression",
-      label: "上下文压缩",
-      startedAt: result.startedAt,
-      status: result.compressed ? "done" : "skipped",
-      type: "context_compression"
-    });
   }
 
   if (options.webSearchResult) {
@@ -1172,7 +1149,7 @@ export async function POST(request: NextRequest) {
 
     await prisma.conversation.update({
       where: { id: reusedUserMessage.conversationId },
-      data: resetContextSummaryData()
+      data: { updatedAt: new Date() }
     });
   }
 
@@ -1708,8 +1685,7 @@ export async function POST(request: NextRequest) {
         include: {
           attachments: true
         },
-        orderBy: MESSAGE_ORDER_DESC,
-        take: MAX_CONTEXT_HISTORY_MESSAGES
+        orderBy: MESSAGE_ORDER_DESC
       })
     : [];
   const previousContextMessages = temporaryChat
@@ -1797,44 +1773,17 @@ export async function POST(request: NextRequest) {
     : "";
   const modelContent = webSearchContext ? `${content}\n\n---\n${webSearchContext}` : content;
   const userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
-  let contextSummary = existingConversation?.contextSummary || "";
-  let compressedHistoryMessageCount = existingConversation?.contextSummaryMessageCount ?? 0;
-  let requestPreviousContextMessages = previousContextMessages;
-  const compressionResult = await maybeCompressConversationContext({
-    conversation: existingConversation,
-    longContextThresholdTokens: aiSettings.longContextThresholdTokens,
-    model,
-    previousMessages: previousContextMessages,
-    settings: aiSettings,
-    signal: request.signal,
-    systemPrompt,
-    userContent
-  });
-
-  if (compressionResult.contextSummary !== undefined) {
-    contextSummary = compressionResult.contextSummary || "";
-  }
-
-  if (compressionResult.compressedHistoryMessageCount !== undefined) {
-    compressedHistoryMessageCount = compressionResult.compressedHistoryMessageCount;
-  }
-
-  requestPreviousContextMessages = compressionResult.previousMessages;
+  const requestPreviousContextMessages = previousContextMessages;
 
   const initialContext = buildContextMessages({
-    compressedHistoryMessageCount,
-    contextSummary,
     previousMessages: requestPreviousContextMessages,
     systemPrompt,
     userContent,
-    model,
-    longContextThresholdTokens: aiSettings.longContextThresholdTokens
+    model
   });
   const { contextStats, promptTokensEstimate } = initialContext;
   let { upstreamMessages } = initialContext;
   upstreamMessages = buildContextMessages({
-    compressedHistoryMessageCount,
-    contextSummary,
     previousMessages: requestPreviousContextMessages,
     systemPrompt,
     userContent: await buildUserContentWithRawFiles(
@@ -1842,8 +1791,7 @@ export async function POST(request: NextRequest) {
       effectiveAttachments,
       rawFileUploadOptions
     ),
-    model,
-    longContextThresholdTokens: aiSettings.longContextThresholdTokens
+    model
   }).upstreamMessages;
   const buildFallbackUpstreamMessages = directFileAttachmentIds(effectiveAttachments).size > 0
     ? async (): Promise<UpstreamMessage[]> => {
@@ -1854,13 +1802,10 @@ export async function POST(request: NextRequest) {
         );
 
         return buildContextMessages({
-          compressedHistoryMessageCount,
-          contextSummary,
           previousMessages: requestPreviousContextMessages,
           systemPrompt,
           userContent: fallbackUserContent,
-          model,
-          longContextThresholdTokens: aiSettings.longContextThresholdTokens
+          model
         }).upstreamMessages;
       }
     : undefined;
@@ -1891,7 +1836,6 @@ export async function POST(request: NextRequest) {
       attachmentCount: effectiveAttachments.length,
       attachmentFinishedAt,
       attachmentStartedAt,
-      contextCompression: compressionResult.compression,
       memoryResult: null,
       routerFinishedAt,
       routerStartedAt,
@@ -2263,7 +2207,6 @@ export async function POST(request: NextRequest) {
     attachmentCount: effectiveAttachments.length,
     attachmentFinishedAt,
     attachmentStartedAt,
-    contextCompression: compressionResult.compression,
     memoryResult,
     routerFinishedAt,
     routerStartedAt,

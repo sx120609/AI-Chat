@@ -40,9 +40,6 @@ export type SettingsForm = {
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
   reasoningParamMode: ReasoningParamMode;
-  contextCompressionEnabled: boolean;
-  contextCompressionThresholdPercent: number;
-  longContextThresholdTokens: number;
   systemPromptMode: SystemPromptMode;
   customSystemPrompt: string;
   modelSystemPrompts: Record<string, string>;

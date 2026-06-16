@@ -30,7 +30,6 @@ export async function GET(request: NextRequest) {
     usage,
     chatModels: getEnabledChatModels(aiSettings.chatModels),
     defaultReasoningEffort: aiSettings.defaultReasoningEffort,
-    longContextThresholdTokens: aiSettings.longContextThresholdTokens,
     paymentSettings,
     webSearchEnabled: aiSettings.webSearchEnabled,
     webSearchProvider: aiSettings.webSearchProvider

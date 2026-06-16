@@ -30,24 +30,11 @@ export const SYSTEM_PROMPT_MODES: Array<{
 export const DEFAULT_SYSTEM_PROMPT_MODE: SystemPromptMode = "default";
 
 export function normalizeModelDisplayLabel(modelLabel: string) {
-  const trimmed = modelLabel.trim();
-  const normalized = trimmed.toLowerCase().replace(/\s+/g, "");
-
-  if (normalized === "gpt-5.51m" || normalized === "gpt-5.5-1m") {
-    return "GPT-5.5-1M";
-  }
-
-  return trimmed;
+  return modelLabel.trim();
 }
 
 export function modelIdentityLabel(modelLabel: string) {
-  const displayLabel = normalizeModelDisplayLabel(modelLabel);
-
-  if (displayLabel === "GPT-5.5-1M") {
-    return "有 1M 超长上下文的 GPT-5.5（GPT-5.5-1M）";
-  }
-
-  return displayLabel;
+  return normalizeModelDisplayLabel(modelLabel);
 }
 
 // 上游若为 Sub2API 转发的 Codex/订阅类后端，会自带"Codex CLI 编码代理"的系统设定，

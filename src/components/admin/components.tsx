@@ -13,10 +13,7 @@ import {
   DEFAULT_IMAGE_UPSTREAM_MODEL,
   DEFAULT_UPSTREAM_MODEL_MAP,
   DEFAULT_REASONING_EFFORT,
-  DEFAULT_REASONING_PARAM_MODE,
-  DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-  DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
-  DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS
+  DEFAULT_REASONING_PARAM_MODE
 } from "@/lib/models";
 import type { AdminUsageRecordView } from "@/types/gateway";
 import type {
@@ -62,9 +59,6 @@ export const emptySettings: SettingsForm = {
   imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
   defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
   reasoningParamMode: DEFAULT_REASONING_PARAM_MODE,
-  contextCompressionEnabled: DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-  contextCompressionThresholdPercent: DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
-  longContextThresholdTokens: DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   systemPromptMode: "default",
   customSystemPrompt: "",
   modelSystemPrompts: {},

@@ -349,7 +349,6 @@ const TOOL_EVENT_DISPLAY_ORDER: Record<string, number> = {
   memory: 1,
   attachments: 2,
   web_search: 3,
-  context_compression: 4,
   file_analysis: 4,
   generation: 5,
   image: 5

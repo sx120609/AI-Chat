@@ -26,7 +26,7 @@ function getModelPickerDetail(model: ChatModelView) {
           ? "轻量代码"
           : model.contextNote || "通用";
 
-  return `${role} · ${formatCompactContext(model.contextWindowTokens)} 上下文`;
+  return `${role} · 上下文不限制`;
 }
 
 function getReasoningUiCopy(id: ReasoningEffort) {
@@ -46,6 +46,10 @@ function getReasoningUiCopy(id: ReasoningEffort) {
 }
 
 function formatCompactContext(tokens: number) {
+  if (tokens >= 1_000_000_000) {
+    return "不限";
+  }
+
   if (tokens >= 1_000_000) {
     const value = tokens / 1_000_000;
     return Number.isInteger(value) ? `${value}M` : `${value.toFixed(1)}M`;
@@ -74,42 +78,25 @@ export function ContextBadge({
   contextStats: ContextStats | null;
   contextWindowTokens: number;
 }) {
-  const warned = Boolean(contextStats?.longContextThresholdExceeded);
   const usedTokens = contextStats?.promptTokensEstimate ?? 0;
-  const windowTokens = contextStats?.contextWindowTokens ?? contextWindowTokens;
-  const remainingTokens = Math.max(0, windowTokens - usedTokens);
-  const compressedTitle =
-    contextStats && contextStats.compressedHistoryMessageCount > 0
-      ? `；已压缩 ${formatNumber(contextStats.compressedHistoryMessageCount)} 条历史，摘要约 ${formatNumber(contextStats.compressedSummaryTokens)} tokens`
-      : "";
 
   return (
     <span
-      className={`app-status-pill inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] ${
-        warned
-          ? "border-amber-200 bg-amber-50 text-amber-800"
-          : "border-white/50 bg-white/40 text-stone-500 shadow-[0_8px_22px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"
-      }`}
-      title={`上下文窗口 ${formatNumber(windowTokens)} tokens${compressedTitle}；后端按实际请求体估算，最终计费以上游 usage 为准。`}
+      className="app-status-pill inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-white/50 bg-white/40 px-2 py-0.5 text-[11px] text-stone-500 shadow-[0_8px_22px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"
+      title="后端不再按模型上下文窗口裁剪历史；此处只显示当前请求体估算，最终计费以上游 usage 为准。"
     >
       {compact ? (
         <>
-          <span className="shrink-0">剩余</span>
-          <span className="min-w-0 truncate">
-            {contextStats
-              ? formatCompactContext(remainingTokens)
-              : formatCompactContext(contextWindowTokens)}
-          </span>
+          <span className="shrink-0">上下文</span>
+          <span className="min-w-0 truncate">{formatCompactContext(contextWindowTokens)}</span>
         </>
       ) : (
         <>
           <span className="shrink-0">上下文</span>
           {contextStats ? (
-            <span className="min-w-0 truncate">
-              已用约 {formatNumber(usedTokens)} · 剩余 {formatNumber(remainingTokens)}
-            </span>
+            <span className="min-w-0 truncate">已用约 {formatNumber(usedTokens)} · 不限制</span>
           ) : (
-            <span className="min-w-0 truncate">剩余 {formatNumber(contextWindowTokens)}</span>
+            <span className="min-w-0 truncate">不限制</span>
           )}
         </>
       )}

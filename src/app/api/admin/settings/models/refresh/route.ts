@@ -13,13 +13,8 @@ import {
 import { jsonError, requireAdmin } from "@/lib/http";
 import {
   buildChatModelCatalog,
-  DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-  DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
-  DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   DEFAULT_UPSTREAM_MODEL_MAP,
   getEnabledChatModels,
-  normalizeContextCompressionThresholdPercent,
-  normalizeLongContextThresholdTokens,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
   parseModelDisplayConfig,
@@ -74,15 +69,6 @@ async function serializeSettings() {
     imageModelId: settings.imageModelId,
     defaultReasoningEffort: normalizeReasoningEffort(settings.defaultReasoningEffort),
     reasoningParamMode: normalizeReasoningParamMode(settings.reasoningParamMode),
-    contextCompressionEnabled:
-      settings.contextCompressionEnabled ?? DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-    contextCompressionThresholdPercent: normalizeContextCompressionThresholdPercent(
-      settings.contextCompressionThresholdPercent ||
-        DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT
-    ),
-    longContextThresholdTokens: normalizeLongContextThresholdTokens(
-      settings.longContextThresholdTokens
-    ),
     systemPromptMode: normalizeSystemPromptMode(settings.systemPromptMode),
     customSystemPrompt: settings.customSystemPrompt || "",
     modelSystemPrompts: parseModelSystemPrompts(settings.modelSystemPromptsJson),
@@ -167,11 +153,6 @@ export async function POST(request: NextRequest) {
         imageModelId: runtimeSettings.imageModelId,
         defaultReasoningEffort: runtimeSettings.defaultReasoningEffort,
         reasoningParamMode: runtimeSettings.reasoningParamMode,
-        contextCompressionEnabled: runtimeSettings.contextCompressionEnabled,
-        contextCompressionThresholdPercent:
-          runtimeSettings.contextCompressionThresholdPercent,
-        longContextThresholdTokens:
-          runtimeSettings.longContextThresholdTokens || DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
         systemPromptMode: runtimeSettings.systemPromptMode,
         customSystemPrompt: runtimeSettings.customSystemPrompt,
         modelSystemPromptsJson: JSON.stringify(runtimeSettings.modelSystemPrompts),

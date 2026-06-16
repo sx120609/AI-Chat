@@ -1,8 +1,4 @@
-import {
-  REASONING_EFFORTS,
-  REASONING_PARAM_MODES,
-  MAX_LONG_CONTEXT_THRESHOLD_TOKENS
-} from "@/lib/models";
+import { REASONING_EFFORTS, REASONING_PARAM_MODES } from "@/lib/models";
 import type { AiSettingsView, ReasoningEffort, ReasoningParamMode } from "@/types/gateway";
 import type { SettingsForm } from "./types";
 
@@ -123,49 +119,6 @@ export function AccessTab({
               </option>
             ))}
           </select>
-        </label>
-        <label className="block lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">长上下文阈值</span>
-          <input
-            className="ios-input w-full"
-            max={MAX_LONG_CONTEXT_THRESHOLD_TOKENS}
-            min={8000}
-            onChange={(event) =>
-              handleUpdate({
-                longContextThresholdTokens: Number(event.target.value)
-              })
-            }
-            type="number"
-            value={settingsForm.longContextThresholdTokens}
-          />
-        </label>
-        <label className="admin-check-row">
-          <input
-            checked={settingsForm.contextCompressionEnabled}
-            className="size-4 accent-[color:var(--claude-accent)]"
-            onChange={(event) =>
-              handleUpdate({
-                contextCompressionEnabled: event.target.checked
-              })
-            }
-            type="checkbox"
-          />
-          自动压缩旧上下文
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium ios-muted">压缩触发比例</span>
-          <input
-            className="ios-input w-full"
-            max={95}
-            min={50}
-            onChange={(event) =>
-              handleUpdate({
-                contextCompressionThresholdPercent: Number(event.target.value)
-              })
-            }
-            type="number"
-            value={settingsForm.contextCompressionThresholdPercent}
-          />
         </label>
         <label className="admin-check-row">
           <input

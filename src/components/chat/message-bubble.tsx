@@ -6,7 +6,6 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import {
-  Archive,
   Check,
   ChevronDown,
   Copy,
@@ -82,10 +81,6 @@ function ToolStatusIcon({ event }: { event: ToolEventView }) {
 
   if (event.type === "memory") {
     return <UserRound className="size-3.5" />;
-  }
-
-  if (event.type === "context_compression") {
-    return <Archive className="size-3.5" />;
   }
 
   return <Sparkles className="size-3.5" />;

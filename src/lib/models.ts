@@ -46,17 +46,13 @@ export const REASONING_PARAM_MODES: Array<{
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
 export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "responses";
 export const LIGHTWEIGHT_TASK_MODEL_ID = "GPT-5.3-Codex-Spark";
-export const DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS = 256_000;
-export const MAX_CONTEXT_WINDOW_LIMIT_TOKENS = 1_000_000;
-export const MAX_LONG_CONTEXT_THRESHOLD_TOKENS = 950_000;
-export const DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS = 200_000;
-export const DEFAULT_CONTEXT_COMPRESSION_ENABLED = true;
-export const DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT = 78;
+export const UNLIMITED_CONTEXT_WINDOW_TOKENS = 1_000_000_000;
+export const DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS = UNLIMITED_CONTEXT_WINDOW_TOKENS;
+export const MAX_CONTEXT_WINDOW_LIMIT_TOKENS = UNLIMITED_CONTEXT_WINDOW_TOKENS;
 
 const DEFAULT_DYNAMIC_INPUT_CENTS_PER_MILLION = 100;
 const DEFAULT_DYNAMIC_CACHED_INPUT_CENTS_PER_MILLION = 10;
 const DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION = 500;
-const DEFAULT_DYNAMIC_CONTEXT_WINDOW_TOKENS = 128_000;
 
 export const CHAT_MODELS: ChatModelConfig[] = [
   {
@@ -71,20 +67,6 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "旗舰",
     source: "default",
     enabled: true,
-    supportsReasoning: true
-  },
-  {
-    id: "GPT-5.5-1M",
-    label: "GPT-5.5-1M",
-    upstreamId: "gpt-5.5",
-    inputCentsPerMillionTokens: 1000,
-    cachedInputCentsPerMillionTokens: 100,
-    outputCentsPerMillionTokens: 6000,
-    contextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
-    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
-    contextNote: "长上下文",
-    source: "default",
-    enabled: false,
     supportsReasoning: true
   },
   {
@@ -123,7 +105,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     cachedInputCentsPerMillionTokens: 30,
     outputCentsPerMillionTokens: 1500,
     contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
-    maxContextWindowTokens: 400_000,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
     contextNote: "轻量代码",
     source: "default",
     enabled: true,
@@ -271,36 +253,14 @@ export function inferSupportsReasoning(modelId: string) {
 }
 
 export function inferContextWindowTokens(modelId: string) {
-  const normalized = modelId.toLowerCase();
-
-  if (normalized.includes("gpt-5.5") || normalized.includes("gpt-5.4")) {
-    return MAX_CONTEXT_WINDOW_LIMIT_TOKENS;
-  }
-
-  if (
-    normalized.startsWith("gpt-5") ||
-    normalized.startsWith("o1") ||
-    normalized.startsWith("o3") ||
-    normalized.startsWith("o4")
-  ) {
-    return 400_000;
-  }
-
-  return DEFAULT_DYNAMIC_CONTEXT_WINDOW_TOKENS;
+  void modelId;
+  return UNLIMITED_CONTEXT_WINDOW_TOKENS;
 }
 
 export function capContextWindowTokens(tokens: number) {
-  return Math.max(1, Math.min(MAX_CONTEXT_WINDOW_LIMIT_TOKENS, Math.round(tokens)));
-}
-
-export function normalizeContextCompressionThresholdPercent(value: unknown) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT;
-  }
-
-  return Math.max(50, Math.min(95, Math.round(parsed)));
+  return Number.isFinite(tokens) && tokens > 0
+    ? Math.round(tokens)
+    : UNLIMITED_CONTEXT_WINDOW_TOKENS;
 }
 
 export function isLikelyChatModelId(modelId: string) {
@@ -422,7 +382,7 @@ export function getEnabledApiModels(catalog: ChatModelConfig[]) {
     return {
       ...model,
       id: upstreamId,
-      label: model.label.replace(/\s*[-–—]?\s*1M\b/i, "") || upstreamId,
+      label: model.label || upstreamId,
       upstreamId,
       contextWindowTokens,
       maxContextWindowTokens: contextWindowTokens,
@@ -477,16 +437,6 @@ export function normalizeReasoningParamMode(value: unknown): ReasoningParamMode 
   return REASONING_PARAM_MODES.some((item) => item.id === value)
     ? (value as ReasoningParamMode)
     : DEFAULT_REASONING_PARAM_MODE;
-}
-
-export function normalizeLongContextThresholdTokens(value: unknown) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    return DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS;
-  }
-
-  return Math.max(8_000, Math.min(MAX_LONG_CONTEXT_THRESHOLD_TOKENS, Math.round(parsed)));
 }
 
 export function estimateChatCostCents(

@@ -146,12 +146,6 @@ model Conversation {
   mode      GenerationMode @default(CHAT)
   pinned    Boolean        @default(false)
   archivedAt DateTime?
-  contextSummary String?
-  contextSummaryUntilMessageId String?
-  contextSummaryUntilCreatedAt DateTime?
-  contextSummaryMessageCount Int @default(0)
-  contextSummaryTokens Int @default(0)
-  contextSummaryUpdatedAt DateTime?
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -276,16 +270,13 @@ model AiSettings {
   apiKey                String?
   orgId                 String?
   mockResponses         Boolean  @default(false)
-  chatModelMapJson      String   @default("{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.5-1M\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}")
+  chatModelMapJson      String   @default("{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}")
   chatModelDisplayJson  String   @default("{}")
   availableModelsJson   String   @default("[]")
   enabledChatModelsJson String   @default("[]")
   imageModelId          String   @default("image2")
   defaultReasoningEffort String  @default("medium")
   reasoningParamMode    String   @default("chat")
-  contextCompressionEnabled Boolean @default(true)
-  contextCompressionThresholdPercent Int @default(78)
-  longContextThresholdTokens Int @default(200000)
   systemPromptMode      String   @default("default")
   customSystemPrompt    String   @default("")
   modelSystemPromptsJson String  @default("{}")

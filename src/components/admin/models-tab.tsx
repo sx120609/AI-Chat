@@ -3,7 +3,8 @@ import { formatCents, formatNumber } from "@/lib/format";
 import {
   CHAT_MODELS,
   DEFAULT_UPSTREAM_MODEL_MAP,
-  DEFAULT_IMAGE_UPSTREAM_MODEL
+  DEFAULT_IMAGE_UPSTREAM_MODEL,
+  UNLIMITED_CONTEXT_WINDOW_TOKENS
 } from "@/lib/models";
 import type { AiSettingsView, ChatModelView } from "@/types/gateway";
 import type { SettingsForm } from "./types";
@@ -17,6 +18,10 @@ type ModelsTabProps = {
   refreshingModels: boolean;
   onRefreshUpstreamModels: () => void;
 };
+
+function formatContextWindow(tokens: number) {
+  return tokens >= UNLIMITED_CONTEXT_WINDOW_TOKENS ? "不限制" : formatNumber(tokens);
+}
 
 function ModelToggle({
   checked,
@@ -41,7 +46,7 @@ function ModelToggle({
           {model.upstreamId} · {model.source === "upstream" ? "上游" : model.contextNote}
         </span>
         <span className="mt-1 block truncate text-[11px] ios-muted">
-          上下文 {formatNumber(model.contextWindowTokens)} · 输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 缓存{" "}
+          上下文 {formatContextWindow(model.contextWindowTokens)} · 输入 {formatCents(model.inputCentsPerMillionTokens)}/百万 · 缓存{" "}
           {formatCents(model.cachedInputCentsPerMillionTokens)}/百万 · 输出{" "}
           {formatCents(model.outputCentsPerMillionTokens)}/百万
         </span>

@@ -5,7 +5,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { buildContextMessages } from "@/lib/context-window";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { sanitizeReasoningContent } from "@/lib/identity";
-import { isMessageAfter, MESSAGE_ORDER_ASC } from "@/lib/message-order";
+import { MESSAGE_ORDER_ASC } from "@/lib/message-order";
 import { messageProcessForClient } from "@/lib/message-process";
 import { getChatModel } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
@@ -101,10 +101,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
       createdAt: true,
       updatedAt: true,
-      contextSummary: true,
-      contextSummaryUntilMessageId: true,
-      contextSummaryUntilCreatedAt: true,
-      contextSummaryMessageCount: true,
       messages: {
         select: {
           id: true,
@@ -169,13 +165,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (includeContext) {
     const aiSettings = await getAiRuntimeSettings();
     const model = getChatModel(conversation.model, aiSettings.chatModels);
-    const summaryCutoff =
-      conversation.contextSummaryUntilCreatedAt && conversation.contextSummaryUntilMessageId
-        ? {
-            createdAt: conversation.contextSummaryUntilCreatedAt,
-            id: conversation.contextSummaryUntilMessageId
-          }
-        : null;
     const systemPrompt = resolveSystemPrompt({
       mode: aiSettings.systemPromptMode,
       customSystemPrompt: aiSettings.customSystemPrompt,
@@ -187,8 +176,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .filter(
         (message) =>
           !message.imageUrl &&
-          (message.role === "USER" || message.role === "ASSISTANT") &&
-          (!summaryCutoff || isMessageAfter(message, summaryCutoff))
+          (message.role === "USER" || message.role === "ASSISTANT")
       )
       .reverse()
       .map((message) => ({
@@ -196,12 +184,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
         content: contentWithAttachmentContext(message.content, message.attachments)
       }));
     contextStats = buildContextMessages({
-      compressedHistoryMessageCount: conversation.contextSummaryMessageCount,
-      contextSummary: conversation.contextSummary || "",
       previousMessages,
       systemPrompt,
-      model,
-      longContextThresholdTokens: aiSettings.longContextThresholdTokens
+      model
     }).contextStats;
     reasoningModelLabel = model.label;
   }

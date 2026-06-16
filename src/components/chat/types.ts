@@ -28,14 +28,8 @@ export type SseEvent = {
 export type ContextStats = {
   promptTokensEstimate: number;
   historyMessageCount: number;
-  omittedHistoryMessageCount: number;
   contextWindowTokens: number;
-  longContextThresholdTokens: number;
   reserveTokens: number;
-  longContextThresholdExceeded: boolean;
-  contextWindowPercent: number;
-  compressedHistoryMessageCount: number;
-  compressedSummaryTokens: number;
 };
 
 export type ShareNotice = {

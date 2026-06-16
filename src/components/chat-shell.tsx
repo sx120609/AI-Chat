@@ -14,8 +14,7 @@ import {
   X
 } from "lucide-react";
 import { SiteConfirmDialog } from "@/components/site-dialog";
-import { formatNumber } from "@/lib/format";
-import { ChatShellProps, ContextStats, ShareNotice } from "./chat/types";
+import { ChatShellProps, ShareNotice } from "./chat/types";
 import { useChat } from "./chat/hooks/use-chat";
 import { Sidebar } from "./chat/sidebar";
 import { Header } from "./chat/header";
@@ -23,33 +22,6 @@ import { MessageList } from "./chat/message-list";
 import { ComposerInputArea } from "./chat/composer-input";
 import { EasyPayDialog } from "./chat/easy-pay-dialog";
 import { AttachmentChip, ProcessTimelinePanel } from "./chat/message-bubble";
-
-function ContextNotice({ lastContextStats }: { lastContextStats: ContextStats | null }) {
-  if (!lastContextStats) {
-    return null;
-  }
-
-  const shouldWarn =
-    lastContextStats.longContextThresholdExceeded ||
-    lastContextStats.omittedHistoryMessageCount > 0 ||
-    lastContextStats.contextWindowPercent >= 70;
-
-  if (!shouldWarn) {
-    return null;
-  }
-
-  const message = lastContextStats.longContextThresholdExceeded
-    ? "当前会话已进入长上下文区间，可能额外计费、变慢，并让模型注意力分散导致降智；建议开启新会话。"
-    : lastContextStats.omittedHistoryMessageCount > 0
-      ? `上轮请求已自动裁剪 ${formatNumber(lastContextStats.omittedHistoryMessageCount)} 条较早历史；需要完整上下文时建议开启新会话或手动整理摘要。`
-      : "当前会话已经很长，后续可能需要裁剪早期历史；复杂问题建议新开会话。";
-
-  return (
-    <div className="app-inline-alert mb-2 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs leading-5 text-amber-900 shadow-[0_12px_34px_rgba(146,64,14,0.08)] backdrop-blur-xl">
-      {message}
-    </div>
-  );
-}
 
 function ShareNoticeToast({
   notice,
@@ -421,9 +393,6 @@ export function ChatShell(props: ChatShellProps) {
 
         <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[color:var(--app-surface)] px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
           <div className="mx-auto max-w-3xl">
-            {activeModel ? (
-              <ContextNotice lastContextStats={lastContextStats} />
-            ) : null}
             {imageGenerationAvailable && imageToolEnabled ? (
               <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
                 <ImageIcon className="size-3.5 text-[color:var(--claude-accent)]" />

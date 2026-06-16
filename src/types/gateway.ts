@@ -23,7 +23,6 @@ export type ToolEventView = {
     | "web_search"
     | "file_analysis"
     | "memory"
-    | "context_compression"
     | "generation"
     | "usage"
     | "image";
@@ -281,9 +280,6 @@ export type AiSettingsView = {
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
   reasoningParamMode: ReasoningParamMode;
-  contextCompressionEnabled: boolean;
-  contextCompressionThresholdPercent: number;
-  longContextThresholdTokens: number;
   systemPromptMode: SystemPromptMode;
   customSystemPrompt: string;
   modelSystemPrompts: Record<string, string>;

@@ -18,16 +18,11 @@ import {
 import {
   buildChatModelCatalog,
   CHAT_MODELS,
-  DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-  DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
   DEFAULT_IMAGE_UPSTREAM_MODEL,
-  DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_PARAM_MODE,
   DEFAULT_UPSTREAM_MODEL_MAP,
   getEnabledChatModels,
-  normalizeContextCompressionThresholdPercent,
-  normalizeLongContextThresholdTokens,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
   parseModelDisplayConfig,
@@ -62,9 +57,6 @@ type SettingsBody = {
   imageModelId?: string;
   defaultReasoningEffort?: string;
   reasoningParamMode?: string;
-  contextCompressionEnabled?: boolean;
-  contextCompressionThresholdPercent?: number;
-  longContextThresholdTokens?: number;
   systemPromptMode?: string;
   customSystemPrompt?: string;
   modelSystemPrompts?: Record<string, string>;
@@ -123,9 +115,6 @@ function serializeSettings(settings: {
   imageModelId: string;
   defaultReasoningEffort: string;
   reasoningParamMode: string;
-  contextCompressionEnabled: boolean;
-  contextCompressionThresholdPercent: number;
-  longContextThresholdTokens: number;
   systemPromptMode: string;
   customSystemPrompt: string;
   modelSystemPromptsJson: string;
@@ -180,15 +169,6 @@ function serializeSettings(settings: {
     imageModelId: settings.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
     defaultReasoningEffort: normalizeReasoningEffort(settings.defaultReasoningEffort),
     reasoningParamMode: normalizeReasoningParamMode(settings.reasoningParamMode),
-    contextCompressionEnabled:
-      settings.contextCompressionEnabled ?? DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-    contextCompressionThresholdPercent: normalizeContextCompressionThresholdPercent(
-      settings.contextCompressionThresholdPercent ||
-        DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT
-    ),
-    longContextThresholdTokens: normalizeLongContextThresholdTokens(
-      settings.longContextThresholdTokens
-    ),
     systemPromptMode: normalizeSystemPromptMode(settings.systemPromptMode),
     customSystemPrompt: settings.customSystemPrompt || "",
     modelSystemPrompts: parseModelSystemPrompts(settings.modelSystemPromptsJson),
@@ -369,9 +349,6 @@ export async function GET(request: NextRequest) {
       imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
       defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
       reasoningParamMode: DEFAULT_REASONING_PARAM_MODE,
-      contextCompressionEnabled: DEFAULT_CONTEXT_COMPRESSION_ENABLED,
-      contextCompressionThresholdPercent: DEFAULT_CONTEXT_COMPRESSION_THRESHOLD_PERCENT,
-      longContextThresholdTokens: DEFAULT_LONG_CONTEXT_THRESHOLD_TOKENS,
       systemPromptMode: DEFAULT_SYSTEM_PROMPT_MODE,
       customSystemPrompt: "",
       modelSystemPromptsJson: "{}",
@@ -537,9 +514,6 @@ export async function PATCH(request: NextRequest) {
     imageModelId: string;
     defaultReasoningEffort: string;
     reasoningParamMode: string;
-    contextCompressionEnabled: boolean;
-    contextCompressionThresholdPercent: number;
-    longContextThresholdTokens: number;
     systemPromptMode: string;
     customSystemPrompt: string;
     modelSystemPromptsJson: string;
@@ -584,13 +558,6 @@ export async function PATCH(request: NextRequest) {
     imageModelId: body.imageModelId?.trim() || DEFAULT_IMAGE_UPSTREAM_MODEL,
     defaultReasoningEffort: normalizeReasoningEffort(body.defaultReasoningEffort),
     reasoningParamMode: normalizeReasoningParamMode(body.reasoningParamMode),
-    contextCompressionEnabled: Boolean(body.contextCompressionEnabled),
-    contextCompressionThresholdPercent: normalizeContextCompressionThresholdPercent(
-      body.contextCompressionThresholdPercent
-    ),
-    longContextThresholdTokens: normalizeLongContextThresholdTokens(
-      body.longContextThresholdTokens
-    ),
     systemPromptMode: normalizeSystemPromptMode(body.systemPromptMode),
     customSystemPrompt: body.customSystemPrompt?.trim() || "",
     modelSystemPromptsJson: "{}",

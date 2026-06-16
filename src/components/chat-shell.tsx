@@ -404,6 +404,7 @@ export function ChatShell(props: ChatShellProps) {
           processTimelineExpanded={processTimelineExpanded}
           setProcessTimelineExpanded={setProcessTimelineExpanded}
           processFinishedAt={processFinishedAt}
+          processStartedAt={processStartedAt}
           processNow={processNow}
           streamStatus={streamStatus}
           messageModelLabels={messageModelLabels}

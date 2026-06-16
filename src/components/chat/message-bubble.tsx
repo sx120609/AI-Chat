@@ -114,7 +114,14 @@ export function ProcessTimelinePanel({
 }) {
   const active = !finishedAt;
   const orderedEvents = sortProcessTimelineEvents(events);
-  const elapsed = formatElapsedDuration((finishedAt ?? now) - startedAt);
+  const safeElapsed = (endedAt: number, startedAt: number) =>
+    Number.isFinite(endedAt) &&
+    Number.isFinite(startedAt) &&
+    startedAt > 0 &&
+    endedAt >= startedAt
+      ? endedAt - startedAt
+      : 0;
+  const elapsed = formatElapsedDuration(safeElapsed(finishedAt ?? now, startedAt));
   const latestRunningEvent = [...orderedEvents].reverse().find((event) => event.status === "running");
   const displayStatus = processTimelineStatus(status, latestRunningEvent);
 
@@ -154,7 +161,7 @@ export function ProcessTimelinePanel({
           <div className="space-y-2">
             {orderedEvents.map((event) => {
               const eventFinishedAt = event.finishedAt ?? (event.status === "running" ? now : event.startedAt);
-              const eventElapsed = formatElapsedDuration(eventFinishedAt - event.startedAt);
+              const eventElapsed = formatElapsedDuration(safeElapsed(eventFinishedAt, event.startedAt));
               const eventDetail = toolEventDisplayDetail(event);
               const eventLabel = toolEventDisplayLabel(event);
 

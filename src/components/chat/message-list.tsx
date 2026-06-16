@@ -18,6 +18,7 @@ type MessageListProps = {
   processTimelineExpanded: boolean;
   setProcessTimelineExpanded: (value: boolean) => void;
   processFinishedAt: number | null;
+  processStartedAt: number | null;
   processNow: number;
   streamStatus: string;
   messageModelLabels: ReadonlyMap<string, string>;
@@ -44,6 +45,7 @@ export function MessageList({
   processTimelineExpanded,
   setProcessTimelineExpanded,
   processFinishedAt,
+  processStartedAt,
   processNow,
   streamStatus,
   messageModelLabels,
@@ -57,6 +59,15 @@ export function MessageList({
   editImageHandler,
   regenerateMessageHandler
 }: MessageListProps) {
+  const fallbackProcessStartedAt = toolEvents.reduce<number | null>((earliest, event) => {
+    if (!Number.isFinite(event.startedAt) || event.startedAt <= 0) {
+      return earliest;
+    }
+
+    return earliest === null ? event.startedAt : Math.min(earliest, event.startedAt);
+  }, null);
+  const timelineStartedAt = processStartedAt ?? fallbackProcessStartedAt;
+
   return (
     <div
       className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4 sm:py-6"
@@ -88,14 +99,17 @@ export function MessageList({
 
         {messages.map((message) => {
           const inlineProcess =
-            message.id === inlineProcessMessageId && inlineProcessMessageId && toolEvents.length > 0
+            message.id === inlineProcessMessageId &&
+            inlineProcessMessageId &&
+            toolEvents.length > 0 &&
+            timelineStartedAt
               ? {
                   events: toolEvents,
                   expanded: processTimelineExpanded,
                   finishedAt: processFinishedAt,
                   now: processNow,
                   onExpandedChange: setProcessTimelineExpanded,
-                  startedAt: 0, // Not strictly used inside MessageBubble but required in types
+                  startedAt: timelineStartedAt,
                   status: streamStatus
                 }
               : null;

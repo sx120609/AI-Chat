@@ -152,7 +152,7 @@ ADMIN_PASSWORD=""
 ADMIN_NAME="管理员"
 ```
 
-Redis 是默认缓存依赖。`deploy.sh` 会先检测 `.env` 里的 `REDIS_URL` 是否可连接；可连接时直接复用现有 Redis，不会强制重启 `redis-server.service`。如果不需要 Redis 缓存，可以设置 `CACHE_ENABLED="false"`。后端会缓存 AI 运行设置、站点设置和短 TTL 用量摘要；发消息前的额度校验仍强制刷新数据库，避免缓存导致超额放行。Redis 连接失败时应用会短暂禁用缓存并继续运行。
+Redis 是默认缓存依赖。`deploy.sh` 会先检测 `.env` 里的 `REDIS_URL` 是否可连接；可连接时直接复用现有 Redis，不会强制重启 `redis-server.service`。如果不需要 Redis 缓存，可以设置 `CACHE_ENABLED="false"`。后端会缓存 AI 运行设置、站点设置和短 TTL 用量摘要；发消息前的额度校验仍强制刷新数据库，避免缓存导致超额放行。Redis 连接失败时应用会短暂退避并继续运行，避免每个请求都重复撞失败连接。可选调优项包括 `REDIS_FAILURE_BACKOFF_MS`、`CACHE_MEMORY_MAX_ENTRIES`、`CACHE_MEMORY_MAX_TTL_SECONDS` 和 `CACHE_MEMORY_READ_TTL_SECONDS`。
 
 `AI_API_BASE_URL` 可指向任何 OpenAI-compatible 的自定义接口地址，例如 `https://your-gateway.example.com/v1`。推荐在管理后台配置；前端只会看到是否已设置 Key 和 Key 尾号，不会拿到完整 Key。
 

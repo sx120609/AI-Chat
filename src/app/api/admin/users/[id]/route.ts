@@ -60,6 +60,27 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     monthlyCostLimitCents?: number;
     quotaNextResetAt?: Date;
   } = {};
+  const touchesQuota =
+    body.aiPointsBalanceCents !== undefined || body.monthlyCostLimitCents !== undefined;
+  const existingQuota = touchesQuota
+    ? await prisma.user.findUnique({
+        where: { id },
+        select: {
+          aiPointsBalanceCents: true,
+          monthlyCostLimitCents: true
+        }
+      })
+    : null;
+
+  if (touchesQuota && !existingQuota) {
+    return jsonError("用户不存在。", 404);
+  }
+  const staleLegacyQuotaForm =
+    existingQuota &&
+    existingQuota.aiPointsBalanceCents > 0 &&
+    existingQuota.monthlyCostLimitCents === 0 &&
+    body.aiPointsBalanceCents === 0 &&
+    Number(body.monthlyCostLimitCents ?? 0) >= existingQuota.aiPointsBalanceCents;
 
   if (typeof body.name === "string" && body.name.trim()) {
     data.name = body.name.trim();
@@ -89,11 +110,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     data.emailVerified = body.emailVerified;
   }
 
-  if (body.aiPointsBalanceCents !== undefined) {
+  if (body.aiPointsBalanceCents !== undefined && !staleLegacyQuotaForm) {
     data.aiPointsBalanceCents = coerceInt(body.aiPointsBalanceCents, 5000);
   }
 
-  if (body.monthlyCostLimitCents !== undefined) {
+  if (body.monthlyCostLimitCents !== undefined && !staleLegacyQuotaForm) {
     data.monthlyCostLimitCents = coerceInt(body.monthlyCostLimitCents, 0);
   }
 

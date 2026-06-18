@@ -51,14 +51,20 @@ export async function GET(request: NextRequest) {
   });
 
   const usersWithUsage = await Promise.all(
-    users.map(async (user) => ({
-      ...user,
-      quotaNextResetAt: user.quotaNextResetAt.toISOString(),
-      quotaResetAt: user.quotaResetAt.toISOString(),
-      createdAt: user.createdAt.toISOString(),
-      updatedAt: user.updatedAt.toISOString(),
-      usage: await getUsageSummary(user.id)
-    }))
+    users.map(async (user) => {
+      const usage = await getUsageSummary(user.id, { readCache: false });
+
+      return {
+        ...user,
+        aiPointsBalanceCents: usage.aiPointsBalanceCents,
+        monthlyCostLimitCents: usage.monthlyCostLimitCents,
+        quotaNextResetAt: usage.windowEnd,
+        quotaResetAt: usage.windowStart,
+        createdAt: user.createdAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString(),
+        usage
+      };
+    })
   );
 
   return NextResponse.json({ users: usersWithUsage });

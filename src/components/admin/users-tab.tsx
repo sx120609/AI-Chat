@@ -113,7 +113,7 @@ export function UsersTab({
           </div>
           <h2 className="text-base font-semibold">注册设置</h2>
         </div>
-        <form autoComplete="off" className="grid gap-3 lg:grid-cols-6" onSubmit={onSaveSettings}>
+        <form autoComplete="off" className="grid grid-cols-1 gap-3 lg:grid-cols-6" onSubmit={onSaveSettings}>
           <label className="admin-check-row lg:col-span-2">
             <input
               checked={settingsForm.registrationEnabled}
@@ -166,7 +166,7 @@ export function UsersTab({
           </div>
           <h2 className="text-base font-semibold">创建用户</h2>
         </div>
-        <form autoComplete="off" className="grid gap-3 lg:grid-cols-8" onSubmit={onCreateUser}>
+        <form autoComplete="off" className="grid grid-cols-1 gap-3 lg:grid-cols-8" onSubmit={onCreateUser}>
           <input
             aria-hidden="true"
             autoComplete="username"
@@ -285,175 +285,166 @@ export function UsersTab({
           </div>
         ) : (
           <>
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[1360px] border-collapse text-left text-sm">
-                <thead className="bg-white/50 text-xs text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">用户</th>
-                    <th className="px-4 py-3 font-semibold">角色</th>
-                    <th className="px-4 py-3 font-semibold">用户组</th>
-                    <th className="px-4 py-3 font-semibold">状态</th>
-                    <th className="px-4 py-3 font-semibold">验证</th>
-                    <th className="px-4 py-3 font-semibold">AI 点数</th>
-                    <th className="px-4 py-3 font-semibold">月订阅</th>
-                    <th className="px-4 py-3 font-semibold">本周期用量</th>
-                    <th className="px-4 py-3 font-semibold">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[color:var(--ios-separator)]">
-                  {users.map((user) => (
-                    <tr key={user.id} className="app-table-row align-top">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="grid size-9 place-items-center rounded-lg bg-white/80 text-[color:var(--claude-accent)]">
-                            <UserRound className="size-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <input
-                              className="ios-input h-9 w-40 text-sm"
-                              onChange={(event) => patchUser(user.id, { name: event.target.value })}
-                              value={user.name}
-                            />
-                            <p className="mt-1 truncate text-xs ios-muted">{user.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <select
-                          className="ios-select h-9 text-sm"
-                          onChange={(event) =>
-                            patchUser(user.id, { role: event.target.value as Role })
-                          }
-                          value={user.role}
-                        >
-                          <option value="USER">用户</option>
-                          <option value="ADMIN">管理员</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-3">
-                        <select
-                          className="ios-select h-9 text-sm"
-                          onChange={(event) =>
-                            patchUser(user.id, { userGroup: event.target.value as UserGroup })
-                          }
-                          value={user.userGroup}
-                        >
-                          <option value="NORMAL">普通</option>
-                          <option value="VIP">VIP</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          className={`app-action-button flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${
-                            user.active
-                              ? "bg-green-50 text-green-700"
-                              : "bg-slate-100 text-slate-500"
-                          }`}
-                          onClick={() => patchUser(user.id, { active: !user.active })}
-                          type="button"
-                        >
-                          {user.active ? <Check className="size-4" /> : <X className="size-4" />}
-                          {user.active ? "启用" : "停用"}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          className={`app-action-button flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${
-                            user.emailVerified
-                              ? "bg-green-50 text-green-700"
-                              : "bg-amber-50 text-amber-700"
-                          }`}
-                          onClick={() => patchUser(user.id, { emailVerified: !user.emailVerified })}
-                          type="button"
-                          title={user.role === "ADMIN" ? "管理员可登录；验证状态用于普通登录限制。" : undefined}
-                        >
-                          {user.emailVerified ? <Check className="size-4" /> : <Mail className="size-4" />}
-                          {user.emailVerified ? "已验证" : user.role === "ADMIN" ? "未验证 · 管理员可登录" : "未验证"}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3">
-                        <CostLimitInput
-                          onChange={(value) =>
-                            patchUser(user.id, { aiPointsBalanceCents: value })
-                          }
-                          value={user.aiPointsBalanceCents}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="space-y-2">
-                          <CostLimitInput
-                            onChange={(value) =>
-                              patchUser(user.id, { monthlyCostLimitCents: value })
-                            }
-                            value={user.monthlyCostLimitCents}
-                          />
-                          <label className="flex items-center gap-1.5 text-xs ios-muted">
-                            <CalendarClock className="size-3.5" />
-                            <input
-                              className="ios-input h-8 w-44 text-xs"
-                              onChange={(event) =>
-                                patchUser(user.id, nextResetPatch(event.target.value))
-                              }
-                              type="datetime-local"
-                              value={dateTimeLocalValue(user.quotaNextResetAt)}
-                            />
-                          </label>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="space-y-1 text-xs ios-muted">
-                          <p>可用 {formatCents(user.usage.remainingCostCents)}</p>
-                          <p>
-                            订阅 {formatCents(user.usage.subscriptionCostUsedCents)} /{" "}
-                            {formatCents(user.monthlyCostLimitCents)}
-                          </p>
-                          <p>点数消费 {formatCents(user.usage.aiPointsCostUsedCents)}</p>
-                          <p>下次刷新 {formatCycleDate(user.quotaNextResetAt)}</p>
-                          <p>消息 {formatNumber(user.usage.messagesUsed)} 条</p>
-                          <p>Token {formatNumber(user.usage.tokensUsed)}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button
-                            className="ios-icon-button app-action-button disabled:opacity-50"
-                            disabled={savingId === user.id}
-                            onClick={() => onSaveUser(user)}
-                            title="保存"
-                            type="button"
-                          >
-                            {savingId === user.id ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <Save className="size-4" />
-                            )}
-                          </button>
-                          <button
-                            className="ios-icon-button app-action-button disabled:opacity-50"
-                            disabled={savingId === user.id}
-                            onClick={() => onResetQuota(user.id)}
-                            title="开启下一订阅周期"
-                            type="button"
-                          >
-                            <RefreshCw className="size-4" />
-                          </button>
-                          <button
-                            className="ios-icon-button app-action-button text-red-600 disabled:opacity-40"
-                            disabled={savingId === user.id || user.id === currentUser.id}
-                            onClick={() => onSetDeleteUserTarget(user)}
-                            title={user.id === currentUser.id ? "不能删除当前账号" : "删除用户"}
-                            type="button"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="hidden gap-2 p-3 lg:grid">
+              <div className="grid grid-cols-[minmax(220px,1fr)_minmax(210px,0.9fr)_minmax(300px,1.2fr)_minmax(220px,0.8fr)] gap-3 px-3 text-xs font-semibold text-slate-500">
+                <span>用户</span>
+                <span>权限与状态</span>
+                <span>额度与周期</span>
+                <span>本周期</span>
+              </div>
+              {users.map((user) => (
+                <div
+                  className="app-list-row grid grid-cols-[minmax(220px,1fr)_minmax(210px,0.9fr)_minmax(300px,1.2fr)_minmax(220px,0.8fr)] items-start gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3 text-sm"
+                  key={user.id}
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/80 text-[color:var(--claude-accent)]">
+                      <UserRound className="size-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <input
+                        className="ios-input h-9 w-full text-sm"
+                        onChange={(event) => patchUser(user.id, { name: event.target.value })}
+                        value={user.name}
+                      />
+                      <p className="mt-1 truncate text-xs ios-muted">{user.email}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid min-w-0 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        className="ios-select h-9 min-w-0 text-sm"
+                        onChange={(event) =>
+                          patchUser(user.id, { role: event.target.value as Role })
+                        }
+                        value={user.role}
+                      >
+                        <option value="USER">用户</option>
+                        <option value="ADMIN">管理员</option>
+                      </select>
+                      <select
+                        className="ios-select h-9 min-w-0 text-sm"
+                        onChange={(event) =>
+                          patchUser(user.id, { userGroup: event.target.value as UserGroup })
+                        }
+                        value={user.userGroup}
+                      >
+                        <option value="NORMAL">普通</option>
+                        <option value="VIP">VIP</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        className={`app-action-button flex h-9 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-semibold whitespace-nowrap ${
+                          user.active
+                            ? "bg-green-50 text-green-700"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                        onClick={() => patchUser(user.id, { active: !user.active })}
+                        type="button"
+                      >
+                        {user.active ? <Check className="size-4 shrink-0" /> : <X className="size-4 shrink-0" />}
+                        {user.active ? "启用" : "停用"}
+                      </button>
+                      <button
+                        className={`app-action-button flex h-9 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-semibold whitespace-nowrap ${
+                          user.emailVerified
+                            ? "bg-green-50 text-green-700"
+                            : "bg-amber-50 text-amber-700"
+                        }`}
+                        onClick={() => patchUser(user.id, { emailVerified: !user.emailVerified })}
+                        type="button"
+                        title={user.role === "ADMIN" ? "管理员可登录；验证状态用于普通登录限制。" : undefined}
+                      >
+                        {user.emailVerified ? <Check className="size-4 shrink-0" /> : <Mail className="size-4 shrink-0" />}
+                        {user.emailVerified ? "已验证" : "未验证"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid min-w-0 grid-cols-2 gap-2">
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[11px] font-medium ios-muted">AI 点数</span>
+                      <CostLimitInput
+                        className="ios-input h-9 w-full text-sm"
+                        onChange={(value) =>
+                          patchUser(user.id, { aiPointsBalanceCents: value })
+                        }
+                        value={user.aiPointsBalanceCents}
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[11px] font-medium ios-muted">月订阅</span>
+                      <CostLimitInput
+                        className="ios-input h-9 w-full text-sm"
+                        onChange={(value) =>
+                          patchUser(user.id, { monthlyCostLimitCents: value })
+                        }
+                        value={user.monthlyCostLimitCents}
+                      />
+                    </label>
+                    <label className="col-span-2 min-w-0">
+                      <span className="mb-1 flex items-center gap-1.5 text-[11px] font-medium ios-muted">
+                        <CalendarClock className="size-3.5" />
+                        下次刷新
+                      </span>
+                      <input
+                        className="ios-input h-9 w-full text-sm"
+                        onChange={(event) =>
+                          patchUser(user.id, nextResetPatch(event.target.value))
+                        }
+                        type="datetime-local"
+                        value={dateTimeLocalValue(user.quotaNextResetAt)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid min-w-0 gap-2">
+                    <div className="rounded-lg bg-white/65 px-3 py-2 text-xs leading-5 ios-muted">
+                      <p className="font-semibold text-stone-800">可用 {formatCents(user.usage.remainingCostCents)}</p>
+                      <p>订阅 {formatCents(user.usage.subscriptionCostUsedCents)} / {formatCents(user.monthlyCostLimitCents)}</p>
+                      <p>点数消费 {formatCents(user.usage.aiPointsCostUsedCents)}</p>
+                      <p>{formatNumber(user.usage.messagesUsed)} 条 · {formatNumber(user.usage.tokensUsed)} tokens</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        className="ios-icon-button app-action-button disabled:opacity-50"
+                        disabled={savingId === user.id}
+                        onClick={() => onSaveUser(user)}
+                        title="保存"
+                        type="button"
+                      >
+                        {savingId === user.id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Save className="size-4" />
+                        )}
+                      </button>
+                      <button
+                        className="ios-icon-button app-action-button disabled:opacity-50"
+                        disabled={savingId === user.id}
+                        onClick={() => onResetQuota(user.id)}
+                        title="开启下一订阅周期"
+                        type="button"
+                      >
+                        <RefreshCw className="size-4" />
+                      </button>
+                      <button
+                        className="ios-icon-button app-action-button text-red-600 disabled:opacity-40"
+                        disabled={savingId === user.id || user.id === currentUser.id}
+                        onClick={() => onSetDeleteUserTarget(user)}
+                        title={user.id === currentUser.id ? "不能删除当前账号" : "删除用户"}
+                        type="button"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="grid gap-3 p-3 md:hidden">
+            <div className="grid gap-3 p-3 lg:hidden">
               {users.map((user) => (
                 <div
                   className="app-list-row rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3"

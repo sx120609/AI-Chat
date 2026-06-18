@@ -13,7 +13,7 @@ import {
   Check
 } from "lucide-react";
 import type { ChatModelView, ConversationSummary, ReasoningEffort, UsageSummary } from "@/types/gateway";
-import { formatCents, formatNumber } from "@/lib/format";
+import { formatCents, formatNumber, formatShortDateTime } from "@/lib/format";
 import { ChatProjectView, ContextStats } from "./types";
 
 function getModelPickerDetail(model: ChatModelView) {
@@ -424,6 +424,7 @@ export function Header({
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs ios-muted">
               {activeProject ? <span className="min-w-0 truncate">项目 {activeProject.name}</span> : null}
               <span className="min-w-0 truncate">可用 {formatCents(usage.remainingCostCents)}</span>
+              <span className="min-w-0 truncate">下次刷新 {formatShortDateTime(usage.windowEnd)}</span>
               {activeModel ? (
                 <ContextBadge
                   contextStats={lastContextStats}

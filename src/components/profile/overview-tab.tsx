@@ -1,7 +1,7 @@
 import { FormEvent } from "react";
 import { Loader2, Save, UserRound } from "lucide-react";
 import type { UserView, UsageSummary } from "@/types/gateway";
-import { formatCents, formatNumber } from "@/lib/format";
+import { formatCents, formatNumber, formatShortDateTime } from "@/lib/format";
 import { groupLabel } from "./components";
 
 type OverviewTabProps = {
@@ -47,6 +47,9 @@ export function OverviewTab({
           </p>
           <p className="mt-1 text-xs ios-muted">
             已用 {formatCents(initialUsage.costUsedCents)} · {formatNumber(initialUsage.tokensUsed)} tokens
+          </p>
+          <p className="mt-1 text-xs font-medium text-stone-700">
+            下次刷新 {formatShortDateTime(initialUsage.windowEnd)}
           </p>
         </div>
       </section>

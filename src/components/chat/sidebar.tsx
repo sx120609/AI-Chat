@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import type { ConversationSummary, UsageSummary, UserView } from "@/types/gateway";
 import { SiteLogo } from "@/components/site-logo";
-import { formatCents, formatNumber } from "@/lib/format";
+import { formatCents, formatNumber, formatShortDateTime } from "@/lib/format";
 import { groupConversations, usagePercent } from "./utils";
 
 type UsageBarsProps = {
@@ -74,6 +74,9 @@ function UsageBars({
           </span>
           <span className="shrink-0">{costPercent}%</span>
         </div>
+        <p className="truncate text-[10px] leading-4 ios-muted">
+          下次刷新 {formatShortDateTime(usage.windowEnd)}
+        </p>
       </div>
     );
   }
@@ -114,6 +117,9 @@ function UsageBars({
         <p className="mt-1 text-[10px] leading-4 ios-muted lg:mt-2 lg:text-[11px] lg:leading-5">
           AI 点数 {formatCents(usage.aiPointsBalanceCents)} · 累计 {formatNumber(usage.messagesUsed)} 条 ·{" "}
           {formatNumber(usage.tokensUsed)} tokens
+        </p>
+        <p className="mt-1 text-[10px] leading-4 ios-muted lg:text-[11px]">
+          下次刷新 {formatShortDateTime(usage.windowEnd)}
         </p>
       </div>
     </div>

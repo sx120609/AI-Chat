@@ -94,7 +94,7 @@ async function handleEasyPayNotify(request: NextRequest) {
     prisma.user.update({
       where: { id: order.userId },
       data: {
-        monthlyCostLimitCents: {
+        aiPointsBalanceCents: {
           increment: balanceCents
         }
       }

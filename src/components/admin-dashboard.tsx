@@ -480,7 +480,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         userGroup: user.userGroup,
         active: user.active,
         emailVerified: user.emailVerified,
-        monthlyCostLimitCents: user.monthlyCostLimitCents
+        aiPointsBalanceCents: user.aiPointsBalanceCents,
+        monthlyCostLimitCents: user.monthlyCostLimitCents,
+        quotaNextResetAt: user.quotaNextResetAt
       })
     });
 
@@ -508,7 +510,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       setError(payload?.error || "重置失败。");
     } else {
-      setNotice("累计消费已清空。");
+      setNotice("已开启新的订阅周期。");
       await Promise.all([loadUsers(), loadUsage()]);
     }
 

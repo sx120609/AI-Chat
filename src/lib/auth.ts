@@ -22,7 +22,9 @@ export type CurrentUser = {
   active: boolean;
   emailVerified: boolean;
   aiStylePrompt: string;
+  aiPointsBalanceCents: number;
   monthlyCostLimitCents: number;
+  quotaNextResetAt: Date;
   quotaResetAt: Date;
 };
 
@@ -32,8 +34,10 @@ type CurrentUserRecord = {
   email: string;
   emailVerified?: boolean | null;
   id: string;
+  aiPointsBalanceCents?: number | null;
   monthlyCostLimitCents?: number | null;
   name: string;
+  quotaNextResetAt?: Date | null;
   quotaResetAt?: Date | null;
   role: "USER" | "ADMIN";
   userGroup?: string | null;
@@ -53,7 +57,9 @@ function normalizeCurrentUserRecord(user: CurrentUserRecord | null): CurrentUser
     active: user.active ?? true,
     emailVerified: user.emailVerified ?? true,
     aiStylePrompt: user.aiStylePrompt || "",
-    monthlyCostLimitCents: user.monthlyCostLimitCents ?? 5000,
+    aiPointsBalanceCents: user.aiPointsBalanceCents ?? 0,
+    monthlyCostLimitCents: user.monthlyCostLimitCents ?? 0,
+    quotaNextResetAt: user.quotaNextResetAt || new Date(),
     quotaResetAt: user.quotaResetAt || new Date()
   };
 }
@@ -175,6 +181,7 @@ export function serializeCurrentUser(user: CurrentUser) {
   return {
     ...user,
     userGroup: normalizeUserGroup(user.userGroup),
+    quotaNextResetAt: user.quotaNextResetAt.toISOString(),
     quotaResetAt: user.quotaResetAt.toISOString()
   };
 }

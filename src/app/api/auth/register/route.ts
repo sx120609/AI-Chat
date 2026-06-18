@@ -5,6 +5,7 @@ import { createEmailVerificationToken, sendVerificationEmail } from "@/lib/email
 import { jsonError, readJson } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
+import { nextQuotaResetAt } from "@/lib/quota";
 import { normalizeSiteName, normalizeSiteUrl } from "@/lib/site-settings";
 import { describeSmtpError, normalizeEmail, normalizeSmtpSettings } from "@/lib/smtp";
 import { DEFAULT_REGISTRATION_COST_LIMIT_CENTS } from "@/lib/auth-settings";
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
   let createdUserId = "";
 
   try {
+    const quotaResetAt = new Date();
     const user = await prisma.user.create({
       data: {
         email,
@@ -77,10 +79,14 @@ export async function POST(request: NextRequest) {
         role: "USER",
         active: true,
         emailVerified: !requireEmailVerification,
-        monthlyCostLimitCents:
+        aiPointsBalanceCents:
           settings?.registrationDefaultCostLimitCents ||
           Number(process.env.REGISTRATION_DEFAULT_COST_LIMIT_CENTS) ||
-          DEFAULT_REGISTRATION_COST_LIMIT_CENTS
+          DEFAULT_REGISTRATION_COST_LIMIT_CENTS,
+        monthlyCostLimitCents: 0,
+        quotaResetAt,
+        quotaNextResetAt: nextQuotaResetAt(quotaResetAt),
+        quotaSystemMigratedAt: quotaResetAt
       }
     });
     createdUserId = user.id;

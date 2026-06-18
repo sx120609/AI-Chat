@@ -142,7 +142,9 @@ export async function authenticateUserApiKey(authorization: string | null) {
           active: true,
           emailVerified: true,
           aiStylePrompt: true,
+          aiPointsBalanceCents: true,
           monthlyCostLimitCents: true,
+          quotaNextResetAt: true,
           quotaResetAt: true
         }
       }

@@ -312,7 +312,7 @@ async function main() {
         status: stringValue(row, columns.PaymentOrder, "status", "PENDING"),
         outTradeNo: stringValue(row, columns.PaymentOrder, "outTradeNo"),
         providerTradeNo: optionalString(row, columns.PaymentOrder, "providerTradeNo"),
-        subject: stringValue(row, columns.PaymentOrder, "subject", "余额充值"),
+        subject: stringValue(row, columns.PaymentOrder, "subject", "AI 点数充值"),
         amountCents,
         balanceCents: intValue(row, columns.PaymentOrder, "balanceCents", amountCents),
         metadataJson: stringValue(row, columns.PaymentOrder, "metadataJson", "{}"),

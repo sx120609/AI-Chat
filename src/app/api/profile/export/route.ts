@@ -120,7 +120,9 @@ export async function GET(request: NextRequest) {
         active: true,
         emailVerified: true,
         aiStylePrompt: true,
+        aiPointsBalanceCents: true,
         monthlyCostLimitCents: true,
+        quotaNextResetAt: true,
         quotaResetAt: true,
         createdAt: true,
         updatedAt: true
@@ -148,7 +150,9 @@ export async function GET(request: NextRequest) {
       active: user.active,
       emailVerified: user.emailVerified,
       aiStylePrompt: user.aiStylePrompt,
+      aiPointsBalanceCents: user.aiPointsBalanceCents,
       monthlyCostLimitCents: user.monthlyCostLimitCents,
+      quotaNextResetAt: user.quotaNextResetAt.toISOString(),
       quotaResetAt: user.quotaResetAt.toISOString(),
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString()

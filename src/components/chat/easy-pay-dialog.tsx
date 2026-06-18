@@ -113,7 +113,7 @@ export function EasyPayDialog({
               <CreditCard className="size-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">充值余额</h2>
+              <h2 className="text-base font-semibold">充值 AI 点数</h2>
               <p className="mt-0.5 text-xs ios-muted">支付完成后异步通知到账</p>
             </div>
           </div>
@@ -172,7 +172,7 @@ export function EasyPayDialog({
             />
           </label>
           <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-2 text-sm text-stone-700">
-            支付 {formatPaymentYuan(amountCents)}，到账 {formatCents(balanceCents)} 余额
+            支付 {formatPaymentYuan(amountCents)}，到账 {formatCents(balanceCents)} AI 点数
           </div>
           <div>
             <p className="mb-2 text-xs font-medium ios-muted">支付方式</p>

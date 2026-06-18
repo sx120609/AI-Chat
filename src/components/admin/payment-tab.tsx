@@ -104,7 +104,7 @@ export function PaymentTab({
           </div>
         </div>
         <label className="block lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">1 元到账余额 *</span>
+          <span className="mb-1 block text-xs font-medium ios-muted">1 元到账 AI 点数 *</span>
           <input
             className="ios-input w-full"
             min={0.01}
@@ -122,7 +122,7 @@ export function PaymentTab({
             value={settingsForm.easyPayBalanceCentsPerYuan / 100}
           />
           <p className="mt-1 text-xs ios-muted">
-            ¥1.00 = {formatCents(settingsForm.easyPayBalanceCentsPerYuan)} 余额
+            ¥1.00 = {formatCents(settingsForm.easyPayBalanceCentsPerYuan)} AI 点数
           </p>
         </label>
         <label className="block lg:col-span-2">

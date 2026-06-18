@@ -36,7 +36,10 @@ function UsageBars({
   paymentEnabled,
   usage
 }: UsageBarsProps) {
-  const costPercent = usagePercent(usage.costUsedCents, usage.monthlyCostLimitCents);
+  const costPercent = usagePercent(
+    usage.subscriptionCostUsedCents,
+    usage.monthlyCostLimitCents
+  );
 
   if (compact) {
     return (
@@ -44,7 +47,7 @@ function UsageBars({
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-stone-800">
             <Gauge className="size-3.5 shrink-0 text-[color:var(--claude-accent)]" />
-            <span className="shrink-0">余额</span>
+            <span className="shrink-0">可用</span>
             <span className="min-w-0 truncate ios-muted">
               剩余 {formatCents(usage.remainingCostCents)}
             </span>
@@ -67,7 +70,7 @@ function UsageBars({
         </div>
         <div className="flex items-center justify-between gap-2 text-[10px] leading-4 ios-muted">
           <span className="min-w-0 truncate">
-            已用 {formatCents(usage.costUsedCents)} / {formatCents(usage.monthlyCostLimitCents)}
+            订阅 {formatCents(usage.subscriptionRemainingCostCents)} · 点数 {formatCents(usage.aiPointsBalanceCents)}
           </span>
           <span className="shrink-0">{costPercent}%</span>
         </div>
@@ -80,7 +83,7 @@ function UsageBars({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800 lg:gap-2 lg:text-sm">
           <Gauge className="size-3.5 text-[color:var(--claude-accent)] lg:size-4" />
-          永久余额
+          可用额度
         </div>
         {paymentEnabled ? (
           <button
@@ -94,11 +97,11 @@ function UsageBars({
       </div>
       <div>
         <div className="mb-0.5 flex items-center justify-between gap-2 text-[11px] ios-muted lg:mb-1 lg:text-xs">
-          <span>费用</span>
+          <span>订阅额度</span>
           <span>剩余 {formatCents(usage.remainingCostCents)}</span>
         </div>
         <p className="mb-1 text-[10px] ios-muted lg:text-[11px]">
-          已用 {formatCents(usage.costUsedCents)} / {formatCents(usage.monthlyCostLimitCents)}
+          订阅已用 {formatCents(usage.subscriptionCostUsedCents)} / {formatCents(usage.monthlyCostLimitCents)}
         </p>
         <div className="h-1.5 overflow-hidden rounded-full border border-white/45 bg-white/45 shadow-[inset_0_1px_2px_rgba(18,42,35,0.08)] backdrop-blur-xl lg:h-2">
           <div
@@ -109,7 +112,7 @@ function UsageBars({
           />
         </div>
         <p className="mt-1 text-[10px] leading-4 ios-muted lg:mt-2 lg:text-[11px] lg:leading-5">
-          累计产生 {formatNumber(usage.messagesUsed)} 条记录 ·{" "}
+          AI 点数 {formatCents(usage.aiPointsBalanceCents)} · 累计 {formatNumber(usage.messagesUsed)} 条 ·{" "}
           {formatNumber(usage.tokensUsed)} tokens
         </p>
       </div>

@@ -70,7 +70,9 @@ export async function PATCH(request: NextRequest) {
       active: true,
       emailVerified: true,
       aiStylePrompt: true,
+      aiPointsBalanceCents: true,
       monthlyCostLimitCents: true,
+      quotaNextResetAt: true,
       quotaResetAt: true
     }
   });

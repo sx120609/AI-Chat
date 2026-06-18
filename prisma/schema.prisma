@@ -35,8 +35,11 @@ model User {
   aiStylePrompt         String        @default("")
   monthlyTokenLimit     Int           @default(200000)
   monthlyMessageLimit   Int           @default(500)
-  monthlyCostLimitCents Int           @default(5000)
+  monthlyCostLimitCents Int           @default(0)
+  aiPointsBalanceCents  Float         @default(0)
   quotaResetAt          DateTime      @default(now())
+  quotaNextResetAt      DateTime      @default(now())
+  quotaSystemMigratedAt DateTime?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
   conversations         Conversation[]
@@ -245,6 +248,9 @@ model UsageRecord {
   usageSource        String         @default("estimated")
   upstreamUsageJson  String?
   estimatedCostCents Float          @default(0)
+  subscriptionCostCents Float       @default(0)
+  aiPointsCostCents  Float          @default(0)
+  quotaSource        String         @default("MONTHLY_SUBSCRIPTION")
   endpoint           String         @default("")
   requestKind        String         @default("")
   billingMode        String         @default("按量")

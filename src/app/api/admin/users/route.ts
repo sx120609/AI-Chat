@@ -3,7 +3,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { coerceInt, jsonError, readJson, requireAdmin } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
-import { getUsageSummary } from "@/lib/quota";
+import { getUsageSummary, nextQuotaResetAt } from "@/lib/quota";
 import { normalizeUserGroup } from "@/lib/user-groups";
 
 export const runtime = "nodejs";
@@ -14,6 +14,7 @@ type CreateUserBody = {
   password?: string;
   role?: "USER" | "ADMIN";
   userGroup?: string;
+  aiPointsBalanceCents?: number;
   monthlyCostLimitCents?: number;
 };
 
@@ -40,7 +41,9 @@ export async function GET(request: NextRequest) {
       active: true,
       emailVerified: true,
       aiStylePrompt: true,
+      aiPointsBalanceCents: true,
       monthlyCostLimitCents: true,
+      quotaNextResetAt: true,
       quotaResetAt: true,
       createdAt: true,
       updatedAt: true
@@ -50,6 +53,7 @@ export async function GET(request: NextRequest) {
   const usersWithUsage = await Promise.all(
     users.map(async (user) => ({
       ...user,
+      quotaNextResetAt: user.quotaNextResetAt.toISOString(),
       quotaResetAt: user.quotaResetAt.toISOString(),
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString(),
@@ -89,6 +93,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const quotaResetAt = new Date();
     const user = await prisma.user.create({
       data: {
         email,
@@ -97,7 +102,11 @@ export async function POST(request: NextRequest) {
         role: body.role === "ADMIN" ? "ADMIN" : "USER",
         userGroup: normalizeUserGroup(body.userGroup),
         emailVerified: true,
-        monthlyCostLimitCents: coerceInt(body.monthlyCostLimitCents, 5000, 1)
+        aiPointsBalanceCents: coerceInt(body.aiPointsBalanceCents, 5000),
+        monthlyCostLimitCents: coerceInt(body.monthlyCostLimitCents, 0),
+        quotaResetAt,
+        quotaNextResetAt: nextQuotaResetAt(quotaResetAt),
+        quotaSystemMigratedAt: quotaResetAt
       },
       select: {
         id: true

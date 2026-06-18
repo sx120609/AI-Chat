@@ -57,11 +57,16 @@ export type ChatModelDisplayConfig = {
 
 export type UsageSummary = {
   windowStart: string;
+  windowEnd: string;
   tokensUsed: number;
   messagesUsed: number;
   costUsedCents: number;
   remainingCostCents: number;
   monthlyCostLimitCents: number;
+  subscriptionCostUsedCents: number;
+  subscriptionRemainingCostCents: number;
+  aiPointsBalanceCents: number;
+  aiPointsCostUsedCents: number;
 };
 
 export type UserView = {
@@ -73,7 +78,9 @@ export type UserView = {
   active: boolean;
   emailVerified: boolean;
   aiStylePrompt: string;
+  aiPointsBalanceCents: number;
   monthlyCostLimitCents: number;
+  quotaNextResetAt: string;
   quotaResetAt: string;
 };
 

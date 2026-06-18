@@ -9,7 +9,8 @@ import {
   X,
   Mail,
   Save,
-  Trash2
+  Trash2,
+  CalendarClock
 } from "lucide-react";
 import { formatCents, formatNumber } from "@/lib/format";
 import type {
@@ -20,6 +21,43 @@ import type {
 } from "@/types/gateway";
 import { CostLimitInput } from "./components";
 import type { SettingsForm, CreateForm } from "./types";
+
+function dateTimeLocalValue(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+}
+
+function formatCycleDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString("zh-CN", {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "2-digit"
+  });
+}
+
+function nextResetPatch(value: string) {
+  if (!value) {
+    return {};
+  }
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? {} : { quotaNextResetAt: date.toISOString() };
+}
 
 type UsersTabProps = {
   currentUser: UserView;
@@ -99,7 +137,7 @@ export function UsersTab({
             注册后验证邮箱
           </label>
           <label className="block lg:col-span-2">
-            <span className="mb-1 block text-xs font-medium ios-muted">注册默认余额（美元）</span>
+            <span className="mb-1 block text-xs font-medium ios-muted">注册默认 AI 点数（美元）</span>
             <CostLimitInput
               className="ios-input w-full"
               onChange={(value) =>
@@ -128,7 +166,7 @@ export function UsersTab({
           </div>
           <h2 className="text-base font-semibold">创建用户</h2>
         </div>
-        <form autoComplete="off" className="grid gap-3 lg:grid-cols-6" onSubmit={onCreateUser}>
+        <form autoComplete="off" className="grid gap-3 lg:grid-cols-8" onSubmit={onCreateUser}>
           <input
             aria-hidden="true"
             autoComplete="username"
@@ -198,17 +236,34 @@ export function UsersTab({
             <option value="NORMAL">普通</option>
             <option value="VIP">VIP</option>
           </select>
-          <CostLimitInput
-            className="ios-input"
-            onChange={(value) =>
-              setForm((current) => ({
-                ...current,
-                monthlyCostLimitCents: value
-              }))
-            }
-            placeholder="初始余额（美元）"
-            value={form.monthlyCostLimitCents}
-          />
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">AI 点数（美元）</span>
+            <CostLimitInput
+              className="ios-input w-full"
+              onChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  aiPointsBalanceCents: value
+                }))
+              }
+              placeholder="初始 AI 点数"
+              value={form.aiPointsBalanceCents}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">月订阅（美元）</span>
+            <CostLimitInput
+              className="ios-input w-full"
+              onChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  monthlyCostLimitCents: value
+                }))
+              }
+              placeholder="每周期额度"
+              value={form.monthlyCostLimitCents}
+            />
+          </label>
           <button className="ios-button-primary app-action-button flex items-center justify-center gap-2 px-3" type="submit">
             <Plus className="size-4" />
             创建
@@ -218,7 +273,7 @@ export function UsersTab({
 
       <section className="ios-panel motion-lift overflow-hidden">
         <div className="flex items-center justify-between border-b border-[color:var(--ios-separator)] px-4 py-3">
-          <h2 className="text-base font-semibold">用户与余额</h2>
+          <h2 className="text-base font-semibold">用户与额度</h2>
           <button className="ios-icon-button app-action-button" onClick={onLoadAll} title="刷新" type="button">
             <RefreshCw className="size-4" />
           </button>
@@ -231,7 +286,7 @@ export function UsersTab({
         ) : (
           <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1360px] border-collapse text-left text-sm">
                 <thead className="bg-white/50 text-xs text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">用户</th>
@@ -239,8 +294,9 @@ export function UsersTab({
                     <th className="px-4 py-3 font-semibold">用户组</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
                     <th className="px-4 py-3 font-semibold">验证</th>
-                    <th className="px-4 py-3 font-semibold">永久余额</th>
-                    <th className="px-4 py-3 font-semibold">累计消费</th>
+                    <th className="px-4 py-3 font-semibold">AI 点数</th>
+                    <th className="px-4 py-3 font-semibold">月订阅</th>
+                    <th className="px-4 py-3 font-semibold">本周期用量</th>
                     <th className="px-4 py-3 font-semibold">操作</th>
                   </tr>
                 </thead>
@@ -318,18 +374,41 @@ export function UsersTab({
                       <td className="px-4 py-3">
                         <CostLimitInput
                           onChange={(value) =>
-                            patchUser(user.id, { monthlyCostLimitCents: value })
+                            patchUser(user.id, { aiPointsBalanceCents: value })
                           }
-                          value={user.monthlyCostLimitCents}
+                          value={user.aiPointsBalanceCents}
                         />
                       </td>
                       <td className="px-4 py-3">
+                        <div className="space-y-2">
+                          <CostLimitInput
+                            onChange={(value) =>
+                              patchUser(user.id, { monthlyCostLimitCents: value })
+                            }
+                            value={user.monthlyCostLimitCents}
+                          />
+                          <label className="flex items-center gap-1.5 text-xs ios-muted">
+                            <CalendarClock className="size-3.5" />
+                            <input
+                              className="ios-input h-8 w-44 text-xs"
+                              onChange={(event) =>
+                                patchUser(user.id, nextResetPatch(event.target.value))
+                              }
+                              type="datetime-local"
+                              value={dateTimeLocalValue(user.quotaNextResetAt)}
+                            />
+                          </label>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
                         <div className="space-y-1 text-xs ios-muted">
-                          <p>已消费 {formatCents(user.usage.costUsedCents)}</p>
+                          <p>可用 {formatCents(user.usage.remainingCostCents)}</p>
                           <p>
-                            余额 {formatCents(user.usage.remainingCostCents)} /{" "}
+                            订阅 {formatCents(user.usage.subscriptionCostUsedCents)} /{" "}
                             {formatCents(user.monthlyCostLimitCents)}
                           </p>
+                          <p>点数消费 {formatCents(user.usage.aiPointsCostUsedCents)}</p>
+                          <p>下次刷新 {formatCycleDate(user.quotaNextResetAt)}</p>
                           <p>消息 {formatNumber(user.usage.messagesUsed)} 条</p>
                           <p>Token {formatNumber(user.usage.tokensUsed)}</p>
                         </div>
@@ -353,7 +432,7 @@ export function UsersTab({
                             className="ios-icon-button app-action-button disabled:opacity-50"
                             disabled={savingId === user.id}
                             onClick={() => onResetQuota(user.id)}
-                            title="清空累计消费"
+                            title="开启下一订阅周期"
                             type="button"
                           >
                             <RefreshCw className="size-4" />
@@ -452,8 +531,18 @@ export function UsersTab({
                         {user.emailVerified ? "已验证" : user.role === "ADMIN" ? "未验证 · 管理员可登录" : "未验证"}
                       </button>
                     </label>
-                    <label className="block col-span-2">
-                      <span className="mb-1 block text-xs font-medium ios-muted">永久余额（美元）</span>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">AI 点数（美元）</span>
+                      <CostLimitInput
+                        className="ios-input h-9 w-full text-sm"
+                        onChange={(value) =>
+                          patchUser(user.id, { aiPointsBalanceCents: value })
+                        }
+                        value={user.aiPointsBalanceCents}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium ios-muted">月订阅（美元）</span>
                       <CostLimitInput
                         className="ios-input h-9 w-full text-sm"
                         onChange={(value) =>
@@ -462,14 +551,24 @@ export function UsersTab({
                         value={user.monthlyCostLimitCents}
                       />
                     </label>
+                    <label className="block col-span-2">
+                      <span className="mb-1 block text-xs font-medium ios-muted">下次刷新</span>
+                      <input
+                        className="ios-input h-9 w-full text-sm"
+                        onChange={(event) =>
+                          patchUser(user.id, nextResetPatch(event.target.value))
+                        }
+                        type="datetime-local"
+                        value={dateTimeLocalValue(user.quotaNextResetAt)}
+                      />
+                    </label>
                   </div>
 
                   <div className="mt-3 rounded-lg bg-white/60 px-3 py-2 text-xs ios-muted">
-                    <p>已消费 {formatCents(user.usage.costUsedCents)}</p>
-                    <p>
-                      余额 {formatCents(user.usage.remainingCostCents)} /{" "}
-                      {formatCents(user.monthlyCostLimitCents)}
-                    </p>
+                    <p>可用 {formatCents(user.usage.remainingCostCents)}</p>
+                    <p>订阅已用 {formatCents(user.usage.subscriptionCostUsedCents)} / {formatCents(user.monthlyCostLimitCents)}</p>
+                    <p>点数消费 {formatCents(user.usage.aiPointsCostUsedCents)}</p>
+                    <p>下次刷新 {formatCycleDate(user.quotaNextResetAt)}</p>
                     <p className="mt-1">消息 {formatNumber(user.usage.messagesUsed)} 条</p>
                     <p className="mt-1">Token {formatNumber(user.usage.tokensUsed)}</p>
                   </div>
@@ -495,7 +594,7 @@ export function UsersTab({
                       type="button"
                     >
                       <RefreshCw className="size-4" />
-                      清空累计
+                      下一周期
                     </button>
                     <button
                       className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 text-sm text-red-600 disabled:opacity-40"

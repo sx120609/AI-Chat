@@ -6,8 +6,11 @@ import {
   getEnabledApiModels,
   type ChatModelConfig
 } from "@/lib/models";
-import { prisma } from "@/lib/prisma";
-import { assertQuotaAvailable, QuotaError } from "@/lib/quota";
+import {
+  assertQuotaAvailable,
+  createUsageRecordWithQuotaDebit,
+  QuotaError
+} from "@/lib/quota";
 import { resolveApiIdentityPrompt } from "@/lib/system-prompt";
 import { estimateTokens } from "@/lib/tokens";
 import {
@@ -775,7 +778,7 @@ async function recordUserApiUsage({
     upstreamUsage
   });
 
-  await prisma.usageRecord.create({
+  await createUsageRecordWithQuotaDebit({
     data: {
       userId,
       model: model.id,

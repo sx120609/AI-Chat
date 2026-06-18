@@ -38,9 +38,12 @@ export function OverviewTab({
           <p className="mt-1 font-semibold">{groupLabel(user.userGroup)}</p>
         </div>
         <div className="rounded-lg bg-white/55 px-3 py-2 text-sm">
-          <p className="text-xs ios-muted">余额</p>
+          <p className="text-xs ios-muted">可用额度</p>
           <p className="mt-1 font-semibold">
-            {formatCents(initialUsage.remainingCostCents)} / {formatCents(initialUsage.monthlyCostLimitCents)}
+            {formatCents(initialUsage.remainingCostCents)}
+          </p>
+          <p className="mt-1 text-xs ios-muted">
+            订阅 {formatCents(initialUsage.subscriptionRemainingCostCents)} · AI 点数 {formatCents(initialUsage.aiPointsBalanceCents)}
           </p>
           <p className="mt-1 text-xs ios-muted">
             已用 {formatCents(initialUsage.costUsedCents)} · {formatNumber(initialUsage.tokensUsed)} tokens

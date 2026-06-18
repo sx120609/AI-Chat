@@ -436,7 +436,7 @@ export function ChatShell(props: ChatShellProps) {
             ) : null}
             {quotaBlocked ? (
               <div className="app-inline-alert mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                余额不足，请联系管理员。
+                额度不足，请充值 AI 点数或联系管理员。
               </div>
             ) : null}
             {editingMessage ? (

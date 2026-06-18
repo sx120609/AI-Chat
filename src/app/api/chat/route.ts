@@ -43,7 +43,12 @@ import {
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { formatPersonalizationForPrompt, parsePersonalizationSettings } from "@/lib/personalization";
-import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
+import {
+  assertQuotaAvailable,
+  createUsageRecordWithQuotaDebit,
+  getUsageSummary,
+  QuotaError
+} from "@/lib/quota";
 import { normalizePromptClock, resolveSystemPrompt } from "@/lib/system-prompt";
 import { planMessageTools } from "@/lib/tool-router";
 import { compactTitle, estimateTokens } from "@/lib/tokens";
@@ -1316,7 +1321,7 @@ export async function POST(request: NextRequest) {
               type: "image"
             }, finishedAt);
 
-            await prisma.usageRecord.create({
+            await createUsageRecordWithQuotaDebit({
               data: {
                 userId: user.id,
                 model: "image2",
@@ -1590,7 +1595,7 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          await prisma.usageRecord.create({
+          await createUsageRecordWithQuotaDebit({
             data: {
               userId: user.id,
               conversationId: imageConversation.id,
@@ -1957,7 +1962,7 @@ export async function POST(request: NextRequest) {
             : null;
 
           if (tokenUsage) {
-            await prisma.usageRecord.create({
+            await createUsageRecordWithQuotaDebit({
               data: {
                 userId: user.id,
                 model: model.id,
@@ -2069,7 +2074,7 @@ export async function POST(request: NextRequest) {
           );
           upsertProcessToolEvent(
             {
-              detail: "已更新余额和费用",
+              detail: "已更新额度和费用",
               finishedAt,
               id: "usage",
               label: "用量统计",
@@ -2412,7 +2417,7 @@ export async function POST(request: NextRequest) {
 
         if (tokenUsage && !usageRecordCreated) {
           usageRecordCreated = true;
-          await prisma.usageRecord.create({
+          await createUsageRecordWithQuotaDebit({
             data: {
               userId: user.id,
               conversationId: conversation.id,
@@ -2524,7 +2529,7 @@ export async function POST(request: NextRequest) {
         );
         upsertProcessToolEvent(
           {
-            detail: "已更新余额和费用",
+            detail: "已更新额度和费用",
             finishedAt,
             id: "usage",
             label: "用量统计",

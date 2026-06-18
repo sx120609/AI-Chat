@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:push": "prisma generate && prisma db push",
+    "db:quota-wallets": "tsx scripts/apply-quota-wallets-schema.ts",
     "db:migrate:sqlite-to-pg": "tsx scripts/migrate-sqlite-to-postgres.ts",
     "db:seed": "tsx prisma/seed.ts",
     "prisma:studio": "prisma studio",

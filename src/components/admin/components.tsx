@@ -42,7 +42,8 @@ export const emptyForm: CreateForm = {
   password: "",
   role: "USER",
   userGroup: "NORMAL",
-  monthlyCostLimitCents: 5000
+  aiPointsBalanceCents: 5000,
+  monthlyCostLimitCents: 0
 };
 
 export const emptySettings: SettingsForm = {
@@ -140,7 +141,7 @@ export const adminTabs: Array<{
   {
     id: "users",
     label: "用户",
-    description: "注册、余额与账号",
+    description: "注册、额度与账号",
     icon: UserCog
   },
   {
@@ -333,7 +334,7 @@ export function CostLimitInput({
   return (
     <input
       className={className}
-      min={0.01}
+      min={0}
       onChange={(event) => {
         const dollars = Number(event.target.value);
 
@@ -341,7 +342,7 @@ export function CostLimitInput({
           return;
         }
 
-        onChange(Math.max(1, Math.round(dollars * 100)));
+        onChange(Math.max(0, Math.round(dollars * 100)));
       }}
       placeholder={placeholder}
       step={0.01}

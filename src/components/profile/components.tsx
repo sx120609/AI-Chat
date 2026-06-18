@@ -83,7 +83,7 @@ export const profileTabs: Array<{
   {
     id: "overview",
     label: "资料",
-    description: "昵称、邮箱与余额",
+    description: "昵称、邮箱与额度",
     icon: UserRound
   },
   {

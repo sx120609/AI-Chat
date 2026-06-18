@@ -509,7 +509,11 @@ install_node_dependencies() {
 
 build_application() {
   log "Syncing Prisma schema..."
-  run_as_app_user npm run db:push
+  if ! run_as_app_user npm run db:push; then
+    warn "Prisma db push failed, applying additive quota-wallet schema changes only."
+    run_as_app_user npm run db:quota-wallets
+    run_as_app_user npx prisma generate
+  fi
 
   if [[ ! -f "$APP_DIR/.deploy-seeded" || "${SEED_ADMIN:-false}" == "true" ]]; then
     log "Seeding administrator account..."

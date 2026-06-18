@@ -23,6 +23,7 @@ export type CreateForm = {
   password: string;
   role: Role;
   userGroup: UserGroup;
+  aiPointsBalanceCents: number;
   monthlyCostLimitCents: number;
 };
 

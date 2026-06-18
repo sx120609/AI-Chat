@@ -13,6 +13,12 @@ import {
 } from "../src/lib/site-settings";
 import { DEFAULT_SYSTEM_PROMPT_MODE } from "../src/lib/system-prompt";
 
+function nextQuotaResetAt(start: Date) {
+  const next = new Date(start);
+  next.setMonth(next.getMonth() + 1);
+  return next;
+}
+
 async function main() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
@@ -23,6 +29,7 @@ async function main() {
   }
 
   const passwordHash = await hashPassword(password);
+  const quotaResetAt = new Date();
 
   await prisma.user.upsert({
     where: { email },
@@ -43,7 +50,11 @@ async function main() {
       emailVerified: true,
       monthlyTokenLimit: 1000000,
       monthlyMessageLimit: 2000,
-      monthlyCostLimitCents: 20000
+      aiPointsBalanceCents: 20000,
+      monthlyCostLimitCents: 0,
+      quotaResetAt,
+      quotaNextResetAt: nextQuotaResetAt(quotaResetAt),
+      quotaSystemMigratedAt: quotaResetAt
     }
   });
 

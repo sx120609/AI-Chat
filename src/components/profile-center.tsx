@@ -306,9 +306,13 @@ export function ProfileCenter({
     }
   };
 
+  const totalAvailableBaseline =
+    initialUsage.monthlyCostLimitCents +
+    initialUsage.aiPointsCostUsedCents +
+    initialUsage.aiPointsBalanceCents;
   const lowBalanceWarning =
-    initialUsage.monthlyCostLimitCents > 0 &&
-    initialUsage.remainingCostCents / initialUsage.monthlyCostLimitCents <= 0.15;
+    totalAvailableBaseline > 0 &&
+    initialUsage.remainingCostCents / totalAvailableBaseline <= 0.15;
 
   function openApiGuide(key?: UserApiKeyView) {
     setApiGuideKeyId(key?.apiKey ? key.id : revealableApiKeys[0]?.id ?? null);
@@ -920,7 +924,7 @@ export function ProfileCenter({
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
           {lowBalanceWarning ? (
             <div className="app-inline-alert rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              余额接近上限，请留意本月用量或联系管理员调整额度。
+              可用额度较低，请留意本周期用量、充值 AI 点数或联系管理员调整额度。
             </div>
           ) : null}
 

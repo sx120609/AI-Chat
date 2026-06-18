@@ -20,7 +20,12 @@ import {
 import { estimateImageCostCents } from "@/lib/models";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
-import { assertQuotaAvailable, getUsageSummary, QuotaError } from "@/lib/quota";
+import {
+  assertQuotaAvailable,
+  createUsageRecordWithQuotaDebit,
+  getUsageSummary,
+  QuotaError
+} from "@/lib/quota";
 import { compactTitle, estimateTokens } from "@/lib/tokens";
 import { assertUpstreamConfigured, generateImage, getAiRuntimeSettings } from "@/lib/upstream";
 
@@ -507,7 +512,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    await prisma.usageRecord.create({
+    await createUsageRecordWithQuotaDebit({
       data: {
         userId: user.id,
         conversationId: conversation.id,

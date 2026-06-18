@@ -1017,7 +1017,7 @@ export function useChat({
     }
 
     if (quotaBlocked) {
-      setError("余额不足，请联系管理员。");
+      setError("额度不足，请充值 AI 点数或联系管理员。");
       return;
     }
 
@@ -1602,7 +1602,7 @@ export function useChat({
               type: resultIsImage ? "image" : "generation"
             }, now),
             {
-              detail: "已更新余额和费用",
+              detail: "已更新额度和费用",
               id: "usage",
               label: "用量统计",
               status: "done",

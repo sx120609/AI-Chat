@@ -23,7 +23,9 @@ type UpdateUserBody = {
   userGroup?: string;
   active?: boolean;
   emailVerified?: boolean;
+  aiPointsBalanceCents?: number;
   monthlyCostLimitCents?: number;
+  quotaNextResetAt?: string;
 };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -54,7 +56,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     userGroup?: string;
     active?: boolean;
     emailVerified?: boolean;
+    aiPointsBalanceCents?: number;
     monthlyCostLimitCents?: number;
+    quotaNextResetAt?: Date;
   } = {};
 
   if (typeof body.name === "string" && body.name.trim()) {
@@ -85,8 +89,26 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     data.emailVerified = body.emailVerified;
   }
 
+  if (body.aiPointsBalanceCents !== undefined) {
+    data.aiPointsBalanceCents = coerceInt(body.aiPointsBalanceCents, 5000);
+  }
+
   if (body.monthlyCostLimitCents !== undefined) {
-    data.monthlyCostLimitCents = coerceInt(body.monthlyCostLimitCents, 5000, 1);
+    data.monthlyCostLimitCents = coerceInt(body.monthlyCostLimitCents, 0);
+  }
+
+  if (body.quotaNextResetAt !== undefined) {
+    const quotaNextResetAt = new Date(body.quotaNextResetAt);
+
+    if (Number.isNaN(quotaNextResetAt.getTime())) {
+      return jsonError("下次刷新时间无效。", 400);
+    }
+
+    if (quotaNextResetAt <= new Date()) {
+      return jsonError("下次刷新时间必须晚于当前时间。", 400);
+    }
+
+    data.quotaNextResetAt = quotaNextResetAt;
   }
 
   if (Object.keys(data).length === 0) {

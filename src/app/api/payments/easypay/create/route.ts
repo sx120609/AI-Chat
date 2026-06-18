@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     amountCents,
     easyPaySettings.easyPayBalanceCentsPerYuan
   );
-  const subject = `${siteName} 余额充值`;
+  const subject = `${siteName} AI 点数充值`;
   const order = await prisma.paymentOrder.create({
     data: {
       userId: currentUser.id,

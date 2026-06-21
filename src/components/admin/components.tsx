@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Activity,
   Globe2,
@@ -281,6 +282,14 @@ export function usageRecordTitle(record: AdminUsageRecordView) {
   return record.conversationId ? `会话 ${record.conversationId}` : record.sourceLabel;
 }
 
+function formatCostInputValue(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0.00";
+  }
+
+  return (Math.round(value) / 100).toFixed(2);
+}
+
 export function DiagnosticsPanel({ result }: { result: DiagnosticsResult }) {
   const tone = {
     ok: "border-green-200 bg-green-50 text-green-800",
@@ -331,12 +340,28 @@ export function CostLimitInput({
   placeholder?: string;
   value: number;
 }) {
+  const [draft, setDraft] = useState(() => formatCostInputValue(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(formatCostInputValue(value));
+    }
+  }, [focused, value]);
+
   return (
     <input
       className={className}
       min={0}
+      onBlur={() => {
+        setFocused(false);
+        setDraft(formatCostInputValue(value));
+      }}
       onChange={(event) => {
-        const dollars = Number(event.target.value);
+        const nextValue = event.target.value;
+        const dollars = Number(nextValue);
+
+        setDraft(nextValue);
 
         if (!Number.isFinite(dollars)) {
           return;
@@ -344,10 +369,11 @@ export function CostLimitInput({
 
         onChange(Math.max(0, Math.round(dollars * 100)));
       }}
+      onFocus={() => setFocused(true)}
       placeholder={placeholder}
       step={0.01}
       type="number"
-      value={value / 100}
+      value={draft}
     />
   );
 }

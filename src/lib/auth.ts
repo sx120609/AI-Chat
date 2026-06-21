@@ -8,6 +8,7 @@ export const SESSION_COOKIE = "team_ai_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 type SessionPayload = {
+  sid?: string;
   sub: string;
   role: "USER" | "ADMIN";
   exp: number;
@@ -26,6 +27,7 @@ export type CurrentUser = {
   monthlyCostLimitCents: number;
   quotaNextResetAt: Date;
   quotaResetAt: Date;
+  sessionId?: string;
 };
 
 type CurrentUserRecord = {
@@ -43,7 +45,10 @@ type CurrentUserRecord = {
   userGroup?: string | null;
 };
 
-function normalizeCurrentUserRecord(user: CurrentUserRecord | null): CurrentUser | null {
+function normalizeCurrentUserRecord(
+  user: CurrentUserRecord | null,
+  sessionId?: string
+): CurrentUser | null {
   if (!user) {
     return null;
   }
@@ -60,8 +65,41 @@ function normalizeCurrentUserRecord(user: CurrentUserRecord | null): CurrentUser
     aiPointsBalanceCents: user.aiPointsBalanceCents ?? 0,
     monthlyCostLimitCents: user.monthlyCostLimitCents ?? 0,
     quotaNextResetAt: user.quotaNextResetAt || new Date(),
-    quotaResetAt: user.quotaResetAt || new Date()
+    quotaResetAt: user.quotaResetAt || new Date(),
+    sessionId
   };
+}
+
+function requestUserAgent(request?: NextRequest | null) {
+  return request?.headers.get("user-agent")?.trim().slice(0, 500) || "";
+}
+
+export function describeUserAgent(userAgent: string) {
+  const normalized = userAgent.toLowerCase();
+  const os = normalized.includes("windows")
+    ? "Windows"
+    : normalized.includes("android")
+      ? "Android"
+      : normalized.includes("iphone")
+        ? "iPhone"
+        : normalized.includes("ipad")
+          ? "iPad"
+          : normalized.includes("mac os") || normalized.includes("macintosh")
+            ? "macOS"
+            : normalized.includes("linux")
+              ? "Linux"
+              : "未知设备";
+  const browser = normalized.includes("edg/")
+    ? "Edge"
+    : normalized.includes("firefox/")
+      ? "Firefox"
+      : normalized.includes("chrome/")
+        ? "Chrome"
+        : normalized.includes("safari/")
+          ? "Safari"
+          : "浏览器";
+
+  return `${os} · ${browser}`;
 }
 
 function base64UrlEncode(value: string | Buffer) {
@@ -91,8 +129,53 @@ function sign(value: string) {
   return base64UrlEncode(createHmac("sha256", getAuthSecret()).update(value).digest());
 }
 
-export function createSessionToken(user: { id: string; role: "USER" | "ADMIN" }) {
+export async function recordAuthEvent({
+  email = "",
+  message = "",
+  request,
+  success,
+  type,
+  userId
+}: {
+  email?: string;
+  message?: string;
+  request?: NextRequest | null;
+  success: boolean;
+  type: string;
+  userId?: string | null;
+}) {
+  await prisma.authEvent
+    .create({
+      data: {
+        email: email.trim().toLowerCase().slice(0, 254),
+        message: message.slice(0, 500),
+        success,
+        type,
+        userAgent: requestUserAgent(request),
+        userId: userId || null
+      }
+    })
+    .catch(() => undefined);
+}
+
+export async function createSessionToken(
+  user: { id: string; role: "USER" | "ADMIN" },
+  request?: NextRequest | null
+) {
+  const now = new Date();
+  const userAgent = requestUserAgent(request);
+  const session = await prisma.userSession.create({
+    data: {
+      userId: user.id,
+      userAgent,
+      deviceLabel: describeUserAgent(userAgent),
+      lastSeenAt: now,
+      expiresAt: new Date(now.getTime() + SESSION_MAX_AGE_SECONDS * 1000)
+    },
+    select: { id: true }
+  });
   const payload: SessionPayload = {
+    sid: session.id,
     sub: user.id,
     role: user.role,
     exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS
@@ -148,33 +231,72 @@ export function sessionCookieOptions() {
   };
 }
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const cookieStore = await cookies();
-  const session = verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value);
-
+async function resolveSessionUser(
+  session: SessionPayload | null,
+  request?: NextRequest | null
+): Promise<CurrentUser | null> {
   if (!session) {
     return null;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.sub }
+  if (!session.sid) {
+    const user = await prisma.user.findUnique({
+      where: { id: session.sub }
+    });
+
+    return normalizeCurrentUserRecord(user);
+  }
+
+  const sessionRecord = await prisma.userSession.findUnique({
+    where: { id: session.sid },
+    include: { user: true }
   });
 
-  return normalizeCurrentUserRecord(user);
+  if (
+    !sessionRecord ||
+    sessionRecord.userId !== session.sub ||
+    sessionRecord.revokedAt ||
+    sessionRecord.expiresAt.getTime() < Date.now()
+  ) {
+    return null;
+  }
+
+  const userAgent = requestUserAgent(request);
+  const shouldTouch =
+    Date.now() - sessionRecord.lastSeenAt.getTime() > 1000 * 60 * 5 ||
+    (userAgent && userAgent !== sessionRecord.userAgent);
+
+  if (shouldTouch) {
+    await prisma.userSession
+      .update({
+        where: { id: sessionRecord.id },
+        data: {
+          lastSeenAt: new Date(),
+          ...(userAgent
+            ? {
+                userAgent,
+                deviceLabel: describeUserAgent(userAgent)
+              }
+            : {})
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  return normalizeCurrentUserRecord(sessionRecord.user, sessionRecord.id);
+}
+
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const cookieStore = await cookies();
+  const session = verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value);
+
+  return resolveSessionUser(session);
 }
 
 export async function getUserFromRequest(request: NextRequest): Promise<CurrentUser | null> {
   const session = verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
 
-  if (!session) {
-    return null;
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: session.sub }
-  });
-
-  return normalizeCurrentUserRecord(user);
+  return resolveSessionUser(session, request);
 }
 
 export function serializeCurrentUser(user: CurrentUser) {

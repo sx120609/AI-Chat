@@ -47,6 +47,9 @@ model User {
   usageRecords          UsageRecord[]
   attachments           Attachment[]
   emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens   PasswordResetToken[]
+  sessions              UserSession[]
+  authEvents            AuthEvent[]
   paymentOrders        PaymentOrder[]
   apiKeys              UserApiKey[]
   memories             UserMemory[]
@@ -140,6 +143,52 @@ model EmailVerificationToken {
   @@index([expiresAt])
 }
 
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+model UserSession {
+  id            String    @id @default(cuid())
+  userId        String
+  userAgent     String    @default("")
+  deviceLabel   String    @default("")
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String    @default("")
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, lastSeenAt])
+  @@index([userId, revokedAt, expiresAt])
+  @@index([expiresAt])
+}
+
+model AuthEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String   @default("")
+  type      String
+  success   Boolean  @default(false)
+  message   String   @default("")
+  userAgent String   @default("")
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([email, createdAt])
+  @@index([type, createdAt])
+}
+
 model Conversation {
   id        String         @id @default(cuid())
   userId    String
@@ -149,6 +198,8 @@ model Conversation {
   mode      GenerationMode @default(CHAT)
   pinned    Boolean        @default(false)
   archivedAt DateTime?
+  contextSummaryMessageCount Int @default(0)
+  contextSummaryTokens Int @default(0)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -290,6 +341,9 @@ model AiSettings {
   codeInterpreterSandbox String  @default("docker")
   codeInterpreterAllowPackageInstall Boolean @default(false)
   codeInterpreterPipIndexUrl String @default("https://pypi.org/simple")
+  contextCompressionEnabled Boolean @default(false)
+  contextCompressionThresholdPercent Int @default(70)
+  longContextThresholdTokens Int @default(0)
   webSearchEnabled    Boolean @default(false)
   webSearchProvider   String  @default("duckduckgo")
   webSearchMaxResults Int     @default(5)

@@ -10,7 +10,8 @@ import {
   Mail,
   Save,
   Trash2,
-  CalendarClock
+  CalendarClock,
+  Laptop
 } from "lucide-react";
 import { formatCents, formatNumber } from "@/lib/format";
 import type {
@@ -47,6 +48,10 @@ function formatCycleDate(value: string) {
     minute: "2-digit",
     month: "2-digit"
   });
+}
+
+function formatOptionalDate(value?: string | null) {
+  return value ? formatCycleDate(value) : "-";
 }
 
 function nextResetPatch(value: string) {
@@ -361,6 +366,14 @@ export function UsersTab({
                         {user.emailVerified ? "已验证" : "未验证"}
                       </button>
                     </div>
+                    <div className="rounded-lg bg-white/65 px-3 py-2 text-xs leading-5 ios-muted">
+                      <p className="flex items-center gap-1.5 font-semibold text-stone-800">
+                        <Laptop className="size-3.5" />
+                        活跃设备 {user.activeSessionCount}
+                      </p>
+                      <p>最近活动 {formatOptionalDate(user.lastSeenAt)}</p>
+                      <p>最近登录 {formatOptionalDate(user.lastLoginAt)}</p>
+                    </div>
                   </div>
 
                   <div className="grid min-w-0 grid-cols-2 gap-2">
@@ -556,6 +569,9 @@ export function UsersTab({
                   </div>
 
                   <div className="mt-3 rounded-lg bg-white/60 px-3 py-2 text-xs ios-muted">
+                    <p>活跃设备 {user.activeSessionCount}</p>
+                    <p>最近活动 {formatOptionalDate(user.lastSeenAt)}</p>
+                    <p>最近登录 {formatOptionalDate(user.lastLoginAt)}</p>
                     <p>可用 {formatCents(user.usage.remainingCostCents)}</p>
                     <p>订阅已用 {formatCents(user.usage.subscriptionCostUsedCents)} / {formatCents(user.monthlyCostLimitCents)}</p>
                     <p>点数消费 {formatCents(user.usage.aiPointsCostUsedCents)}</p>

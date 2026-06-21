@@ -82,6 +82,31 @@ export type UserView = {
   monthlyCostLimitCents: number;
   quotaNextResetAt: string;
   quotaResetAt: string;
+  sessionId?: string;
+};
+
+export type UserSessionView = {
+  id: string;
+  active: boolean;
+  current: boolean;
+  deviceLabel: string;
+  userAgent: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  revokedReason: string;
+};
+
+export type AuthEventView = {
+  id: string;
+  email: string;
+  type: string;
+  success: boolean;
+  message: string;
+  userAgent: string;
+  deviceLabel: string;
+  createdAt: string;
 };
 
 export type UserApiKeyView = {
@@ -205,7 +230,10 @@ export type SharedConversationView = {
 };
 
 export type AdminUserView = UserView & {
+  activeSessionCount: number;
   createdAt: string;
+  lastLoginAt?: string | null;
+  lastSeenAt?: string | null;
   updatedAt: string;
   usage: UsageSummary;
 };

@@ -34,6 +34,7 @@ import type {
   UsageBreakdownPayload,
   UserProjectView,
   ProjectsPayload,
+  SecurityPayload,
   DataControlAction,
   InstructionPreset
 } from "./profile/types";
@@ -74,6 +75,8 @@ export function ProfileCenter({
   const [memories, setMemories] = useState<UserMemoryView[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<ArchivedConversationView[]>([]);
   const [sharedLinks, setSharedLinks] = useState<SharedLinkView[]>([]);
+  const [securityEvents, setSecurityEvents] = useState<SecurityPayload["events"]>([]);
+  const [sessions, setSessions] = useState<SecurityPayload["sessions"]>([]);
   const [fileLibrary, setFileLibrary] = useState<FileLibraryItem[]>([]);
   const [fileLibraryHasMore, setFileLibraryHasMore] = useState(false);
   const [fileLibraryTotal, setFileLibraryTotal] = useState(0);
@@ -100,9 +103,11 @@ export function ProfileCenter({
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [loadingMemories, setLoadingMemories] = useState(true);
   const [loadingDataLists, setLoadingDataLists] = useState(true);
+  const [loadingSecurity, setLoadingSecurity] = useState(true);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
   const [savingDataAction, setSavingDataAction] = useState(false);
+  const [savingSessionId, setSavingSessionId] = useState<string | null>(null);
   const [savingArchivedConversationId, setSavingArchivedConversationId] = useState<string | null>(null);
   const [savingFileId, setSavingFileId] = useState<string | null>(null);
   const [savingSharedLinkId, setSavingSharedLinkId] = useState<string | null>(null);
@@ -194,6 +199,23 @@ export function ProfileCenter({
     setLoadingDataLists(false);
   }, []);
 
+  const loadSecurity = useCallback(async () => {
+    setLoadingSecurity(true);
+    const response = await fetch("/api/profile/security");
+    const payload = (await response.json().catch(() => null)) as
+      | (SecurityPayload & { error?: string })
+      | null;
+
+    if (response.ok && payload) {
+      setSecurityEvents(payload.events);
+      setSessions(payload.sessions);
+    } else {
+      setError(payload?.error || "读取账号安全信息失败。");
+    }
+
+    setLoadingSecurity(false);
+  }, []);
+
   const loadMoreFiles = useCallback(async () => {
     if (loadingMoreFiles || !fileLibraryHasMore) {
       return;
@@ -241,11 +263,13 @@ export function ProfileCenter({
     void loadDataLists();
     void loadMemories();
     void loadProjects();
+    void loadSecurity();
   }, [
     loadApiKeys,
     loadDataLists,
     loadMemories,
-    loadProjects
+    loadProjects,
+    loadSecurity
   ]);
 
   const revealableApiKeys = useMemo(() => apiKeys.filter((key) => key.apiKey), [apiKeys]);
@@ -464,9 +488,58 @@ export function ProfileCenter({
       setCurrentPassword("");
       setNewPassword("");
       setNotice("密码已修改。");
+      await loadSecurity();
     }
 
     setSavingPassword(false);
+  }
+
+  async function revokeSession(sessionId: string) {
+    setSavingSessionId(sessionId);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(`/api/profile/security/sessions/${sessionId}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { current?: boolean; error?: string }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "撤销登录设备失败。");
+    } else if (payload?.current) {
+      setNotice("当前设备已退出。");
+      window.location.href = "/login";
+      return;
+    } else {
+      setNotice("登录设备已撤销。");
+      await loadSecurity();
+    }
+
+    setSavingSessionId(null);
+  }
+
+  async function revokeOtherSessions() {
+    setSavingSessionId("__others__");
+    setNotice("");
+    setError("");
+
+    const response = await fetch("/api/profile/security/sessions/revoke-others", {
+      method: "POST"
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { affected?: number; error?: string }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "退出其他设备失败。");
+    } else {
+      setNotice(`已退出其他 ${payload?.affected ?? 0} 个登录设备。`);
+      await loadSecurity();
+    }
+
+    setSavingSessionId(null);
   }
 
   async function createApiKey(event: FormEvent<HTMLFormElement>) {
@@ -1034,11 +1107,19 @@ export function ProfileCenter({
             {activeTab === "security" && (
               <SecurityTab
                 currentPassword={currentPassword}
+                events={securityEvents}
+                loadingSecurity={loadingSecurity}
                 setCurrentPassword={setCurrentPassword}
                 newPassword={newPassword}
+                onRefreshSecurity={loadSecurity}
+                onRevokeOtherSessions={revokeOtherSessions}
+                onRevokeSession={revokeSession}
                 setNewPassword={setNewPassword}
                 savingPassword={savingPassword}
+                savingSessionId={savingSessionId}
+                sessions={sessions}
                 onSavePassword={changePassword}
+                user={user}
               />
             )}
 

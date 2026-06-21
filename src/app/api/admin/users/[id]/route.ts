@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteAttachmentFiles } from "@/lib/attachments";
-import { getUserFromRequest } from "@/lib/auth";
+import { getUserFromRequest, recordAuthEvent } from "@/lib/auth";
 import { cacheDelete } from "@/lib/cache";
 import { coerceInt, jsonError, readJson, requireAdmin } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
@@ -139,9 +139,26 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const user = await prisma.user.update({
     where: { id },
     data,
-    select: { id: true }
+    select: { email: true, id: true }
   });
+  if (data.active === false) {
+    await prisma.userSession.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: "admin_deactivated"
+      }
+    });
+  }
   await cacheDelete([usageCacheKey(user.id)]);
+  await recordAuthEvent({
+    email: user.email,
+    message: data.active === false ? "管理员停用账号。" : "管理员更新账号设置。",
+    request,
+    success: true,
+    type: data.active === false ? "admin_user_deactivated" : "admin_user_updated",
+    userId: user.id
+  });
 
   return NextResponse.json({ id: user.id });
 }
@@ -168,6 +185,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     where: { id },
     select: {
       id: true,
+      email: true,
       attachments: {
         select: { storagePath: true }
       }
@@ -178,6 +196,14 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return jsonError("用户不存在。", 404);
   }
 
+  await recordAuthEvent({
+    email: user.email,
+    message: "管理员删除用户。",
+    request,
+    success: true,
+    type: "admin_user_deleted",
+    userId: user.id
+  });
   await prisma.user.delete({
     where: { id }
   });

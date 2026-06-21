@@ -83,8 +83,14 @@ export const profileTabs: Array<{
   {
     id: "overview",
     label: "资料",
-    description: "昵称、邮箱与额度",
+    description: "身份、邮箱与额度",
     icon: UserRound
+  },
+  {
+    id: "security",
+    label: "安全",
+    description: "密码、设备与活动",
+    icon: Lock
   },
   {
     id: "personalization",
@@ -103,12 +109,6 @@ export const profileTabs: Array<{
     label: "数据",
     description: "导出、文件与分享",
     icon: FolderOpen
-  },
-  {
-    id: "security",
-    label: "安全",
-    description: "登录密码",
-    icon: Lock
   },
   {
     id: "api",

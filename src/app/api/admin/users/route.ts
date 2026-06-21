@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/auth";
+import { getUserFromRequest, recordAuthEvent } from "@/lib/auth";
 import { coerceInt, jsonError, readJson, requireAdmin } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
@@ -52,15 +52,41 @@ export async function GET(request: NextRequest) {
 
   const usersWithUsage = await Promise.all(
     users.map(async (user) => {
-      const usage = await getUsageSummary(user.id, { readCache: false });
+      const [usage, activeSessionCount, lastSession, lastLogin] = await Promise.all([
+        getUsageSummary(user.id, { readCache: false }),
+        prisma.userSession.count({
+          where: {
+            userId: user.id,
+            revokedAt: null,
+            expiresAt: { gt: new Date() }
+          }
+        }),
+        prisma.userSession.findFirst({
+          where: { userId: user.id },
+          orderBy: { lastSeenAt: "desc" },
+          select: { lastSeenAt: true }
+        }),
+        prisma.authEvent.findFirst({
+          where: {
+            userId: user.id,
+            type: "login",
+            success: true
+          },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true }
+        })
+      ]);
 
       return {
         ...user,
+        activeSessionCount,
         aiPointsBalanceCents: usage.aiPointsBalanceCents,
         monthlyCostLimitCents: usage.monthlyCostLimitCents,
         quotaNextResetAt: usage.windowEnd,
         quotaResetAt: usage.windowStart,
         createdAt: user.createdAt.toISOString(),
+        lastLoginAt: lastLogin?.createdAt.toISOString() ?? null,
+        lastSeenAt: lastSession?.lastSeenAt.toISOString() ?? null,
         updatedAt: user.updatedAt.toISOString(),
         usage
       };
@@ -117,6 +143,14 @@ export async function POST(request: NextRequest) {
       select: {
         id: true
       }
+    });
+    await recordAuthEvent({
+      email,
+      message: "管理员创建用户。",
+      request,
+      success: true,
+      type: "admin_user_created",
+      userId: user.id
     });
 
     return NextResponse.json({ id: user.id }, { status: 201 });

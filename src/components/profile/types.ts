@@ -1,9 +1,11 @@
 import type {
   ChatModelView,
+  AuthEventView,
   SiteSettingsView,
   UsageSummary,
   UserApiKeyView,
   UserMemoryView,
+  UserSessionView,
   UserView
 } from "@/types/gateway";
 export type ProfileCenterProps = {
@@ -136,6 +138,11 @@ export type UserProjectView = {
 
 export type ProjectsPayload = {
   projects: UserProjectView[];
+};
+
+export type SecurityPayload = {
+  events: AuthEventView[];
+  sessions: UserSessionView[];
 };
 
 export type ProfileTab =

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Loader2, LogIn, Mail, UserPlus } from "lucide-react";
+import { ArrowLeft, Loader2, LogIn, Mail, UserPlus } from "lucide-react";
 import { VERIFICATION_EMAIL_HINT } from "@/lib/email-copy";
 import type { PublicAuthSettingsView } from "@/types/gateway";
 
@@ -9,7 +9,7 @@ type LoginFormProps = {
   authSettings: PublicAuthSettingsView;
 };
 
-type AuthMode = "login" | "register";
+type AuthMode = "forgot" | "login" | "register";
 
 export function LoginForm({ authSettings }: LoginFormProps) {
   const [mode, setMode] = useState<AuthMode>("login");
@@ -29,18 +29,35 @@ export function LoginForm({ authSettings }: LoginFormProps) {
     setErrorCode("");
     setNotice("");
 
-    const response = await fetch(mode === "login" ? "/api/auth/login" : "/api/auth/register", {
+    const response = await fetch(
+      mode === "forgot"
+        ? "/api/auth/password-reset/request"
+        : mode === "login"
+          ? "/api/auth/login"
+          : "/api/auth/register",
+      {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, name, password })
-    });
+      }
+    );
 
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as
         | { code?: string; error?: string }
         | null;
-      setError(payload?.error || "登录失败。");
+      setError(payload?.error || (mode === "forgot" ? "发送重置邮件失败。" : "登录失败。"));
       setErrorCode(payload?.code || "");
+      setLoading(false);
+      return;
+    }
+
+    if (mode === "forgot") {
+      const payload = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+
+      setNotice(payload?.message || "如果这个邮箱存在可用账号，系统会发送一封重置密码邮件。");
       setLoading(false);
       return;
     }
@@ -86,11 +103,12 @@ export function LoginForm({ authSettings }: LoginFormProps) {
     setResending(false);
   }
 
+  const isForgot = mode === "forgot";
   const isRegister = mode === "register";
 
   return (
     <form className="space-y-4" onSubmit={onSubmit}>
-      {authSettings.registrationEnabled ? (
+      {!isForgot && authSettings.registrationEnabled ? (
         <div className="grid grid-cols-2 gap-2 rounded-lg bg-white/60 p-1">
           <button
             className={`app-action-button h-9 rounded-md text-sm font-semibold ${
@@ -120,6 +138,11 @@ export function LoginForm({ authSettings }: LoginFormProps) {
           </button>
         </div>
       ) : null}
+      {isForgot ? (
+        <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-sm leading-6 text-stone-700">
+          输入账号邮箱。链接有效期 30 分钟，重置后旧登录设备会自动退出。
+        </div>
+      ) : null}
       {isRegister ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-slate-700">昵称</span>
@@ -143,17 +166,34 @@ export function LoginForm({ authSettings }: LoginFormProps) {
           required
         />
       </label>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-slate-700">密码</span>
-        <input
-          className="ios-input h-11 w-full"
-          type="password"
-          autoComplete={isRegister ? "new-password" : "current-password"}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-        />
-      </label>
+      {!isForgot ? (
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-700">密码</span>
+          <input
+            className="ios-input h-11 w-full"
+            type="password"
+            autoComplete={isRegister ? "new-password" : "current-password"}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+        </label>
+      ) : null}
+      {!isForgot ? (
+        <button
+          className="app-action-button -mt-2 inline-flex h-8 items-center rounded-lg px-1 text-sm font-semibold text-[color:var(--claude-accent)]"
+          onClick={() => {
+            setMode("forgot");
+            setError("");
+            setErrorCode("");
+            setNotice("");
+            setPassword("");
+          }}
+          type="button"
+        >
+          忘记密码？
+        </button>
+      ) : null}
       {error ? (
         <div className="app-inline-alert rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
@@ -185,13 +225,30 @@ export function LoginForm({ authSettings }: LoginFormProps) {
       >
         {loading ? (
           <Loader2 className="size-4 animate-spin" />
+        ) : isForgot ? (
+          <Mail className="size-4" />
         ) : isRegister ? (
           <UserPlus className="size-4" />
         ) : (
           <LogIn className="size-4" />
         )}
-        {isRegister ? "注册" : "登录"}
+        {isForgot ? "发送重置邮件" : isRegister ? "注册" : "登录"}
       </button>
+      {isForgot ? (
+        <button
+          className="ios-button-secondary app-action-button flex h-10 w-full items-center justify-center gap-2 px-4 text-sm"
+          onClick={() => {
+            setMode("login");
+            setError("");
+            setErrorCode("");
+            setNotice("");
+          }}
+          type="button"
+        >
+          <ArrowLeft className="size-4" />
+          返回登录
+        </button>
+      ) : null}
     </form>
   );
 }

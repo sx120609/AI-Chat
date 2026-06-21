@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteAttachmentFiles } from "@/lib/attachments";
-import { getUserFromRequest, SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth";
+import {
+  getUserFromRequest,
+  recordAuthEvent,
+  SESSION_COOKIE,
+  sessionCookieOptions
+} from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 
@@ -68,6 +73,21 @@ export async function POST(request: NextRequest) {
       where: { id: currentUser.id },
       data: { active: false }
     });
+    await prisma.userSession.updateMany({
+      where: { userId: currentUser.id, revokedAt: null },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: "account_deactivated"
+      }
+    });
+    await recordAuthEvent({
+      email: currentUser.email,
+      message: "用户停用自己的账号。",
+      request,
+      success: true,
+      type: "account_deactivated",
+      userId: currentUser.id
+    });
 
     const response = NextResponse.json({ action: body.action, affected: 1 });
 
@@ -85,6 +105,14 @@ export async function POST(request: NextRequest) {
       select: { storagePath: true }
     });
 
+    await recordAuthEvent({
+      email: currentUser.email,
+      message: "用户删除自己的账号。",
+      request,
+      success: true,
+      type: "account_deleted",
+      userId: currentUser.id
+    });
     await prisma.user.delete({
       where: { id: currentUser.id }
     });

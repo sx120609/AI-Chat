@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSessionToken, sessionCookieOptions, SESSION_COOKIE } from "@/lib/auth";
+import {
+  createSessionToken,
+  recordAuthEvent,
+  sessionCookieOptions,
+  SESSION_COOKIE
+} from "@/lib/auth";
 import { VERIFICATION_EMAIL_HINT } from "@/lib/email-copy";
 import { createEmailVerificationToken, sendVerificationEmail } from "@/lib/email-verification";
 import { jsonError, readJson } from "@/lib/http";
@@ -126,6 +131,15 @@ export async function POST(request: NextRequest) {
         throw new Error(describeSmtpError(sendError));
       }
 
+      await recordAuthEvent({
+        email,
+        message: "注册成功，等待邮箱验证。",
+        request,
+        success: true,
+        type: "register",
+        userId: user.id
+      });
+
       return NextResponse.json(
         {
           needsVerification: true,
@@ -148,7 +162,15 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
 
-    response.cookies.set(SESSION_COOKIE, createSessionToken(user), sessionCookieOptions());
+    response.cookies.set(SESSION_COOKIE, await createSessionToken(user, request), sessionCookieOptions());
+    await recordAuthEvent({
+      email,
+      message: "注册成功并自动登录。",
+      request,
+      success: true,
+      type: "register",
+      userId: user.id
+    });
 
     return response;
   } catch (registerError) {
@@ -157,8 +179,23 @@ export async function POST(request: NextRequest) {
     }
 
     if (isUniqueConstraint(registerError)) {
+      await recordAuthEvent({
+        email,
+        message: "邮箱已存在。",
+        request,
+        success: false,
+        type: "register"
+      });
       return jsonError("邮箱已存在。", 409);
     }
+
+    await recordAuthEvent({
+      email,
+      message: registerError instanceof Error ? registerError.message : "注册失败。",
+      request,
+      success: false,
+      type: "register"
+    });
 
     return jsonError(
       registerError instanceof Error ? registerError.message : "注册失败。",

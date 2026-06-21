@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/auth";
+import { getUserFromRequest, recordAuthEvent } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
@@ -50,6 +50,25 @@ export async function PATCH(request: NextRequest) {
   await prisma.user.update({
     where: { id: currentUser.id },
     data: { passwordHash: await hashPassword(newPassword) }
+  });
+  await prisma.userSession.updateMany({
+    where: {
+      userId: currentUser.id,
+      revokedAt: null,
+      ...(currentUser.sessionId ? { id: { not: currentUser.sessionId } } : {})
+    },
+    data: {
+      revokedAt: new Date(),
+      revokedReason: "password_changed"
+    }
+  });
+  await recordAuthEvent({
+    email: currentUser.email,
+    message: "用户修改了登录密码。",
+    request,
+    success: true,
+    type: "password_changed",
+    userId: currentUser.id
   });
 
   return NextResponse.json({ ok: true });

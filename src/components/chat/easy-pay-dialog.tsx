@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { CreditCard, ExternalLink, Loader2, X } from "lucide-react";
 import type { PublicPaymentSettingsView, EasyPayMethod } from "@/types/gateway";
 import { formatCents } from "@/lib/format";
-import { PAYMENT_AMOUNTS_CENTS, PAYMENT_METHOD_LABELS } from "./types";
+import {
+  calculateTieredPaymentBalanceCents,
+  normalizePaymentAmountTiers
+} from "@/lib/payment-amount-tiers";
+import { PAYMENT_METHOD_LABELS } from "./types";
 
 function formatPaymentYuan(amountCents: number) {
   return `¥${(amountCents / 100).toFixed(2)}`;
-}
-
-function calculatePaymentBalanceCents(amountCents: number, balanceCentsPerYuan: number) {
-  const rate = Number.isFinite(balanceCentsPerYuan) ? balanceCentsPerYuan : 100;
-  return Math.max(1, Math.round((Math.max(1, amountCents) * rate) / 100));
 }
 
 type EasyPayDialogProps = {
@@ -36,9 +35,18 @@ export function EasyPayDialog({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const balanceCents = calculatePaymentBalanceCents(
+  const paymentTiers = useMemo(
+    () =>
+      normalizePaymentAmountTiers(
+        paymentSettings.easyPayAmountTiers,
+        paymentSettings.easyPayBalanceCentsPerYuan
+      ),
+    [paymentSettings.easyPayAmountTiers, paymentSettings.easyPayBalanceCentsPerYuan]
+  );
+  const balanceCents = calculateTieredPaymentBalanceCents(
     amountCents,
-    paymentSettings.easyPayBalanceCentsPerYuan
+    paymentSettings.easyPayBalanceCentsPerYuan,
+    paymentTiers
   );
 
   useEffect(() => {
@@ -134,25 +142,20 @@ export function EasyPayDialog({
           <div>
             <p className="mb-2 text-xs font-medium ios-muted">付款金额</p>
             <div className="grid grid-cols-3 gap-2">
-              {PAYMENT_AMOUNTS_CENTS.map((amount) => (
+              {paymentTiers.map((tier) => (
                 <button
                   className={`app-action-button flex min-h-12 flex-col items-center justify-center rounded-lg border text-sm font-semibold ${
-                    amountCents === amount
+                    amountCents === tier.amountCents
                       ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
                       : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
                   }`}
-                  key={amount}
-                  onClick={() => setAmountCents(amount)}
+                  key={tier.amountCents}
+                  onClick={() => setAmountCents(tier.amountCents)}
                   type="button"
                 >
-                  <span>{formatPaymentYuan(amount)}</span>
+                  <span>{formatPaymentYuan(tier.amountCents)}</span>
                   <span className="mt-0.5 text-[11px] font-medium ios-muted">
-                    到账 {formatCents(
-                      calculatePaymentBalanceCents(
-                        amount,
-                        paymentSettings.easyPayBalanceCentsPerYuan
-                      )
-                    )}
+                    到账 {formatCents(tier.balanceCents)}
                   </span>
                 </button>
               ))}

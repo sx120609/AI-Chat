@@ -112,8 +112,12 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [loadingUsage, setLoadingUsage] = useState(false);
   const [loadingPayments, setLoadingPayments] = useState(false);
+  const [syncingPaymentOrderId, setSyncingPaymentOrderId] = useState<string | null>(null);
+  const [deletingPaymentOrderId, setDeletingPaymentOrderId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = useState<AdminUserView | null>(null);
+  const [deletePaymentOrderTarget, setDeletePaymentOrderTarget] =
+    useState<PaymentOrderView | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [testingSettings, setTestingSettings] = useState(false);
@@ -238,6 +242,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       easyPayDisplayMode: nextSettings.easyPayDisplayMode,
       easyPayMethods: nextSettings.easyPayMethods,
       easyPayBalanceCentsPerYuan: nextSettings.easyPayBalanceCentsPerYuan,
+      easyPayAmountTiers: nextSettings.easyPayAmountTiers,
       easyPayPid: nextSettings.easyPayPid,
       easyPayKey: "",
       clearEasyPayKey: false,
@@ -381,6 +386,54 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     } finally {
       setLoadingPayments(false);
     }
+  }
+
+  async function syncPaymentOrder(orderId: string) {
+    setSyncingPaymentOrderId(orderId);
+    setError("");
+    setNotice("");
+
+    const response = await fetch(`/api/admin/payments/${orderId}/sync`, {
+      method: "POST"
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; message?: string; settled?: boolean }
+      | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "补单失败。");
+    } else {
+      setNotice(payload?.message || "补单完成。");
+      await Promise.all([loadPayments(), loadUsers()]);
+    }
+
+    setSyncingPaymentOrderId(null);
+  }
+
+  async function deletePaymentOrder() {
+    if (!deletePaymentOrderTarget) {
+      return;
+    }
+
+    const target = deletePaymentOrderTarget;
+    setDeletingPaymentOrderId(target.id);
+    setError("");
+    setNotice("");
+
+    const response = await fetch(`/api/admin/payments/${target.id}`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+    if (!response.ok) {
+      setError(payload?.error || "删除充值订单失败。");
+    } else {
+      setNotice("充值订单记录已删除。");
+      setDeletePaymentOrderTarget(null);
+      await loadPayments();
+    }
+
+    setDeletingPaymentOrderId(null);
   }
 
   function updateUsageFilters(patch: Partial<UsageFilterState>) {
@@ -815,10 +868,14 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
                 {activeTab === "payment" && (
                   <PaymentTab
+                    deletingOrderId={deletingPaymentOrderId}
                     loadingOrders={loadingPayments || loading}
+                    onSetDeleteOrderTarget={setDeletePaymentOrderTarget}
+                    onSyncOrder={syncPaymentOrder}
                     onRefreshOrders={refreshPayments}
                     orders={paymentOrders}
                     summary={paymentSummary}
+                    syncingOrderId={syncingPaymentOrderId}
                     settings={settings}
                     settingsForm={settingsForm}
                     setSettingsForm={setSettingsForm}
@@ -851,6 +908,18 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         onConfirm={deleteUser}
         open={Boolean(deleteUserTarget)}
         title="删除用户"
+        tone="danger"
+      />
+      <SiteConfirmDialog
+        confirmLabel="删除订单"
+        description={`确定删除订单 ${deletePaymentOrderTarget?.outTradeNo || ""} 吗？这里只删除订单记录，不会扣回已经到账的 AI 点数。`}
+        loading={Boolean(
+          deletePaymentOrderTarget && deletingPaymentOrderId === deletePaymentOrderTarget.id
+        )}
+        onCancel={() => setDeletePaymentOrderTarget(null)}
+        onConfirm={deletePaymentOrder}
+        open={Boolean(deletePaymentOrderTarget)}
+        title="删除充值订单"
         tone="danger"
       />
       <SiteNoticeDialog

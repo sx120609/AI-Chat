@@ -411,6 +411,12 @@ async function main() {
           "easyPayBalanceCentsPerYuan",
           100
         ),
+        easyPayAmountTiersJson: stringValue(
+          row,
+          columns.AiSettings,
+          "easyPayAmountTiersJson",
+          "[]"
+        ),
         easyPayPid: stringValue(row, columns.AiSettings, "easyPayPid", ""),
         easyPayKey: optionalString(row, columns.AiSettings, "easyPayKey"),
         easyPayApiBaseUrl: stringValue(row, columns.AiSettings, "easyPayApiBaseUrl", ""),

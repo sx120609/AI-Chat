@@ -11,6 +11,10 @@ import {
 } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 import {
+  calculateBasePaymentBalanceCents,
+  DEFAULT_PAYMENT_AMOUNT_CENTS
+} from "@/lib/payment-amount-tiers";
+import {
   DEFAULT_IMAGE_UPSTREAM_MODEL,
   DEFAULT_UPSTREAM_MODEL_MAP,
   DEFAULT_REASONING_EFFORT,
@@ -89,6 +93,10 @@ export const emptySettings: SettingsForm = {
   easyPayDisplayMode: "qrcode",
   easyPayMethods: ["alipay", "wxpay"],
   easyPayBalanceCentsPerYuan: 100,
+  easyPayAmountTiers: DEFAULT_PAYMENT_AMOUNT_CENTS.map((amountCents) => ({
+    amountCents,
+    balanceCents: calculateBasePaymentBalanceCents(amountCents, 100)
+  })),
   easyPayPid: "",
   easyPayKey: "",
   clearEasyPayKey: false,

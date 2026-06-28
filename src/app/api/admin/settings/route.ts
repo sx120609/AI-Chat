@@ -10,6 +10,7 @@ import {
   DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
   EASYPAY_NOTIFY_PATH,
   EASYPAY_RETURN_PATH,
+  parseEasyPayAmountTiers,
   normalizeEasyPayBalanceCentsPerYuan,
   normalizeEasyPaySettings,
   parseEasyPayMethods,
@@ -85,6 +86,10 @@ type SettingsBody = {
   easyPayDisplayMode?: string;
   easyPayMethods?: string[];
   easyPayBalanceCentsPerYuan?: number;
+  easyPayAmountTiers?: Array<{
+    amountCents?: number;
+    balanceCents?: number;
+  }>;
   easyPayPid?: string;
   easyPayKey?: string;
   clearEasyPayKey?: boolean;
@@ -142,6 +147,7 @@ function serializeSettings(settings: {
   easyPayDisplayMode: string;
   easyPayMethodsJson: string;
   easyPayBalanceCentsPerYuan: number;
+  easyPayAmountTiersJson: string;
   easyPayPid: string;
   easyPayKey: string | null;
   easyPayApiBaseUrl: string;
@@ -153,6 +159,10 @@ function serializeSettings(settings: {
   const chatModelDisplay = parseModelDisplayConfig(settings.chatModelDisplayJson);
   const chatModels = buildChatModelCatalog(settings);
   const enabledChatModels = getEnabledChatModels(chatModels);
+
+  const easyPayBalanceCentsPerYuan = normalizeEasyPayBalanceCentsPerYuan(
+    settings.easyPayBalanceCentsPerYuan
+  );
 
   return {
     siteName: normalizeSiteName(settings.siteName),
@@ -199,8 +209,10 @@ function serializeSettings(settings: {
     easyPayAllowRefund: settings.easyPayAllowRefund,
     easyPayDisplayMode: normalizeEasyPayDisplayMode(settings.easyPayDisplayMode),
     easyPayMethods: parseEasyPayMethods(settings.easyPayMethodsJson),
-    easyPayBalanceCentsPerYuan: normalizeEasyPayBalanceCentsPerYuan(
-      settings.easyPayBalanceCentsPerYuan
+    easyPayBalanceCentsPerYuan,
+    easyPayAmountTiers: parseEasyPayAmountTiers(
+      settings.easyPayAmountTiersJson,
+      easyPayBalanceCentsPerYuan
     ),
     easyPayPid: settings.easyPayPid || "",
     easyPayHasKey: Boolean(settings.easyPayKey),
@@ -387,6 +399,7 @@ export async function GET(request: NextRequest) {
         Number(process.env.EASYPAY_BALANCE_CENTS_PER_YUAN) ||
           DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN
       ),
+      easyPayAmountTiersJson: process.env.EASYPAY_AMOUNT_TIERS_JSON || "[]",
       easyPayPid: process.env.EASYPAY_PID || "",
       easyPayKey: process.env.EASYPAY_KEY || null,
       easyPayApiBaseUrl: process.env.EASYPAY_API_BASE_URL || "",
@@ -488,6 +501,7 @@ export async function PATCH(request: NextRequest) {
       easyPayDisplayMode: body.easyPayDisplayMode,
       easyPayMethodsJson: JSON.stringify(body.easyPayMethods ?? []),
       easyPayBalanceCentsPerYuan: body.easyPayBalanceCentsPerYuan,
+      easyPayAmountTiersJson: JSON.stringify(body.easyPayAmountTiers ?? []),
       easyPayPid: body.easyPayPid,
       easyPayKey: nextEasyPayKey,
       easyPayApiBaseUrl: body.easyPayApiBaseUrl,
@@ -541,6 +555,7 @@ export async function PATCH(request: NextRequest) {
     easyPayDisplayMode: string;
     easyPayMethodsJson: string;
     easyPayBalanceCentsPerYuan: number;
+    easyPayAmountTiersJson: string;
     easyPayPid: string;
     easyPayKey?: string | null;
     easyPayApiBaseUrl: string;
@@ -585,6 +600,7 @@ export async function PATCH(request: NextRequest) {
     easyPayDisplayMode: easyPaySettings.easyPayDisplayMode,
     easyPayMethodsJson: JSON.stringify(easyPaySettings.easyPayMethods),
     easyPayBalanceCentsPerYuan: easyPaySettings.easyPayBalanceCentsPerYuan,
+    easyPayAmountTiersJson: JSON.stringify(easyPaySettings.easyPayAmountTiers),
     easyPayPid: easyPaySettings.easyPayPid,
     easyPayKey: easyPaySettings.easyPayKey,
     easyPayApiBaseUrl: easyPaySettings.easyPayApiBaseUrl,

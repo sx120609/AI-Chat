@@ -364,6 +364,7 @@ model AiSettings {
   easyPayDisplayMode  String  @default("qrcode")
   easyPayMethodsJson  String  @default("[\"alipay\",\"wxpay\"]")
   easyPayBalanceCentsPerYuan Int @default(100)
+  easyPayAmountTiersJson String @default("[]")
   easyPayPid          String  @default("")
   easyPayKey          String?
   easyPayApiBaseUrl   String  @default("")

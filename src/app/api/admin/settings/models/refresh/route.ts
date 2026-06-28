@@ -6,6 +6,7 @@ import {
   DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
   EASYPAY_NOTIFY_PATH,
   EASYPAY_RETURN_PATH,
+  parseEasyPayAmountTiers,
   normalizeEasyPayBalanceCentsPerYuan,
   normalizeEasyPayDisplayMode,
   parseEasyPayMethods
@@ -54,6 +55,10 @@ async function serializeSettings() {
 
   const chatModels = buildChatModelCatalog(settings);
 
+  const easyPayBalanceCentsPerYuan = normalizeEasyPayBalanceCentsPerYuan(
+    settings.easyPayBalanceCentsPerYuan
+  );
+
   return {
     siteName: settings.siteName || "Team AI Gateway",
     siteUrl: settings.siteUrl || "",
@@ -98,8 +103,10 @@ async function serializeSettings() {
     easyPayAllowRefund: settings.easyPayAllowRefund,
     easyPayDisplayMode: normalizeEasyPayDisplayMode(settings.easyPayDisplayMode),
     easyPayMethods: parseEasyPayMethods(settings.easyPayMethodsJson),
-    easyPayBalanceCentsPerYuan: normalizeEasyPayBalanceCentsPerYuan(
-      settings.easyPayBalanceCentsPerYuan
+    easyPayBalanceCentsPerYuan,
+    easyPayAmountTiers: parseEasyPayAmountTiers(
+      settings.easyPayAmountTiersJson,
+      easyPayBalanceCentsPerYuan
     ),
     easyPayPid: settings.easyPayPid || "",
     easyPayHasKey: Boolean(settings.easyPayKey),
@@ -180,6 +187,7 @@ export async function POST(request: NextRequest) {
         easyPayDisplayMode: "qrcode",
         easyPayMethodsJson: "[\"alipay\",\"wxpay\"]",
         easyPayBalanceCentsPerYuan: DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
+        easyPayAmountTiersJson: "[]",
         easyPayPid: "",
         easyPayKey: null,
         easyPayApiBaseUrl: "",

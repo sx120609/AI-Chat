@@ -3,6 +3,7 @@ import type {
   AdminUsageRecordView,
   AdminUsageSummaryView,
   ChatModelDisplayConfig,
+  EasyPayAmountTierView,
   EasyPayDisplayMode,
   EasyPayMethod,
   PaymentOrderSummaryView,
@@ -71,6 +72,7 @@ export type SettingsForm = {
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
   easyPayBalanceCentsPerYuan: number;
+  easyPayAmountTiers: EasyPayAmountTierView[];
   easyPayPid: string;
   easyPayKey: string;
   clearEasyPayKey: boolean;

@@ -157,6 +157,10 @@ async function main() {
         Number(process.env.EASYPAY_BALANCE_CENTS_PER_YUAN) ||
         existingSettings?.easyPayBalanceCentsPerYuan ||
         100,
+      easyPayAmountTiersJson:
+        process.env.EASYPAY_AMOUNT_TIERS_JSON ||
+        existingSettings?.easyPayAmountTiersJson ||
+        "[]",
       easyPayPid: process.env.EASYPAY_PID || existingSettings?.easyPayPid || "",
       easyPayKey: process.env.EASYPAY_KEY || existingSettings?.easyPayKey || null,
       easyPayApiBaseUrl:
@@ -217,6 +221,7 @@ async function main() {
       easyPayMethodsJson: process.env.EASYPAY_METHODS_JSON || "[\"alipay\",\"wxpay\"]",
       easyPayBalanceCentsPerYuan:
         Number(process.env.EASYPAY_BALANCE_CENTS_PER_YUAN) || 100,
+      easyPayAmountTiersJson: process.env.EASYPAY_AMOUNT_TIERS_JSON || "[]",
       easyPayPid: process.env.EASYPAY_PID || "",
       easyPayKey: process.env.EASYPAY_KEY || null,
       easyPayApiBaseUrl: process.env.EASYPAY_API_BASE_URL || "",

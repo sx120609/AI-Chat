@@ -1,10 +1,16 @@
 import {
   CreditCard,
   Loader2,
+  Plus,
   ReceiptText,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from "lucide-react";
 import { formatCents } from "@/lib/format";
+import {
+  calculateTieredPaymentBalanceCents,
+  normalizePaymentAmountTiers
+} from "@/lib/payment-amount-tiers";
 import type {
   AiSettingsView,
   EasyPayDisplayMode,
@@ -16,8 +22,11 @@ import { formatDateTime } from "./components";
 import type { SettingsForm } from "./types";
 
 type PaymentTabProps = {
+  deletingOrderId: string | null;
   loadingOrders: boolean;
   onRefreshOrders: () => void;
+  onSetDeleteOrderTarget: (order: PaymentOrderView) => void;
+  onSyncOrder: (orderId: string) => void;
   orders: PaymentOrderView[];
   settings: AiSettingsView | null;
   settingsForm: SettingsForm;
@@ -25,6 +34,7 @@ type PaymentTabProps = {
     updater: (current: SettingsForm) => SettingsForm | Partial<SettingsForm>
   ) => void;
   summary: PaymentOrderSummaryView;
+  syncingOrderId: string | null;
 };
 
 function formatPaymentYuan(amountCents: number) {
@@ -79,16 +89,90 @@ function paymentStatusMeta(status: string) {
 }
 
 export function PaymentTab({
+  deletingOrderId,
   loadingOrders,
   onRefreshOrders,
+  onSetDeleteOrderTarget,
+  onSyncOrder,
   orders,
   settings,
   settingsForm,
   setSettingsForm,
-  summary
+  summary,
+  syncingOrderId
 }: PaymentTabProps) {
   const handleUpdate = (patch: Partial<SettingsForm>) => {
     setSettingsForm((current) => ({ ...current, ...patch }));
+  };
+  const paymentTiers = normalizePaymentAmountTiers(
+    settingsForm.easyPayAmountTiers,
+    settingsForm.easyPayBalanceCentsPerYuan
+  );
+  const canAddPaymentTier = (paymentTiers.at(-1)?.amountCents ?? 0) < 100000;
+  const updatePaymentTier = (
+    index: number,
+    patch: Partial<{ amountCents: number; balanceCents: number }>
+  ) => {
+    setSettingsForm((current) => {
+      const tiers = normalizePaymentAmountTiers(
+        current.easyPayAmountTiers,
+        current.easyPayBalanceCentsPerYuan
+      );
+
+      return {
+        ...current,
+        easyPayAmountTiers: tiers.map((tier, tierIndex) =>
+          tierIndex === index ? { ...tier, ...patch } : tier
+        )
+      };
+    });
+  };
+  const addPaymentTier = () => {
+    setSettingsForm((current) => {
+      const tiers = normalizePaymentAmountTiers(
+        current.easyPayAmountTiers,
+        current.easyPayBalanceCentsPerYuan
+      );
+      const lastTier = tiers.at(-1);
+
+      if ((lastTier?.amountCents ?? 0) >= 100000) {
+        return current;
+      }
+
+      const amountCents = Math.min(100000, (lastTier?.amountCents ?? 0) + 1000);
+
+      return {
+        ...current,
+        easyPayAmountTiers: [
+          ...tiers,
+          {
+            amountCents,
+            balanceCents: calculateTieredPaymentBalanceCents(
+              amountCents,
+              current.easyPayBalanceCentsPerYuan,
+              tiers
+            )
+          }
+        ]
+      };
+    });
+  };
+  const removePaymentTier = (index: number) => {
+    setSettingsForm((current) => {
+      const tiers = normalizePaymentAmountTiers(
+        current.easyPayAmountTiers,
+        current.easyPayBalanceCentsPerYuan
+      );
+
+      if (tiers.length <= 1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        easyPayAmountTiers: tiers.filter((_, tierIndex) => tierIndex !== index)
+      };
+    });
   };
 
   return (
@@ -198,6 +282,83 @@ export function PaymentTab({
               ¥1.00 = {formatCents(settingsForm.easyPayBalanceCentsPerYuan)} AI 点数
             </p>
           </label>
+          <div className="lg:col-span-4" data-testid="admin-payment-tiers">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-xs font-medium ios-muted">优惠档次</span>
+              <button
+                className="ios-button-secondary app-action-button flex h-8 items-center justify-center gap-1.5 px-2.5 text-xs"
+                disabled={!canAddPaymentTier}
+                onClick={addPaymentTier}
+                type="button"
+              >
+                <Plus className="size-3.5" />
+                新增档次
+              </button>
+            </div>
+            <div className="grid gap-2">
+              {paymentTiers.map((tier, index) => (
+                <div
+                  className="grid gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 p-2 sm:grid-cols-[1fr_1fr_auto]"
+                  key={`${tier.amountCents}-${index}`}
+                >
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-medium ios-muted">
+                      付款金额
+                    </span>
+                    <input
+                      className="ios-input h-9 w-full text-sm"
+                      min={1}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+
+                        if (Number.isFinite(value)) {
+                          updatePaymentTier(index, {
+                            amountCents: Math.max(100, Math.round(value * 100))
+                          });
+                        }
+                      }}
+                      step={0.01}
+                      type="number"
+                      value={tier.amountCents / 100}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-medium ios-muted">
+                      到账 AI 点数
+                    </span>
+                    <input
+                      className="ios-input h-9 w-full text-sm"
+                      min={0.01}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+
+                        if (Number.isFinite(value)) {
+                          updatePaymentTier(index, {
+                            balanceCents: Math.max(1, Math.round(value * 100))
+                          });
+                        }
+                      }}
+                      step={0.01}
+                      type="number"
+                      value={tier.balanceCents / 100}
+                    />
+                  </label>
+                  <button
+                    className="ios-icon-button app-action-button self-end text-red-600 hover:bg-red-50 sm:mb-0"
+                    disabled={paymentTiers.length <= 1}
+                    onClick={() => removePaymentTier(index)}
+                    title="删除档次"
+                    type="button"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs ios-muted">
+              自定义金额会按相邻档位自动折算，超过最高档沿用最高档倍率。
+            </p>
+          </div>
           <label className="block lg:col-span-2">
             <span className="mb-1 block text-xs font-medium ios-muted">PID *</span>
             <input
@@ -348,7 +509,7 @@ export function PaymentTab({
         ) : orders.length > 0 ? (
           <>
             <div className="hidden overflow-x-auto lg:block" aria-label="充值订单表格横向滚动区域">
-              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
                 <thead className="bg-white/70 text-xs text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">订单</th>
@@ -357,6 +518,7 @@ export function PaymentTab({
                     <th className="px-4 py-3 font-semibold">到账</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
                     <th className="px-4 py-3 font-semibold">时间</th>
+                    <th className="px-4 py-3 text-right font-semibold">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -386,6 +548,40 @@ export function PaymentTab({
                         <td className="px-4 py-3 text-xs ios-muted">
                           <p>创建 {formatDateTime(order.createdAt)}</p>
                           <p>到账 {order.paidAt ? formatDateTime(order.paidAt) : "-"}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-2">
+                            {order.status === "PENDING" ? (
+                              <button
+                                className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+                                disabled={loadingOrders || syncingOrderId === order.id}
+                                onClick={() => onSyncOrder(order.id)}
+                                type="button"
+                              >
+                                {syncingOrderId === order.id ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="size-4" />
+                                )}
+                                补单
+                              </button>
+                            ) : (
+                              null
+                            )}
+                            <button
+                              className="ios-icon-button app-action-button text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              disabled={loadingOrders || deletingOrderId === order.id}
+                              onClick={() => onSetDeleteOrderTarget(order)}
+                              title="删除订单"
+                              type="button"
+                            >
+                              {deletingOrderId === order.id ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="size-4" />
+                              )}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -421,6 +617,40 @@ export function PaymentTab({
                     <p className="mt-2 text-xs ios-muted">
                       {paymentMethodLabel(order.method)} · 创建 {formatDateTime(order.createdAt)}
                     </p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {order.status === "PENDING" ? (
+                        <button
+                          className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-2 text-sm disabled:opacity-50"
+                          disabled={loadingOrders || syncingOrderId === order.id}
+                          onClick={() => onSyncOrder(order.id)}
+                          type="button"
+                        >
+                          {syncingOrderId === order.id ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="size-4" />
+                          )}
+                          补单
+                        </button>
+                      ) : (
+                        <span className="hidden" />
+                      )}
+                      <button
+                        className={`ios-button-secondary app-action-button flex h-9 items-center justify-center gap-2 text-sm text-red-600 disabled:opacity-50 ${
+                          order.status === "PENDING" ? "" : "col-span-2"
+                        }`}
+                        disabled={loadingOrders || deletingOrderId === order.id}
+                        onClick={() => onSetDeleteOrderTarget(order)}
+                        type="button"
+                      >
+                        {deletingOrderId === order.id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-4" />
+                        )}
+                        删除
+                      </button>
+                    </div>
                   </div>
                 );
               })}

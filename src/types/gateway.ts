@@ -11,6 +11,11 @@ export type PaymentOrderStatus = "PENDING" | "PAID" | "FAILED" | "CLOSED" | stri
 export type AttachmentKind = "TEXT" | "DOCUMENT" | "SPREADSHEET" | "IMAGE" | "ARCHIVE" | "FILE";
 export type MessageGenerationStatus = "running" | "done" | "error" | "stopped";
 
+export type EasyPayAmountTierView = {
+  amountCents: number;
+  balanceCents: number;
+};
+
 export type ToolEventView = {
   detail?: string;
   finishedAt?: number;
@@ -142,6 +147,7 @@ export type PublicPaymentSettingsView = {
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
   easyPayBalanceCentsPerYuan: number;
+  easyPayAmountTiers: EasyPayAmountTierView[];
 };
 
 export type PaymentOrderView = {
@@ -371,6 +377,7 @@ export type AiSettingsView = {
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
   easyPayBalanceCentsPerYuan: number;
+  easyPayAmountTiers: EasyPayAmountTierView[];
   easyPayPid: string;
   easyPayHasKey: boolean;
   easyPayKeyPreview: string;

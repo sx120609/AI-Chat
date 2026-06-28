@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cacheDelete } from "@/lib/cache";
-import { formatEasyPayMoney, normalizeEasyPaySettings, verifyEasyPaySign } from "@/lib/easypay";
+import {
+  easyPayAmountMatches,
+  isEasyPayPaidStatus,
+  normalizeEasyPaySettings,
+  verifyEasyPaySign
+} from "@/lib/easypay";
+import { settlePaidPaymentOrder } from "@/lib/payment-orders";
 import { prisma } from "@/lib/prisma";
-import { usageCacheKey } from "@/lib/quota";
 
 export const runtime = "nodejs";
 
@@ -54,7 +58,7 @@ async function handleEasyPayNotify(request: NextRequest) {
     return textResponse("invalid pid", 400);
   }
 
-  if (payload.trade_status !== "TRADE_SUCCESS") {
+  if (!isEasyPayPaidStatus(payload.trade_status ?? payload.status)) {
     return textResponse("ignored");
   }
 
@@ -72,7 +76,7 @@ async function handleEasyPayNotify(request: NextRequest) {
     return textResponse("order not found", 404);
   }
 
-  if (payload.money !== formatEasyPayMoney(order.amountCents)) {
+  if (!easyPayAmountMatches(payload.money, order.amountCents)) {
     return textResponse("amount mismatch", 400);
   }
 
@@ -80,27 +84,9 @@ async function handleEasyPayNotify(request: NextRequest) {
     return textResponse("success");
   }
 
-  const balanceCents = order.balanceCents > 0 ? order.balanceCents : order.amountCents;
-
-  await prisma.$transaction([
-    prisma.paymentOrder.update({
-      where: { id: order.id },
-      data: {
-        status: "PAID",
-        providerTradeNo: payload.trade_no || null,
-        paidAt: new Date()
-      }
-    }),
-    prisma.user.update({
-      where: { id: order.userId },
-      data: {
-        aiPointsBalanceCents: {
-          increment: balanceCents
-        }
-      }
-    })
-  ]);
-  await cacheDelete([usageCacheKey(order.userId)]);
+  await settlePaidPaymentOrder(order, {
+    providerTradeNo: payload.trade_no || null
+  });
 
   return textResponse("success");
 }

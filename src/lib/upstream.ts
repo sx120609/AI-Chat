@@ -46,7 +46,13 @@ export type UpstreamUsage = {
   input_token_details?: {
     cached_tokens?: number;
   };
+  input_tokens_details?: {
+    cached_tokens?: number;
+  };
   output_token_details?: {
+    reasoning_tokens?: number;
+  };
+  output_tokens_details?: {
     reasoning_tokens?: number;
   };
   prompt_cache_hit_tokens?: number;

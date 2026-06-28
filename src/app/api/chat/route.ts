@@ -299,6 +299,7 @@ function resolveTokenUsage(options: {
   const cachedPromptTokens = Math.min(
     promptTokens,
     numberFromUsage(upstreamUsage?.prompt_tokens_details?.cached_tokens) ||
+      numberFromUsage(upstreamUsage?.input_tokens_details?.cached_tokens) ||
       numberFromUsage(upstreamUsage?.input_token_details?.cached_tokens) ||
       numberFromUsage(upstreamUsage?.cached_tokens) ||
       numberFromUsage(upstreamUsage?.prompt_cache_hit_tokens) ||
@@ -306,6 +307,7 @@ function resolveTokenUsage(options: {
   );
   const reasoningTokens =
     numberFromUsage(upstreamUsage?.completion_tokens_details?.reasoning_tokens) ||
+    numberFromUsage(upstreamUsage?.output_tokens_details?.reasoning_tokens) ||
     numberFromUsage(upstreamUsage?.output_token_details?.reasoning_tokens);
   const upstreamCostCents =
     costCentsFromUsage(upstreamUsage?.cost) ||

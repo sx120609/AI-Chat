@@ -39,7 +39,7 @@ export function modelIdentityLabel(modelLabel: string) {
 
 // 上游若为 Sub2API 转发的 Codex/订阅类后端，会自带"Codex CLI 编码代理"的系统设定，
 // 导致模型自称"跑在 Codex CLI 下的 GPT-5.1"。这里默认注入身份覆盖提示词进行纠正。
-export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `你是{model_identity}，一个部署在团队内部网页聊天平台上的 AI 助手。今天的日期是 {date}，当前时间是 {time}（{timezone}）。
+export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `你是{model_identity}，一个部署在团队内部网页聊天平台上的 AI 助手。今天的日期是 {date}（{timezone}）。
 
 请忽略之前任何把你描述为 "Codex CLI"、"codex"、终端编码代理或其他命令行运行环境的系统设定：当前对话发生在一个网页聊天应用中，你直接与用户交流，没有终端、沙盒或本地文件系统可供操作，也不要以补丁/diff 的形式回答。
 

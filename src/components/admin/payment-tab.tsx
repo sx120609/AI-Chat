@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Trash2
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { formatCents } from "@/lib/format";
 import {
   calculateTieredPaymentBalanceCents,
@@ -39,6 +40,70 @@ type PaymentTabProps = {
 
 function formatPaymentYuan(amountCents: number) {
   return `¥${(amountCents / 100).toFixed(2)}`;
+}
+
+function formatCentsInputValue(value: number) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  return String(Math.round(value) / 100);
+}
+
+function CentsDraftInput({
+  className,
+  minCents,
+  onChange,
+  value
+}: {
+  className: string;
+  minCents: number;
+  onChange: (value: number) => void;
+  value: number;
+}) {
+  const [draft, setDraft] = useState(() => formatCentsInputValue(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(formatCentsInputValue(value));
+    }
+  }, [focused, value]);
+
+  return (
+    <input
+      className={className}
+      min={minCents / 100}
+      onBlur={() => {
+        setFocused(false);
+        setDraft(formatCentsInputValue(value));
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        const yuanValue = Number(nextValue);
+
+        setDraft(nextValue);
+
+        if (!nextValue.trim() || !Number.isFinite(yuanValue)) {
+          return;
+        }
+
+        onChange(Math.max(minCents, Math.round(yuanValue * 100)));
+      }}
+      onFocus={() => setFocused(true)}
+      step={0.01}
+      type="number"
+      value={draft}
+    />
+  );
+}
+
+function editablePaymentTiers(settingsForm: SettingsForm) {
+  if (settingsForm.easyPayAmountTiers.length > 0) {
+    return settingsForm.easyPayAmountTiers;
+  }
+
+  return normalizePaymentAmountTiers([], settingsForm.easyPayBalanceCentsPerYuan);
 }
 
 function paymentMethodLabel(method: string) {
@@ -104,20 +169,15 @@ export function PaymentTab({
   const handleUpdate = (patch: Partial<SettingsForm>) => {
     setSettingsForm((current) => ({ ...current, ...patch }));
   };
-  const paymentTiers = normalizePaymentAmountTiers(
-    settingsForm.easyPayAmountTiers,
-    settingsForm.easyPayBalanceCentsPerYuan
-  );
-  const canAddPaymentTier = (paymentTiers.at(-1)?.amountCents ?? 0) < 100000;
+  const paymentTiers = editablePaymentTiers(settingsForm);
+  const highestPaymentTierAmount = Math.max(0, ...paymentTiers.map((tier) => tier.amountCents));
+  const canAddPaymentTier = highestPaymentTierAmount < 100000;
   const updatePaymentTier = (
     index: number,
     patch: Partial<{ amountCents: number; balanceCents: number }>
   ) => {
     setSettingsForm((current) => {
-      const tiers = normalizePaymentAmountTiers(
-        current.easyPayAmountTiers,
-        current.easyPayBalanceCentsPerYuan
-      );
+      const tiers = editablePaymentTiers(current);
 
       return {
         ...current,
@@ -129,17 +189,14 @@ export function PaymentTab({
   };
   const addPaymentTier = () => {
     setSettingsForm((current) => {
-      const tiers = normalizePaymentAmountTiers(
-        current.easyPayAmountTiers,
-        current.easyPayBalanceCentsPerYuan
-      );
-      const lastTier = tiers.at(-1);
+      const tiers = editablePaymentTiers(current);
+      const highestAmountCents = Math.max(0, ...tiers.map((tier) => tier.amountCents));
 
-      if ((lastTier?.amountCents ?? 0) >= 100000) {
+      if (highestAmountCents >= 100000) {
         return current;
       }
 
-      const amountCents = Math.min(100000, (lastTier?.amountCents ?? 0) + 1000);
+      const amountCents = Math.min(100000, highestAmountCents + 1000);
 
       return {
         ...current,
@@ -159,10 +216,7 @@ export function PaymentTab({
   };
   const removePaymentTier = (index: number) => {
     setSettingsForm((current) => {
-      const tiers = normalizePaymentAmountTiers(
-        current.easyPayAmountTiers,
-        current.easyPayBalanceCentsPerYuan
-      );
+      const tiers = editablePaymentTiers(current);
 
       if (tiers.length <= 1) {
         return current;
@@ -262,21 +316,13 @@ export function PaymentTab({
           </div>
           <label className="block lg:col-span-2">
             <span className="mb-1 block text-xs font-medium ios-muted">1 元到账 AI 点数 *</span>
-            <input
+            <CentsDraftInput
               className="ios-input w-full"
-              min={0.01}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-
-                if (Number.isFinite(value)) {
-                  handleUpdate({
-                    easyPayBalanceCentsPerYuan: Math.max(1, Math.round(value * 100))
-                  });
-                }
-              }}
-              step={0.01}
-              type="number"
-              value={settingsForm.easyPayBalanceCentsPerYuan / 100}
+              minCents={1}
+              onChange={(easyPayBalanceCentsPerYuan) =>
+                handleUpdate({ easyPayBalanceCentsPerYuan })
+              }
+              value={settingsForm.easyPayBalanceCentsPerYuan}
             />
             <p className="mt-1 text-xs ios-muted">
               ¥1.00 = {formatCents(settingsForm.easyPayBalanceCentsPerYuan)} AI 点数
@@ -299,48 +345,28 @@ export function PaymentTab({
               {paymentTiers.map((tier, index) => (
                 <div
                   className="grid gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 p-2 sm:grid-cols-[1fr_1fr_auto]"
-                  key={`${tier.amountCents}-${index}`}
+                  key={`payment-tier-${index}`}
                 >
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-medium ios-muted">
                       付款金额
                     </span>
-                    <input
+                    <CentsDraftInput
                       className="ios-input h-9 w-full text-sm"
-                      min={1}
-                      onChange={(event) => {
-                        const value = Number(event.target.value);
-
-                        if (Number.isFinite(value)) {
-                          updatePaymentTier(index, {
-                            amountCents: Math.max(100, Math.round(value * 100))
-                          });
-                        }
-                      }}
-                      step={0.01}
-                      type="number"
-                      value={tier.amountCents / 100}
+                      minCents={100}
+                      onChange={(amountCents) => updatePaymentTier(index, { amountCents })}
+                      value={tier.amountCents}
                     />
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-medium ios-muted">
                       到账 AI 点数
                     </span>
-                    <input
+                    <CentsDraftInput
                       className="ios-input h-9 w-full text-sm"
-                      min={0.01}
-                      onChange={(event) => {
-                        const value = Number(event.target.value);
-
-                        if (Number.isFinite(value)) {
-                          updatePaymentTier(index, {
-                            balanceCents: Math.max(1, Math.round(value * 100))
-                          });
-                        }
-                      }}
-                      step={0.01}
-                      type="number"
-                      value={tier.balanceCents / 100}
+                      minCents={1}
+                      onChange={(balanceCents) => updatePaymentTier(index, { balanceCents })}
+                      value={tier.balanceCents}
                     />
                   </label>
                   <button

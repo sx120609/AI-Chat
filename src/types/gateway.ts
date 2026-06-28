@@ -7,6 +7,7 @@ export type ReasoningParamMode = "disabled" | "chat" | "responses";
 export type SystemPromptMode = "default" | "append" | "custom" | "off";
 export type EasyPayMethod = "alipay" | "wxpay";
 export type EasyPayDisplayMode = "qrcode" | "popup";
+export type PaymentOrderStatus = "PENDING" | "PAID" | "FAILED" | "CLOSED" | string;
 export type AttachmentKind = "TEXT" | "DOCUMENT" | "SPREADSHEET" | "IMAGE" | "ARCHIVE" | "FILE";
 export type MessageGenerationStatus = "running" | "done" | "error" | "stopped";
 
@@ -141,6 +142,33 @@ export type PublicPaymentSettingsView = {
   easyPayDisplayMode: EasyPayDisplayMode;
   easyPayMethods: EasyPayMethod[];
   easyPayBalanceCentsPerYuan: number;
+};
+
+export type PaymentOrderView = {
+  id: string;
+  provider: string;
+  method: string;
+  status: PaymentOrderStatus;
+  outTradeNo: string;
+  providerTradeNo?: string | null;
+  subject: string;
+  amountCents: number;
+  balanceCents: number;
+  paidAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  userId?: string;
+  userEmail?: string;
+  userName?: string;
+};
+
+export type PaymentOrderSummaryView = {
+  orders: number;
+  paidOrders: number;
+  pendingOrders: number;
+  totalAmountCents: number;
+  paidAmountCents: number;
+  paidBalanceCents: number;
 };
 
 export type SiteSettingsView = {

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ProfileCenter } from "@/components/profile-center";
 import { getCurrentUser, serializeCurrentUser } from "@/lib/auth";
 import { getEnabledApiModels } from "@/lib/models";
+import { getPublicPaymentSettings } from "@/lib/payment-settings";
 import { getUsageSummary } from "@/lib/quota";
 import { getSiteSettings } from "@/lib/site-settings";
 import { getAiRuntimeSettings } from "@/lib/upstream";
@@ -22,16 +23,18 @@ export default async function ProfilePage() {
     redirect("/login");
   }
 
-  const [siteSettings, usage, aiSettings] = await Promise.all([
+  const [siteSettings, usage, aiSettings, paymentSettings] = await Promise.all([
     getSiteSettings(),
     getUsageSummary(user.id),
-    getAiRuntimeSettings()
+    getAiRuntimeSettings(),
+    getPublicPaymentSettings()
   ]);
 
   return (
     <ProfileCenter
       initialUser={serializeCurrentUser(user)}
       initialUsage={usage}
+      initialPaymentSettings={paymentSettings}
       apiModels={getEnabledApiModels(aiSettings.chatModels)}
       siteSettings={siteSettings}
     />

@@ -18,12 +18,14 @@ function calculatePaymentBalanceCents(amountCents: number, balanceCentsPerYuan: 
 
 type EasyPayDialogProps = {
   onClose: () => void;
+  onOrderCreated?: () => void | Promise<void>;
   open: boolean;
   paymentSettings: PublicPaymentSettingsView;
 };
 
 export function EasyPayDialog({
   onClose,
+  onOrderCreated,
   open,
   paymentSettings
 }: EasyPayDialogProps) {
@@ -94,6 +96,8 @@ export function EasyPayDialog({
       popupWindow?.close();
       return;
     }
+
+    await onOrderCreated?.();
 
     if (popupWindow) {
       popupWindow.location.href = payload.paymentUrl;

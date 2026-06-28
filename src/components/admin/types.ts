@@ -5,6 +5,8 @@ import type {
   ChatModelDisplayConfig,
   EasyPayDisplayMode,
   EasyPayMethod,
+  PaymentOrderSummaryView,
+  PaymentOrderView,
   ReasoningEffort,
   ReasoningParamMode,
   Role,
@@ -102,6 +104,17 @@ export type AdminUsagePayload = {
   records: AdminUsageRecordView[];
   summary: AdminUsageSummaryView;
   totalPages: number;
+};
+
+export type AdminPaymentsPayload = {
+  filterOptions: {
+    users: Array<{
+      id: string;
+      label: string;
+    }>;
+  };
+  orders: PaymentOrderView[];
+  summary: PaymentOrderSummaryView;
 };
 
 export type UsageFilterState = {

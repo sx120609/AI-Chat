@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DocumentTitle } from "@/components/document-title";
 import { SiteConfirmDialog, SiteNoticeDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
+import { EasyPayDialog } from "@/components/chat/easy-pay-dialog";
 import {
   parsePersonalizationSettings,
   serializePersonalizationSettings,
@@ -18,7 +19,10 @@ import type {
   UsageSummary,
   UserApiKeyView,
   UserMemoryView,
-  UserView
+  UserView,
+  PaymentOrderSummaryView,
+  PaymentOrderView,
+  PublicPaymentSettingsView
 } from "@/types/gateway";
 
 import type {
@@ -36,7 +40,8 @@ import type {
   ProjectsPayload,
   SecurityPayload,
   DataControlAction,
-  InstructionPreset
+  InstructionPreset,
+  PaymentsPayload
 } from "./profile/types";
 
 import { profileTabs } from "./profile/components";
@@ -52,16 +57,32 @@ type ProfileCenterProps = {
   apiModels: ChatModelView[];
   initialUser: UserView;
   initialUsage: UsageSummary;
+  initialPaymentSettings: PublicPaymentSettingsView;
   siteSettings: SiteSettingsView;
+};
+
+const emptyPaymentSummary: PaymentOrderSummaryView = {
+  orders: 0,
+  paidAmountCents: 0,
+  paidBalanceCents: 0,
+  paidOrders: 0,
+  pendingOrders: 0,
+  totalAmountCents: 0
 };
 
 export function ProfileCenter({
   apiModels,
+  initialPaymentSettings,
   initialUser,
   initialUsage,
   siteSettings
 }: ProfileCenterProps) {
   const [user, setUser] = useState(initialUser);
+  const [usage, setUsage] = useState(initialUsage);
+  const [paymentSettings, setPaymentSettings] = useState(initialPaymentSettings);
+  const [paymentOrders, setPaymentOrders] = useState<PaymentOrderView[]>([]);
+  const [paymentSummary, setPaymentSummary] =
+    useState<PaymentOrderSummaryView>(emptyPaymentSummary);
   const [name, setName] = useState(initialUser.name);
   const [personalization, setPersonalization] = useState<PersonalizationSettings>(() =>
     parsePersonalizationSettings(initialUser.aiStylePrompt)
@@ -98,12 +119,14 @@ export function ProfileCenter({
   const [showArchivedMemories, setShowArchivedMemories] = useState(false);
   const [apiGuideOpen, setApiGuideOpen] = useState(false);
   const [apiGuideKeyId, setApiGuideKeyId] = useState<string | null>(null);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [loadingMemories, setLoadingMemories] = useState(true);
   const [loadingDataLists, setLoadingDataLists] = useState(true);
   const [loadingSecurity, setLoadingSecurity] = useState(true);
+  const [loadingPayments, setLoadingPayments] = useState(true);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
   const [savingDataAction, setSavingDataAction] = useState(false);
@@ -216,6 +239,51 @@ export function ProfileCenter({
     setLoadingSecurity(false);
   }, []);
 
+  const loadPaymentOrders = useCallback(async () => {
+    setLoadingPayments(true);
+    const response = await fetch("/api/profile/payments?limit=20");
+    const payload = (await response.json().catch(() => null)) as
+      | (PaymentsPayload & { error?: string })
+      | null;
+
+    if (response.ok && payload) {
+      setPaymentOrders(payload.orders);
+      setPaymentSummary(payload.summary);
+    } else {
+      setError(payload?.error || "读取充值记录失败。");
+    }
+
+    setLoadingPayments(false);
+  }, []);
+
+  const loadAccountSnapshot = useCallback(async () => {
+    const response = await fetch("/api/me");
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: string;
+          paymentSettings?: PublicPaymentSettingsView;
+          usage?: UsageSummary;
+          user?: UserView;
+        }
+      | null;
+
+    if (response.ok && payload?.user && payload.usage) {
+      setUser(payload.user);
+      setUsage(payload.usage);
+
+      if (payload.paymentSettings) {
+        setPaymentSettings(payload.paymentSettings);
+      }
+    } else {
+      setError(payload?.error || "刷新账号额度失败。");
+    }
+  }, []);
+
+  const refreshPaymentsAndUsage = useCallback(async () => {
+    setError("");
+    await Promise.all([loadPaymentOrders(), loadAccountSnapshot()]);
+  }, [loadAccountSnapshot, loadPaymentOrders]);
+
   const loadMoreFiles = useCallback(async () => {
     if (loadingMoreFiles || !fileLibraryHasMore) {
       return;
@@ -262,12 +330,14 @@ export function ProfileCenter({
     void loadApiKeys();
     void loadDataLists();
     void loadMemories();
+    void loadPaymentOrders();
     void loadProjects();
     void loadSecurity();
   }, [
     loadApiKeys,
     loadDataLists,
     loadMemories,
+    loadPaymentOrders,
     loadProjects,
     loadSecurity
   ]);
@@ -331,12 +401,12 @@ export function ProfileCenter({
   };
 
   const totalAvailableBaseline =
-    initialUsage.monthlyCostLimitCents +
-    initialUsage.aiPointsCostUsedCents +
-    initialUsage.aiPointsBalanceCents;
+    usage.monthlyCostLimitCents +
+    usage.aiPointsCostUsedCents +
+    usage.aiPointsBalanceCents;
   const lowBalanceWarning =
     totalAvailableBaseline > 0 &&
-    initialUsage.remainingCostCents / totalAvailableBaseline <= 0.15;
+    usage.remainingCostCents / totalAvailableBaseline <= 0.15;
 
   function openApiGuide(key?: UserApiKeyView) {
     setApiGuideKeyId(key?.apiKey ? key.id : revealableApiKeys[0]?.id ?? null);
@@ -1002,7 +1072,11 @@ export function ProfileCenter({
           ) : null}
 
           {mobileProfileMenuOpen ? (
-            <section className="ios-panel motion-lift p-3 md:hidden" aria-label="个人中心二级菜单">
+            <section
+              aria-label="个人中心二级菜单"
+              className="ios-panel motion-lift p-3 md:hidden"
+              data-testid="profile-mobile-menu"
+            >
               <div className="mb-3">
                 <h2 className="text-base font-semibold">设置分类</h2>
                 <p className="mt-1 text-xs ios-muted">选择一个分类进入设置页。</p>
@@ -1014,6 +1088,7 @@ export function ProfileCenter({
                   return (
                     <button
                       className="app-action-button flex min-h-16 items-center gap-3 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-3 py-2 text-left transition hover:bg-white"
+                      data-testid={`profile-mobile-tab-${tab.id}`}
                       key={tab.id}
                       onClick={() => {
                         setActiveTab(tab.id);
@@ -1098,9 +1173,15 @@ export function ProfileCenter({
                 user={user}
                 name={name}
                 setName={setName}
-                initialUsage={initialUsage}
+                initialUsage={usage}
+                loadingPayments={loadingPayments}
+                onRecharge={() => setPaymentDialogOpen(true)}
+                onRefreshPayments={refreshPaymentsAndUsage}
                 savingProfile={savingProfile}
                 onSaveProfile={saveProfile}
+                paymentOrders={paymentOrders}
+                paymentSettings={paymentSettings}
+                paymentSummary={paymentSummary}
               />
             )}
 
@@ -1298,6 +1379,15 @@ export function ProfileCenter({
         open={Boolean(dataControlAction)}
         title={dataControlAction ? dataActionCopy[dataControlAction].title : "确认操作"}
         tone="danger"
+      />
+      <EasyPayDialog
+        onClose={() => {
+          setPaymentDialogOpen(false);
+          void refreshPaymentsAndUsage();
+        }}
+        onOrderCreated={refreshPaymentsAndUsage}
+        open={paymentDialogOpen}
+        paymentSettings={paymentSettings}
       />
     </main>
   );

@@ -1,221 +1,437 @@
+import {
+  CreditCard,
+  Loader2,
+  ReceiptText,
+  RefreshCw
+} from "lucide-react";
 import { formatCents } from "@/lib/format";
-import type { AiSettingsView, EasyPayDisplayMode, EasyPayMethod } from "@/types/gateway";
+import type {
+  AiSettingsView,
+  EasyPayDisplayMode,
+  EasyPayMethod,
+  PaymentOrderSummaryView,
+  PaymentOrderView
+} from "@/types/gateway";
+import { formatDateTime } from "./components";
 import type { SettingsForm } from "./types";
 
 type PaymentTabProps = {
+  loadingOrders: boolean;
+  onRefreshOrders: () => void;
+  orders: PaymentOrderView[];
   settings: AiSettingsView | null;
   settingsForm: SettingsForm;
   setSettingsForm: (
     updater: (current: SettingsForm) => SettingsForm | Partial<SettingsForm>
   ) => void;
+  summary: PaymentOrderSummaryView;
 };
 
+function formatPaymentYuan(amountCents: number) {
+  return `¥${(amountCents / 100).toFixed(2)}`;
+}
+
+function paymentMethodLabel(method: string) {
+  if (method === "alipay") {
+    return "支付宝";
+  }
+
+  if (method === "wxpay") {
+    return "微信支付";
+  }
+
+  return method || "-";
+}
+
+function paymentStatusMeta(status: string) {
+  if (status === "PAID") {
+    return {
+      label: "已到账",
+      tone: "bg-green-50 text-green-700"
+    };
+  }
+
+  if (status === "PENDING") {
+    return {
+      label: "待支付",
+      tone: "bg-amber-50 text-amber-700"
+    };
+  }
+
+  if (status === "FAILED") {
+    return {
+      label: "失败",
+      tone: "bg-red-50 text-red-700"
+    };
+  }
+
+  if (status === "CLOSED") {
+    return {
+      label: "已关闭",
+      tone: "bg-slate-100 text-slate-600"
+    };
+  }
+
+  return {
+    label: status || "-",
+    tone: "bg-slate-100 text-slate-600"
+  };
+}
+
 export function PaymentTab({
+  loadingOrders,
+  onRefreshOrders,
+  orders,
   settings,
   settingsForm,
-  setSettingsForm
+  setSettingsForm,
+  summary
 }: PaymentTabProps) {
   const handleUpdate = (patch: Partial<SettingsForm>) => {
     setSettingsForm((current) => ({ ...current, ...patch }));
   };
 
   return (
-    <div className="ios-list lg:col-span-6">
-      <div className="ios-cell px-3 py-2">
-        <p className="text-xs font-semibold ios-muted">
-          PKey：{settings?.easyPayHasKey ? settings.easyPayKeyPreview : "未设置"}
-        </p>
-      </div>
-      <div className="grid gap-3 p-3 lg:grid-cols-6">
-        <label className="admin-check-row">
-          <input
-            checked={settingsForm.easyPayEnabled}
-            className="size-4 accent-[color:var(--claude-accent)]"
-            onChange={(event) => handleUpdate({ easyPayEnabled: event.target.checked })}
-            type="checkbox"
-          />
-          启用
-        </label>
-        <label className="admin-check-row">
-          <input
-            checked={settingsForm.easyPayAllowRefund}
-            className="size-4 accent-[color:var(--claude-accent)]"
-            onChange={(event) => handleUpdate({ easyPayAllowRefund: event.target.checked })}
-            type="checkbox"
-          />
-          允许退款
-        </label>
-        <div className="lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">支付模式</span>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              ["qrcode", "二维码"],
-              ["popup", "弹窗"]
-            ].map(([value, label]) => (
-              <button
-                className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
-                  settingsForm.easyPayDisplayMode === value
-                    ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
-                    : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
-                }`}
-                key={value}
-                onClick={() =>
-                  handleUpdate({ easyPayDisplayMode: value as EasyPayDisplayMode })
-                }
-                type="button"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+    <div className="grid gap-4 lg:col-span-6">
+      <div className="ios-list">
+        <div className="ios-cell px-3 py-2">
+          <p className="text-xs font-semibold ios-muted">
+            PKey：{settings?.easyPayHasKey ? settings.easyPayKeyPreview : "未设置"}
+          </p>
         </div>
-        <div className="lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">支持的支付方式</span>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              ["alipay", "支付宝"],
-              ["wxpay", "微信支付"]
-            ].map(([value, label]) => {
-              const method = value as EasyPayMethod;
-              const checked = settingsForm.easyPayMethods.includes(method);
-
-              return (
+        <div className="grid grid-cols-1 gap-3 p-3 lg:grid-cols-6">
+          <label className="admin-check-row">
+            <input
+              checked={settingsForm.easyPayEnabled}
+              className="size-4 accent-[color:var(--claude-accent)]"
+              onChange={(event) => handleUpdate({ easyPayEnabled: event.target.checked })}
+              type="checkbox"
+            />
+            启用
+          </label>
+          <label className="admin-check-row">
+            <input
+              checked={settingsForm.easyPayAllowRefund}
+              className="size-4 accent-[color:var(--claude-accent)]"
+              onChange={(event) => handleUpdate({ easyPayAllowRefund: event.target.checked })}
+              type="checkbox"
+            />
+            允许退款
+          </label>
+          <div className="lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">支付模式</span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                ["qrcode", "二维码"],
+                ["popup", "弹窗"]
+              ].map(([value, label]) => (
                 <button
                   className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
-                    checked
+                    settingsForm.easyPayDisplayMode === value
                       ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
                       : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
                   }`}
                   key={value}
                   onClick={() =>
-                    setSettingsForm((current) => ({
-                      ...current,
-                      easyPayMethods: checked
-                        ? current.easyPayMethods.filter((item) => item !== method)
-                        : [...new Set([...current.easyPayMethods, method])]
-                    }))
+                    handleUpdate({ easyPayDisplayMode: value as EasyPayDisplayMode })
                   }
                   type="button"
                 >
                   {label}
                 </button>
-              );
-            })}
+              ))}
+            </div>
+          </div>
+          <div className="lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">支持的支付方式</span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                ["alipay", "支付宝"],
+                ["wxpay", "微信支付"]
+              ].map(([value, label]) => {
+                const method = value as EasyPayMethod;
+                const checked = settingsForm.easyPayMethods.includes(method);
+
+                return (
+                  <button
+                    className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                      checked
+                        ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                        : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                    }`}
+                    key={value}
+                    onClick={() =>
+                      setSettingsForm((current) => ({
+                        ...current,
+                        easyPayMethods: checked
+                          ? current.easyPayMethods.filter((item) => item !== method)
+                          : [...new Set([...current.easyPayMethods, method])]
+                      }))
+                    }
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">1 元到账 AI 点数 *</span>
+            <input
+              className="ios-input w-full"
+              min={0.01}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+
+                if (Number.isFinite(value)) {
+                  handleUpdate({
+                    easyPayBalanceCentsPerYuan: Math.max(1, Math.round(value * 100))
+                  });
+                }
+              }}
+              step={0.01}
+              type="number"
+              value={settingsForm.easyPayBalanceCentsPerYuan / 100}
+            />
+            <p className="mt-1 text-xs ios-muted">
+              ¥1.00 = {formatCents(settingsForm.easyPayBalanceCentsPerYuan)} AI 点数
+            </p>
+          </label>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">PID *</span>
+            <input
+              autoComplete="off"
+              className="ios-input w-full"
+              name="admin-easypay-pid"
+              onChange={(event) => handleUpdate({ easyPayPid: event.target.value })}
+              value={settingsForm.easyPayPid}
+            />
+          </label>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">PKey *</span>
+            <input
+              autoComplete="new-password"
+              className="ios-input w-full"
+              name="admin-easypay-pkey"
+              onChange={(event) =>
+                handleUpdate({
+                  easyPayKey: event.target.value,
+                  clearEasyPayKey: false
+                })
+              }
+              placeholder={settings?.easyPayHasKey ? "输入新 PKey 后替换" : "输入 PKey"}
+              type="password"
+              value={settingsForm.easyPayKey}
+            />
+          </label>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">API 基础地址 *</span>
+            <input
+              autoComplete="off"
+              className="ios-input w-full"
+              name="admin-easypay-api-base-url"
+              onChange={(event) => handleUpdate({ easyPayApiBaseUrl: event.target.value })}
+              placeholder="https://pay.example.com"
+              value={settingsForm.easyPayApiBaseUrl}
+            />
+          </label>
+          <label className="block lg:col-span-3">
+            <span className="mb-1 block text-xs font-medium ios-muted">支付宝渠道 ID（可选）</span>
+            <input
+              className="ios-input w-full"
+              onChange={(event) => handleUpdate({ easyPayAlipayChannelId: event.target.value })}
+              value={settingsForm.easyPayAlipayChannelId}
+            />
+          </label>
+          <label className="block lg:col-span-3">
+            <span className="mb-1 block text-xs font-medium ios-muted">微信渠道 ID（可选）</span>
+            <input
+              className="ios-input w-full"
+              onChange={(event) => handleUpdate({ easyPayWxpayChannelId: event.target.value })}
+              value={settingsForm.easyPayWxpayChannelId}
+            />
+          </label>
+          <label className="block lg:col-span-3">
+            <span className="mb-1 block text-xs font-medium ios-muted">异步通知地址 *</span>
+            <div className="flex overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-white/60">
+              <span className="min-w-0 flex-1 truncate px-3 py-2 text-sm text-stone-500">
+                {settingsForm.siteUrl || "https://your-site.example"}
+              </span>
+              <span className="shrink-0 border-l border-[color:var(--ios-separator)] px-3 py-2 text-sm font-semibold text-stone-600">
+                {settings?.easyPayNotifyPath || "/api/v1/payment/webhook/easypay"}
+              </span>
+            </div>
+          </label>
+          <label className="block lg:col-span-3">
+            <span className="mb-1 block text-xs font-medium ios-muted">同步跳转地址 *</span>
+            <div className="flex overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-white/60">
+              <span className="min-w-0 flex-1 truncate px-3 py-2 text-sm text-stone-500">
+                {settingsForm.siteUrl || "https://your-site.example"}
+              </span>
+              <span className="shrink-0 border-l border-[color:var(--ios-separator)] px-3 py-2 text-sm font-semibold text-stone-600">
+                {settings?.easyPayReturnPath || "/payment/result"}
+              </span>
+            </div>
+          </label>
+          <label className="admin-check-row">
+            <input
+              checked={settingsForm.clearEasyPayKey}
+              className="size-4 accent-red-500"
+              onChange={(event) =>
+                handleUpdate({
+                  clearEasyPayKey: event.target.checked,
+                  easyPayKey: event.target.checked ? "" : settingsForm.easyPayKey
+                })
+              }
+              type="checkbox"
+            />
+            清空 PKey
+          </label>
+        </div>
+      </div>
+
+      <section className="ios-panel overflow-hidden" data-testid="admin-payment-orders">
+        <div className="flex flex-col gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <div className="grid size-9 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
+              <ReceiptText className="size-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">充值订单</h2>
+              <p className="mt-1 text-xs ios-muted">
+                显示最近 {orders.length} 条 · 已到账 {summary.paidOrders} 笔
+              </p>
+            </div>
+          </div>
+          <button
+            className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+            disabled={loadingOrders}
+            onClick={onRefreshOrders}
+            type="button"
+          >
+            {loadingOrders ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            刷新订单
+          </button>
+        </div>
+
+        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2">
+            <p className="text-xs ios-muted">订单数</p>
+            <p className="mt-1 text-xl font-semibold">{summary.orders}</p>
+            <p className="text-xs ios-muted">待支付 {summary.pendingOrders}</p>
+          </div>
+          <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2">
+            <p className="text-xs ios-muted">支付金额</p>
+            <p className="mt-1 text-xl font-semibold">{formatPaymentYuan(summary.paidAmountCents)}</p>
+            <p className="text-xs ios-muted">已到账订单付款</p>
+          </div>
+          <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2">
+            <p className="text-xs ios-muted">到账点数</p>
+            <p className="mt-1 text-xl font-semibold">{formatCents(summary.paidBalanceCents)}</p>
+            <p className="text-xs ios-muted">用户余额累计增量</p>
+          </div>
+          <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2">
+            <p className="flex items-center gap-1.5 text-xs ios-muted">
+              <CreditCard className="size-3.5" />
+              全部提交金额
+            </p>
+            <p className="mt-1 text-xl font-semibold">{formatPaymentYuan(summary.totalAmountCents)}</p>
+            <p className="text-xs ios-muted">包含未支付订单</p>
           </div>
         </div>
-        <label className="block lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">1 元到账 AI 点数 *</span>
-          <input
-            className="ios-input w-full"
-            min={0.01}
-            onChange={(event) => {
-              const value = Number(event.target.value);
 
-              if (Number.isFinite(value)) {
-                handleUpdate({
-                  easyPayBalanceCentsPerYuan: Math.max(1, Math.round(value * 100))
-                });
-              }
-            }}
-            step={0.01}
-            type="number"
-            value={settingsForm.easyPayBalanceCentsPerYuan / 100}
-          />
-          <p className="mt-1 text-xs ios-muted">
-            ¥1.00 = {formatCents(settingsForm.easyPayBalanceCentsPerYuan)} AI 点数
-          </p>
-        </label>
-        <label className="block lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">PID *</span>
-          <input
-            autoComplete="off"
-            className="ios-input w-full"
-            name="admin-easypay-pid"
-            onChange={(event) => handleUpdate({ easyPayPid: event.target.value })}
-            value={settingsForm.easyPayPid}
-          />
-        </label>
-        <label className="block lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">PKey *</span>
-          <input
-            autoComplete="new-password"
-            className="ios-input w-full"
-            name="admin-easypay-pkey"
-            onChange={(event) =>
-              handleUpdate({
-                easyPayKey: event.target.value,
-                clearEasyPayKey: false
-              })
-            }
-            placeholder={settings?.easyPayHasKey ? "输入新 PKey 后替换" : "输入 PKey"}
-            type="password"
-            value={settingsForm.easyPayKey}
-          />
-        </label>
-        <label className="block lg:col-span-2">
-          <span className="mb-1 block text-xs font-medium ios-muted">API 基础地址 *</span>
-          <input
-            autoComplete="off"
-            className="ios-input w-full"
-            name="admin-easypay-api-base-url"
-            onChange={(event) => handleUpdate({ easyPayApiBaseUrl: event.target.value })}
-            placeholder="https://pay.example.com"
-            value={settingsForm.easyPayApiBaseUrl}
-          />
-        </label>
-        <label className="block lg:col-span-3">
-          <span className="mb-1 block text-xs font-medium ios-muted">支付宝渠道 ID（可选）</span>
-          <input
-            className="ios-input w-full"
-            onChange={(event) => handleUpdate({ easyPayAlipayChannelId: event.target.value })}
-            value={settingsForm.easyPayAlipayChannelId}
-          />
-        </label>
-        <label className="block lg:col-span-3">
-          <span className="mb-1 block text-xs font-medium ios-muted">微信渠道 ID（可选）</span>
-          <input
-            className="ios-input w-full"
-            onChange={(event) => handleUpdate({ easyPayWxpayChannelId: event.target.value })}
-            value={settingsForm.easyPayWxpayChannelId}
-          />
-        </label>
-        <label className="block lg:col-span-3">
-          <span className="mb-1 block text-xs font-medium ios-muted">异步通知地址 *</span>
-          <div className="flex overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-white/60">
-            <span className="min-w-0 flex-1 truncate px-3 py-2 text-sm text-stone-500">
-              {settingsForm.siteUrl || "https://your-site.example"}
-            </span>
-            <span className="shrink-0 border-l border-[color:var(--ios-separator)] px-3 py-2 text-sm font-semibold text-stone-600">
-              {settings?.easyPayNotifyPath || "/api/v1/payment/webhook/easypay"}
-            </span>
+        {loadingOrders ? (
+          <div className="app-loading-pulse grid min-h-48 place-items-center text-slate-500">
+            <Loader2 className="size-6 animate-spin" />
           </div>
-        </label>
-        <label className="block lg:col-span-3">
-          <span className="mb-1 block text-xs font-medium ios-muted">同步跳转地址 *</span>
-          <div className="flex overflow-hidden rounded-lg border border-[color:var(--app-border)] bg-white/60">
-            <span className="min-w-0 flex-1 truncate px-3 py-2 text-sm text-stone-500">
-              {settingsForm.siteUrl || "https://your-site.example"}
-            </span>
-            <span className="shrink-0 border-l border-[color:var(--ios-separator)] px-3 py-2 text-sm font-semibold text-stone-600">
-              {settings?.easyPayReturnPath || "/payment/result"}
-            </span>
+        ) : orders.length > 0 ? (
+          <>
+            <div className="hidden overflow-x-auto lg:block" aria-label="充值订单表格横向滚动区域">
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                <thead className="bg-white/70 text-xs text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">订单</th>
+                    <th className="px-4 py-3 font-semibold">用户</th>
+                    <th className="px-4 py-3 font-semibold">支付</th>
+                    <th className="px-4 py-3 font-semibold">到账</th>
+                    <th className="px-4 py-3 font-semibold">状态</th>
+                    <th className="px-4 py-3 font-semibold">时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map((order) => {
+                    const status = paymentStatusMeta(order.status);
+
+                    return (
+                      <tr className="border-t border-[color:var(--ios-separator)]" key={order.id}>
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-stone-900">{order.outTradeNo}</p>
+                          <p className="mt-1 text-xs ios-muted">{order.providerTradeNo || "未返回渠道流水号"}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-stone-900">{order.userName || "-"}</p>
+                          <p className="mt-1 text-xs ios-muted">{order.userEmail || "-"}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-semibold">{formatPaymentYuan(order.amountCents)}</p>
+                          <p className="mt-1 text-xs ios-muted">{paymentMethodLabel(order.method)}</p>
+                        </td>
+                        <td className="px-4 py-3 font-semibold">{formatCents(order.balanceCents)}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>
+                            {status.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs ios-muted">
+                          <p>创建 {formatDateTime(order.createdAt)}</p>
+                          <p>到账 {order.paidAt ? formatDateTime(order.paidAt) : "-"}</p>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="grid gap-3 p-4 lg:hidden">
+              {orders.map((order) => {
+                const status = paymentStatusMeta(order.status);
+
+                return (
+                  <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 p-3 text-sm" key={order.id}>
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-stone-900">{order.outTradeNo}</p>
+                        <p className="mt-1 truncate text-xs ios-muted">{order.userName} · {order.userEmail}</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>
+                        {status.label}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-lg bg-white/65 px-3 py-2">
+                        <p className="text-xs ios-muted">支付</p>
+                        <p className="mt-1 font-semibold">{formatPaymentYuan(order.amountCents)}</p>
+                      </div>
+                      <div className="rounded-lg bg-white/65 px-3 py-2">
+                        <p className="text-xs ios-muted">到账</p>
+                        <p className="mt-1 font-semibold">{formatCents(order.balanceCents)}</p>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-xs ios-muted">
+                      {paymentMethodLabel(order.method)} · 创建 {formatDateTime(order.createdAt)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="grid min-h-40 place-items-center px-4 py-8 text-center text-sm ios-muted">
+            暂无充值订单。
           </div>
-        </label>
-        <label className="admin-check-row">
-          <input
-            checked={settingsForm.clearEasyPayKey}
-            className="size-4 accent-red-500"
-            onChange={(event) =>
-              handleUpdate({
-                clearEasyPayKey: event.target.checked,
-                easyPayKey: event.target.checked ? "" : settingsForm.easyPayKey
-              })
-            }
-            type="checkbox"
-          />
-          清空 PKey
-        </label>
-      </div>
+        )}
+      </section>
     </div>
   );
 }

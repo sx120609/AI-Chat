@@ -18,7 +18,9 @@ import type {
   UserView,
   AdminUsageRecordView,
   AdminUsageSummaryView,
-  AdminUsageFilterOptionsView
+  AdminUsageFilterOptionsView,
+  PaymentOrderSummaryView,
+  PaymentOrderView
 } from "@/types/gateway";
 
 import type {
@@ -27,7 +29,8 @@ import type {
   SettingsForm,
   CreateForm,
   UsageFilterState,
-  AdminUsagePayload
+  AdminUsagePayload,
+  AdminPaymentsPayload
 } from "./admin/types";
 
 import {
@@ -51,6 +54,15 @@ type AdminDashboardProps = {
   currentUser: UserView;
 };
 
+const emptyPaymentSummary: PaymentOrderSummaryView = {
+  orders: 0,
+  paidAmountCents: 0,
+  paidBalanceCents: 0,
+  paidOrders: 0,
+  pendingOrders: 0,
+  totalAmountCents: 0
+};
+
 export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [users, setUsers] = useState<AdminUserView[]>([]);
   const [usageFilters, setUsageFilters] = useState<UsageFilterState>(defaultUsageFilters);
@@ -68,6 +80,9 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     users: []
   });
   const [usageGeneratedAt, setUsageGeneratedAt] = useState("");
+  const [paymentOrders, setPaymentOrders] = useState<PaymentOrderView[]>([]);
+  const [paymentSummary, setPaymentSummary] =
+    useState<PaymentOrderSummaryView>(emptyPaymentSummary);
   const [settings, setSettings] = useState<AiSettingsView | null>(null);
   const [settingsForm, _setSettingsForm] = useState<SettingsForm>(emptySettings);
   const setSettingsForm = useCallback((
@@ -96,6 +111,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>("access");
   const [loading, setLoading] = useState(true);
   const [loadingUsage, setLoadingUsage] = useState(false);
+  const [loadingPayments, setLoadingPayments] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = useState<AdminUserView | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -163,6 +179,19 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     });
     setUsageOptions(payload.filterOptions);
     setUsageGeneratedAt(payload.generatedAt);
+  }, []);
+
+  const loadPayments = useCallback(async () => {
+    const response = await fetch("/api/admin/payments?limit=50");
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error || "加载充值订单失败。");
+    }
+
+    const payload = (await response.json()) as AdminPaymentsPayload;
+    setPaymentOrders(payload.orders);
+    setPaymentSummary(payload.summary);
   }, []);
 
   const applySettings = useCallback((nextSettings: AiSettingsView) => {
@@ -235,13 +264,13 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     setError("");
 
     try {
-      await Promise.all([loadUsers(), loadSettings(), loadUsage()]);
+      await Promise.all([loadUsers(), loadSettings(), loadUsage(), loadPayments()]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载失败。");
     } finally {
       setLoading(false);
     }
-  }, [loadSettings, loadUsage, loadUsers]);
+  }, [loadPayments, loadSettings, loadUsage, loadUsers]);
 
   useEffect(() => {
     void loadAll();
@@ -337,6 +366,20 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       setError(usageError instanceof Error ? usageError.message : "加载用量记录失败。");
     } finally {
       setLoadingUsage(false);
+    }
+  }
+
+  async function refreshPayments() {
+    setLoadingPayments(true);
+    setError("");
+    setNotice("");
+
+    try {
+      await loadPayments();
+    } catch (paymentError) {
+      setError(paymentError instanceof Error ? paymentError.message : "加载充值订单失败。");
+    } finally {
+      setLoadingPayments(false);
     }
   }
 
@@ -772,6 +815,10 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
                 {activeTab === "payment" && (
                   <PaymentTab
+                    loadingOrders={loadingPayments || loading}
+                    onRefreshOrders={refreshPayments}
+                    orders={paymentOrders}
+                    summary={paymentSummary}
                     settings={settings}
                     settingsForm={settingsForm}
                     setSettingsForm={setSettingsForm}

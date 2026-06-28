@@ -1,6 +1,9 @@
 import type {
   ChatModelView,
   AuthEventView,
+  PaymentOrderSummaryView,
+  PaymentOrderView,
+  PublicPaymentSettingsView,
   SiteSettingsView,
   UsageSummary,
   UserApiKeyView,
@@ -12,6 +15,7 @@ export type ProfileCenterProps = {
   apiModels: ChatModelView[];
   initialUser: UserView;
   initialUsage: UsageSummary;
+  initialPaymentSettings: PublicPaymentSettingsView;
   siteSettings: SiteSettingsView;
 };
 
@@ -143,6 +147,11 @@ export type ProjectsPayload = {
 export type SecurityPayload = {
   events: AuthEventView[];
   sessions: UserSessionView[];
+};
+
+export type PaymentsPayload = {
+  orders: PaymentOrderView[];
+  summary: PaymentOrderSummaryView;
 };
 
 export type ProfileTab =

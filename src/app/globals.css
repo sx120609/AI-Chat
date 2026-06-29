@@ -360,6 +360,24 @@ button:disabled {
   backdrop-filter: blur(24px) saturate(150%);
 }
 
+.app-chat-header-shell {
+  border-bottom: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+@media (min-width: 1024px) {
+  .app-chat-header-shell {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.52);
+    background: rgba(247, 251, 248, 0.72);
+    box-shadow:
+      0 14px 42px rgba(18, 42, 35, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(24px) saturate(150%);
+  }
+}
+
 .app-glass-control {
   border: 1px solid rgba(255, 255, 255, 0.58);
   background: rgba(249, 252, 248, 0.68);
@@ -374,6 +392,32 @@ button:disabled {
   box-shadow:
     0 16px 42px rgba(18, 42, 35, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.app-chat-header-button {
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(249, 252, 248, 0.68);
+  box-shadow:
+    0 12px 34px rgba(18, 42, 35, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.app-chat-header-button:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(249, 252, 248, 0.82);
+  box-shadow:
+    0 16px 42px rgba(18, 42, 35, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.app-chat-header-button-active {
+  border-color: rgba(19, 81, 68, 0.34);
+  background: var(--app-accent-soft);
+  color: var(--claude-accent-dark);
+  box-shadow:
+    0 12px 34px rgba(18, 42, 35, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .app-tab-scroll {

@@ -87,6 +87,11 @@ const REASONING_EFFORTS_ARRAY = [
   { id: "xhigh" as const, name: "xhigh" }
 ];
 
+const chatHeaderIconButtonClass =
+  "app-action-button app-chat-header-button grid size-10 shrink-0 place-items-center rounded-full text-[color:var(--app-ink-soft)] transition active:scale-95 disabled:opacity-70";
+const chatHeaderPillButtonClass =
+  "app-action-button app-chat-header-button inline-flex h-10 min-w-0 items-center rounded-full text-[color:var(--app-ink-soft)] transition active:scale-95 disabled:opacity-70";
+
 export function ContextBadge({
   compact = false,
   contextStats,
@@ -103,7 +108,9 @@ export function ContextBadge({
 
   return (
     <span
-      className="app-status-pill inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-white/50 bg-white/40 px-2 py-0.5 text-[11px] text-stone-500 shadow-[0_8px_22px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl"
+      className={`app-status-pill app-chat-header-button inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full text-stone-600 ${
+        compact ? "h-10 px-3 text-sm font-semibold" : "px-2.5 py-1 text-[11px]"
+      }`}
       title="后端会保留完整会话历史；此处只显示当前请求体估算，最终计费以上游 usage 为准。"
     >
       {compact ? (
@@ -278,10 +285,8 @@ function ModelReasoningPicker({
       <button
         aria-expanded={open}
         aria-label="选择模型和思考强度"
-        className={`app-action-button flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-full border px-3 text-left text-[15px] font-semibold backdrop-blur-xl transition sm:h-9 sm:min-w-60 sm:px-3.5 sm:text-xs sm:font-medium ${
-          open
-            ? "border-white/75 bg-white/78 text-stone-950 shadow-[0_0_0_3px_rgba(19,81,68,0.10),0_16px_42px_rgba(18,42,35,0.14)]"
-            : "app-glass-control text-stone-800"
+        className={`${chatHeaderPillButtonClass} w-full justify-between gap-2 px-3 text-left text-[15px] font-semibold sm:h-9 sm:min-w-60 sm:px-3.5 sm:text-xs sm:font-medium ${
+          open ? "app-chat-header-button-active text-stone-950" : "text-stone-800"
         }`}
         onClick={() => onOpenChange(!open)}
         data-testid="model-reasoning-picker"
@@ -377,7 +382,7 @@ export function Header({
   const activeReasoningEffort = REASONING_EFFORTS_ARRAY.find((item) => item.id === reasoningEffort) ?? REASONING_EFFORTS_ARRAY[0];
 
   return (
-    <header className="app-header-enter app-glass-header relative z-30 shrink-0 px-3 pb-2 pt-[calc(0.5rem+var(--app-safe-area-top,0px))] sm:px-4 sm:py-3">
+    <header className="app-header-enter app-chat-header-shell relative z-30 shrink-0 px-3 pb-2 pt-[calc(0.5rem+var(--app-safe-area-top,0px))] sm:px-4 sm:py-3">
       {!desktopSidebarOpen ? (
         <button
           aria-expanded={desktopSidebarOpen}
@@ -396,7 +401,7 @@ export function Header({
         <div className="grid grid-cols-[2.5rem_auto_minmax(0,1fr)_2.5rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
           <button
             aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
-            className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[color:var(--app-ink-soft)] shadow-[0_12px_34px_rgba(18,42,35,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
+            className={`${chatHeaderIconButtonClass} lg:hidden`}
             onClick={toggleSidebar}
             title="切换会话列表"
             type="button"
@@ -405,7 +410,7 @@ export function Header({
           </button>
 
           {activeModel ? (
-            <div className="min-w-[4.75rem] justify-self-start lg:hidden">
+            <div className="min-w-[5.35rem] justify-self-start lg:hidden">
               <ContextBadge
                 compact
                 contextStats={lastContextStats}
@@ -458,10 +463,10 @@ export function Header({
               <button
                 aria-label="临时聊天"
                 aria-pressed={temporaryChatEnabled}
-                className={`app-action-button grid size-10 shrink-0 place-items-center rounded-full border transition disabled:opacity-70 ${
+                className={`${chatHeaderIconButtonClass} ${
                   temporaryChatEnabled
-                    ? "border-[color:var(--claude-accent)] bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
-                    : "app-glass-control text-stone-600"
+                    ? "app-chat-header-button-active"
+                    : "text-[color:var(--app-ink-soft)]"
                 }`}
                 disabled={securityModeDefault || loading || quotaBlocked || conversationSwitching}
                 onClick={() => {
@@ -497,7 +502,7 @@ export function Header({
           </div>
 
           <button
-            className="app-action-button grid size-10 shrink-0 place-items-center rounded-full border border-white/50 bg-white/45 text-[color:var(--app-ink-soft)] shadow-[0_12px_34px_rgba(18,42,35,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95 lg:hidden"
+            className={`${chatHeaderIconButtonClass} lg:hidden`}
             onClick={startNewConversation}
             title="新聊天"
             type="button"

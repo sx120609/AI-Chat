@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocumentTitle } from "@/components/document-title";
 import { SiteConfirmDialog, SiteNoticeDialog } from "@/components/site-dialog";
 import { SiteLogo } from "@/components/site-logo";
@@ -69,6 +69,7 @@ const emptyPaymentSummary: PaymentOrderSummaryView = {
   pendingOrders: 0,
   totalAmountCents: 0
 };
+const DEFAULT_USAGE_RECORD_PAGE_SIZE = 20;
 
 export function ProfileCenter({
   apiModels,
@@ -128,7 +129,9 @@ export function ProfileCenter({
   const [loadingSecurity, setLoadingSecurity] = useState(true);
   const [loadingPayments, setLoadingPayments] = useState(true);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
-  const [loadingMoreUsageRecords, setLoadingMoreUsageRecords] = useState(false);
+  const [loadingUsageRecordsPage, setLoadingUsageRecordsPage] = useState(false);
+  const [usageRecordsPageSize, setUsageRecordsPageSize] = useState(DEFAULT_USAGE_RECORD_PAGE_SIZE);
+  const usageRecordsPageSizeRef = useRef(DEFAULT_USAGE_RECORD_PAGE_SIZE);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
   const [savingDataAction, setSavingDataAction] = useState(false);
   const [savingSessionId, setSavingSessionId] = useState<string | null>(null);
@@ -179,7 +182,7 @@ export function ProfileCenter({
       fetch("/api/conversations?archived=1"),
       fetch("/api/profile/shared-links"),
       fetch("/api/profile/file-library?limit=100&offset=0"),
-      fetch("/api/profile/usage?recordsLimit=50&recordsOffset=0")
+      fetch(`/api/profile/usage?recordsLimit=${usageRecordsPageSizeRef.current}&recordsOffset=0`)
     ]);
     const archivedPayload = (await archivedResponse.json().catch(() => null)) as
       | (ArchivedConversationsPayload & { error?: string })
@@ -313,48 +316,38 @@ export function ProfileCenter({
     setLoadingMoreFiles(false);
   }, [fileLibrary.length, fileLibraryHasMore, fileLibraryTotal, loadingMoreFiles]);
 
-  const loadMoreUsageRecords = useCallback(async () => {
-    if (loadingMoreUsageRecords || !usageBreakdown?.recordsHasMore) {
+  const loadUsageRecordsPage = useCallback(async (page: number, pageSize = usageRecordsPageSizeRef.current) => {
+    if (loadingUsageRecordsPage) {
       return;
     }
 
-    const recordsOffset = usageBreakdown.recentRecords.length;
-    const recordsLimit = usageBreakdown.recordsLimit ?? 50;
+    const normalizedPageSize = Math.min(100, Math.max(10, Math.round(pageSize)));
+    const totalRecords = usageBreakdown?.recordsTotal ?? usageBreakdown?.totals.records ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalRecords / normalizedPageSize));
+    const targetPage = Math.min(totalPages, Math.max(1, Math.round(page)));
+    const recordsOffset = (targetPage - 1) * normalizedPageSize;
 
-    setLoadingMoreUsageRecords(true);
+    usageRecordsPageSizeRef.current = normalizedPageSize;
+    setUsageRecordsPageSize(normalizedPageSize);
+    setLoadingUsageRecordsPage(true);
     setNotice("");
     setError("");
 
     const response = await fetch(
-      `/api/profile/usage?recordsLimit=${recordsLimit}&recordsOffset=${recordsOffset}`
+      `/api/profile/usage?recordsLimit=${normalizedPageSize}&recordsOffset=${recordsOffset}`
     );
     const payload = (await response.json().catch(() => null)) as
       | (UsageBreakdownPayload & { error?: string })
       | null;
 
     if (!response.ok || !payload) {
-      setError(payload?.error || "读取更多用量日志失败。");
+      setError(payload?.error || "读取用量日志失败。");
     } else {
-      setUsageBreakdown((current) => {
-        if (!current) {
-          return payload;
-        }
-
-        const seen = new Set(current.recentRecords.map((record) => record.id));
-
-        return {
-          ...payload,
-          recentRecords: [
-            ...current.recentRecords,
-            ...payload.recentRecords.filter((record) => !seen.has(record.id))
-          ],
-          recordsOffset: current.recordsOffset ?? 0
-        };
-      });
+      setUsageBreakdown(payload);
     }
 
-    setLoadingMoreUsageRecords(false);
-  }, [loadingMoreUsageRecords, usageBreakdown]);
+    setLoadingUsageRecordsPage(false);
+  }, [loadingUsageRecordsPage, usageBreakdown]);
 
   const loadProjects = useCallback(async () => {
     const response = await fetch("/api/profile/projects");
@@ -1323,8 +1316,10 @@ export function ProfileCenter({
                 onDeleteFile={deleteFile}
                 loadingMoreFiles={loadingMoreFiles}
                 onLoadMoreFiles={loadMoreFiles}
-                loadingMoreUsageRecords={loadingMoreUsageRecords}
-                onLoadMoreUsageRecords={loadMoreUsageRecords}
+                loadingUsageRecordsPage={loadingUsageRecordsPage}
+                onChangeUsageRecordsPage={(page) => void loadUsageRecordsPage(page)}
+                onChangeUsageRecordsPageSize={(pageSize) => void loadUsageRecordsPage(1, pageSize)}
+                usageRecordsPageSize={usageRecordsPageSize}
                 origin={origin}
               />
             )}

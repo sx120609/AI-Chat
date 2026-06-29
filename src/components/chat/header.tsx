@@ -398,7 +398,7 @@ export function Header({
         className={`mx-auto max-w-5xl ${desktopSidebarOpen ? "" : "lg:pl-10"}`}
         ref={headerControlsRef}
       >
-        <div className="grid grid-cols-[2.5rem_auto_minmax(0,1fr)_2.5rem] items-center gap-2 lg:flex lg:items-center lg:justify-between lg:gap-3">
+        <div className="grid grid-cols-[2.5rem_auto_minmax(0,1fr)_2.5rem] items-center gap-3 lg:flex lg:items-center lg:justify-between">
           <button
             aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
             className={`${chatHeaderIconButtonClass} lg:hidden`}
@@ -440,7 +440,7 @@ export function Header({
             </div>
           </div>
 
-          <div className="min-w-0 justify-self-stretch lg:block lg:shrink-0 lg:justify-self-auto">
+          <div className="min-w-0 justify-self-stretch pr-1 lg:block lg:shrink-0 lg:justify-self-auto lg:pr-0">
             <div className="flex w-full min-w-0 items-center gap-2 lg:w-auto">
               {projects.length > 0 ? (
                 <label className="app-glass-control hidden h-10 min-w-0 items-center gap-2 rounded-2xl px-3 text-xs font-semibold text-stone-700 sm:flex">

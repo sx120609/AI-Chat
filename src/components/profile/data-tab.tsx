@@ -50,8 +50,10 @@ type DataTabProps = {
   onDeleteFile: (id: string) => void;
   loadingMoreFiles: boolean;
   onLoadMoreFiles: () => void;
-  loadingMoreUsageRecords: boolean;
-  onLoadMoreUsageRecords: () => void;
+  loadingUsageRecordsPage: boolean;
+  onChangeUsageRecordsPage: (page: number) => void;
+  onChangeUsageRecordsPageSize: (pageSize: number) => void;
+  usageRecordsPageSize: number;
   origin: string;
 };
 
@@ -237,18 +239,129 @@ function UsageRecordMeta({ record }: { record: UsageRecordView }) {
   );
 }
 
+function usagePageNumbers(page: number, totalPages: number) {
+  const pages: Array<number | string> = [];
+  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+  const end = Math.min(totalPages, Math.max(page + 2, 5));
+
+  if (start > 1) {
+    pages.push(1);
+    if (start > 2) {
+      pages.push("start-ellipsis");
+    }
+  }
+
+  for (let item = start; item <= end; item += 1) {
+    pages.push(item);
+  }
+
+  if (end < totalPages) {
+    if (end < totalPages - 1) {
+      pages.push("end-ellipsis");
+    }
+    pages.push(totalPages);
+  }
+
+  return pages;
+}
+
+function UsagePaginationControls({
+  loading,
+  onChangePage,
+  onChangePageSize,
+  page,
+  pageSize,
+  totalPages
+}: {
+  loading: boolean;
+  onChangePage: (page: number) => void;
+  onChangePageSize: (pageSize: number) => void;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}) {
+  const pageNumbers = usagePageNumbers(page, totalPages);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="flex items-center gap-2 text-xs ios-muted">
+        每页
+        <select
+          className="ios-select h-9 w-20 bg-white/70 text-sm font-semibold"
+          disabled={loading}
+          onChange={(event) => onChangePageSize(Number(event.target.value))}
+          value={String(pageSize)}
+        >
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </label>
+      <button
+        className="ios-button-secondary app-action-button h-9 px-3 text-sm disabled:opacity-40"
+        disabled={loading || page <= 1}
+        onClick={() => onChangePage(page - 1)}
+        type="button"
+      >
+        上一页
+      </button>
+      <div className="flex flex-wrap items-center gap-1">
+        {pageNumbers.map((item) =>
+          typeof item === "number" ? (
+            <button
+              className={`app-action-button h-9 min-w-9 rounded-lg px-3 text-sm font-semibold transition disabled:opacity-40 ${
+                item === page
+                  ? "bg-[color:var(--claude-accent)] text-white shadow-sm"
+                  : "ios-button-secondary"
+              }`}
+              disabled={loading || item === page}
+              key={item}
+              onClick={() => onChangePage(item)}
+              type="button"
+            >
+              {item}
+            </button>
+          ) : (
+            <span className="px-1 text-xs ios-muted" key={item}>
+              ...
+            </span>
+          )
+        )}
+      </div>
+      <button
+        className="ios-button-secondary app-action-button h-9 px-3 text-sm disabled:opacity-40"
+        disabled={loading || page >= totalPages}
+        onClick={() => onChangePage(page + 1)}
+        type="button"
+      >
+        下一页
+      </button>
+    </div>
+  );
+}
+
 function UsageRecordsTable({
-  loadingMore,
-  onLoadMore,
+  loading,
+  onChangePage,
+  onChangePageSize,
+  pageSize,
   usageBreakdown
 }: {
-  loadingMore: boolean;
-  onLoadMore: () => void;
+  loading: boolean;
+  onChangePage: (page: number) => void;
+  onChangePageSize: (pageSize: number) => void;
+  pageSize: number;
   usageBreakdown: UsageBreakdownPayload;
 }) {
   const records = usageBreakdown.recentRecords;
   const total = usageBreakdown.recordsTotal ?? usageBreakdown.totals.records;
-  const shown = records.length;
+  const limit = usageBreakdown.recordsLimit ?? pageSize;
+  const offset = usageBreakdown.recordsOffset ?? 0;
+  const page = Math.floor(offset / Math.max(1, limit)) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  const pageStart = records.length > 0 ? offset + 1 : 0;
+  const pageEnd = offset + records.length;
 
   return (
     <div className="overflow-hidden rounded-lg border border-[color:var(--ios-separator)] bg-white/45">
@@ -256,22 +369,24 @@ function UsageRecordsTable({
         <div>
           <h3 className="text-sm font-semibold text-stone-950">使用日志</h3>
           <p className="mt-1 text-xs ios-muted">
-            已显示 {formatNumber(shown)} / {formatNumber(total)} 条
+            显示 {formatNumber(pageStart)} - {formatNumber(pageEnd)}，共{" "}
+            {formatNumber(total)} 条
           </p>
         </div>
-        {usageBreakdown.recordsHasMore ? (
-          <button
-            className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
-            disabled={loadingMore}
-            onClick={onLoadMore}
-            type="button"
-          >
-            {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <Archive className="size-4" />}
-            加载更多日志
-          </button>
-        ) : null}
+        <UsagePaginationControls
+          loading={loading}
+          onChangePage={onChangePage}
+          onChangePageSize={onChangePageSize}
+          page={page}
+          pageSize={limit}
+          totalPages={totalPages}
+        />
       </div>
-      {records.length === 0 ? (
+      {loading ? (
+        <div className="grid min-h-40 place-items-center text-stone-500">
+          <Loader2 className="size-5 animate-spin" />
+        </div>
+      ) : records.length === 0 ? (
         <p className="px-3 py-10 text-center text-sm ios-muted">暂无使用日志。</p>
       ) : (
         <>
@@ -389,6 +504,16 @@ function UsageRecordsTable({
               </div>
             ))}
           </div>
+          <div className="border-t border-[color:var(--ios-separator)] bg-white/35 px-3 py-3">
+            <UsagePaginationControls
+              loading={loading}
+              onChangePage={onChangePage}
+              onChangePageSize={onChangePageSize}
+              page={page}
+              pageSize={limit}
+              totalPages={totalPages}
+            />
+          </div>
         </>
       )}
     </div>
@@ -421,10 +546,26 @@ export function DataTab({
   onDeleteFile,
   loadingMoreFiles,
   onLoadMoreFiles,
-  loadingMoreUsageRecords,
-  onLoadMoreUsageRecords,
+  loadingUsageRecordsPage,
+  onChangeUsageRecordsPage,
+  onChangeUsageRecordsPageSize,
+  usageRecordsPageSize,
   origin
 }: DataTabProps) {
+  const usageRecordLimit = usageBreakdown?.recordsLimit ?? usageRecordsPageSize;
+  const usageRecordPage = usageBreakdown
+    ? Math.floor((usageBreakdown.recordsOffset ?? 0) / Math.max(1, usageRecordLimit)) + 1
+    : 1;
+  const usageRecordTotalPages = usageBreakdown
+    ? Math.max(
+        1,
+        Math.ceil(
+          (usageBreakdown.recordsTotal ?? usageBreakdown.totals.records) /
+            Math.max(1, usageRecordLimit)
+        )
+      )
+    : 1;
+
   return (
     <div className="grid gap-4">
       <section className="ios-panel motion-lift overflow-hidden">
@@ -584,7 +725,7 @@ export function DataTab({
                     {formatNumber(usageBreakdown.totals.records)}
                   </p>
                   <p className="mt-1 text-xs ios-muted">
-                    已载入 {formatNumber(usageBreakdown.recentRecords.length)} 条日志
+                    第 {formatNumber(usageRecordPage)} / {formatNumber(usageRecordTotalPages)} 页
                   </p>
                 </div>
                 <div className="rounded-lg bg-white/55 p-3">
@@ -629,8 +770,10 @@ export function DataTab({
               </div>
 
               <UsageRecordsTable
-                loadingMore={loadingMoreUsageRecords}
-                onLoadMore={onLoadMoreUsageRecords}
+                loading={loadingUsageRecordsPage}
+                onChangePage={onChangeUsageRecordsPage}
+                onChangePageSize={onChangeUsageRecordsPageSize}
+                pageSize={usageRecordsPageSize}
                 usageBreakdown={usageBreakdown}
               />
             </>

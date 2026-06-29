@@ -17,6 +17,7 @@ import type {
   ArchivedConversationView,
   UsageBreakdownPayload,
   UsageBucketView,
+  UsageRecordView,
   SharedLinkView,
   FileLibraryItem,
   UserProjectView,
@@ -49,8 +50,99 @@ type DataTabProps = {
   onDeleteFile: (id: string) => void;
   loadingMoreFiles: boolean;
   onLoadMoreFiles: () => void;
+  loadingMoreUsageRecords: boolean;
+  onLoadMoreUsageRecords: () => void;
   origin: string;
 };
+
+function formatPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0%";
+  }
+
+  return `${Math.round(Math.max(0, value) * 100)}%`;
+}
+
+function formatDuration(ms: number | null | undefined) {
+  if (!Number.isFinite(ms ?? NaN) || !ms) {
+    return "-";
+  }
+
+  if (ms < 1000) {
+    return `${Math.round(ms)}ms`;
+  }
+
+  return `${(ms / 1000).toFixed(ms >= 10_000 ? 1 : 2)}s`;
+}
+
+function usageModeLabel(mode: string) {
+  return mode === "IMAGE" ? "图片" : "聊天";
+}
+
+function usageSourceLabel(source: string) {
+  const lastSegment = source.split(":").at(-1);
+
+  return lastSegment === "upstream" ? "上游 usage" : "估算";
+}
+
+function requestKindLabel(kind: string) {
+  if (kind === "stream") {
+    return "流式";
+  }
+
+  if (kind === "sync") {
+    return "同步";
+  }
+
+  return kind || "-";
+}
+
+function quotaSourceLabel(source: string) {
+  const labels: Record<string, string> = {
+    AI_POINTS: "点数",
+    MIXED: "订阅 + 点数",
+    MONTHLY_SUBSCRIPTION: "订阅"
+  };
+
+  return labels[source] || source || "-";
+}
+
+function reasoningEffortLabel(value: string) {
+  const labels: Record<string, string> = {
+    high: "High",
+    low: "Low",
+    medium: "Medium",
+    xhigh: "XHigh"
+  };
+
+  return labels[value] || value || "-";
+}
+
+function UsageTokenLine({
+  cachedPromptTokens,
+  completionTokens,
+  promptTokens,
+  reasoningTokens,
+  totalTokens
+}: {
+  cachedPromptTokens: number;
+  completionTokens: number;
+  promptTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+}) {
+  return (
+    <div className="grid gap-1 text-xs ios-muted">
+      <p className="font-semibold text-stone-900">总计 {formatNumber(totalTokens)}</p>
+      <p>
+        上行 {formatNumber(promptTokens)} · 下行 {formatNumber(completionTokens)}
+      </p>
+      <p>
+        缓存 {formatNumber(cachedPromptTokens)} · 推理 {formatNumber(reasoningTokens)}
+      </p>
+    </div>
+  );
+}
 
 function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title: string }) {
   return (
@@ -62,7 +154,7 @@ function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title
       {buckets.length === 0 ? (
         <p className="py-6 text-center text-sm ios-muted">暂无数据</p>
       ) : (
-        <div className="grid gap-2">
+        <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
           {buckets.map((bucket) => (
             <div
               className="grid gap-1 rounded-lg bg-white/60 px-3 py-2 text-sm"
@@ -74,6 +166,10 @@ function UsageBucketList({ buckets, title }: { buckets: UsageBucketView[]; title
               </div>
               <p className="text-xs ios-muted">
                 {formatNumber(bucket.totalTokens)} tokens · {formatNumber(bucket.records)} 条
+              </p>
+              <p className="text-xs ios-muted">
+                上行 {formatNumber(bucket.promptTokens)} · 下行 {formatNumber(bucket.completionTokens)} · 缓存{" "}
+                {formatNumber(bucket.cachedPromptTokens)}
               </p>
             </div>
           ))}
@@ -125,6 +221,180 @@ function UsageTrendChart({ buckets }: { buckets: UsageBucketView[] }) {
   );
 }
 
+function UsageRecordMeta({ record }: { record: UsageRecordView }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 text-[11px] font-semibold">
+      <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-700">
+        {record.surface}
+      </span>
+      <span className="rounded-md bg-sky-50 px-2 py-0.5 text-sky-700">
+        {usageModeLabel(record.mode)}
+      </span>
+      <span className="rounded-md bg-stone-100 px-2 py-0.5 text-stone-600">
+        {usageSourceLabel(record.usageSource)}
+      </span>
+    </div>
+  );
+}
+
+function UsageRecordsTable({
+  loadingMore,
+  onLoadMore,
+  usageBreakdown
+}: {
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  usageBreakdown: UsageBreakdownPayload;
+}) {
+  const records = usageBreakdown.recentRecords;
+  const total = usageBreakdown.recordsTotal ?? usageBreakdown.totals.records;
+  const shown = records.length;
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[color:var(--ios-separator)] bg-white/45">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-3 py-3">
+        <div>
+          <h3 className="text-sm font-semibold text-stone-950">使用日志</h3>
+          <p className="mt-1 text-xs ios-muted">
+            已显示 {formatNumber(shown)} / {formatNumber(total)} 条
+          </p>
+        </div>
+        {usageBreakdown.recordsHasMore ? (
+          <button
+            className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+            disabled={loadingMore}
+            onClick={onLoadMore}
+            type="button"
+          >
+            {loadingMore ? <Loader2 className="size-4 animate-spin" /> : <Archive className="size-4" />}
+            加载更多日志
+          </button>
+        ) : null}
+      </div>
+      {records.length === 0 ? (
+        <p className="px-3 py-10 text-center text-sm ios-muted">暂无使用日志。</p>
+      ) : (
+        <>
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+              <thead className="bg-white/75 text-xs text-stone-500">
+                <tr>
+                  <th className="px-3 py-3 font-semibold">时间 / 来源</th>
+                  <th className="px-3 py-3 font-semibold">模型</th>
+                  <th className="px-3 py-3 font-semibold">Token 明细</th>
+                  <th className="px-3 py-3 font-semibold">请求</th>
+                  <th className="px-3 py-3 font-semibold">费用 / 耗时</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[color:var(--ios-separator)]">
+                {records.map((record) => (
+                  <tr className="align-top hover:bg-white/60" key={record.id}>
+                    <td className="px-3 py-3">
+                      <p className="font-semibold text-stone-900">
+                        {new Date(record.createdAt).toLocaleString()}
+                      </p>
+                      <div className="mt-2">
+                        <UsageRecordMeta record={record} />
+                      </div>
+                      {record.apiKeyLabel ? (
+                        <p className="mt-2 max-w-56 truncate text-xs ios-muted">{record.apiKeyLabel}</p>
+                      ) : record.conversationId ? (
+                        <p className="mt-2 max-w-56 truncate text-xs ios-muted">
+                          会话 {record.conversationId}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="max-w-56 truncate font-semibold text-stone-900">{record.model}</p>
+                      <p className="mt-1 text-xs ios-muted">
+                        推理 {reasoningEffortLabel(record.reasoningEffort)} ·{" "}
+                        {record.billingMode || "按量"}
+                      </p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <UsageTokenLine
+                        cachedPromptTokens={record.cachedPromptTokens}
+                        completionTokens={record.completionTokens}
+                        promptTokens={record.promptTokens}
+                        reasoningTokens={record.reasoningTokens}
+                        totalTokens={record.totalTokens}
+                      />
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="max-w-44 truncate font-medium text-stone-900">
+                        {record.endpoint || "-"}
+                      </p>
+                      <p className="mt-1 max-w-44 truncate text-xs ios-muted">
+                        {requestKindLabel(record.requestKind)} · {quotaSourceLabel(record.quotaSource)}
+                      </p>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      <p className="font-semibold text-emerald-700">
+                        {formatCents(record.estimatedCostCents)}
+                      </p>
+                      <p className="mt-1 text-xs ios-muted">
+                        总 {formatDuration(record.durationMs)} · 首 token{" "}
+                        {formatDuration(record.firstTokenLatencyMs)}
+                      </p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid gap-2 p-3 lg:hidden">
+            {records.map((record) => (
+              <div
+                className="rounded-lg border border-[color:var(--ios-separator)] bg-white/55 p-3"
+                key={record.id}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-stone-950">{record.model}</p>
+                    <p className="mt-1 truncate text-xs ios-muted">
+                      {new Date(record.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold text-emerald-700">
+                    {formatCents(record.estimatedCostCents)}
+                  </p>
+                </div>
+                <UsageRecordMeta record={record} />
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                  <div className="rounded-lg bg-white/65 px-3 py-2">
+                    <UsageTokenLine
+                      cachedPromptTokens={record.cachedPromptTokens}
+                      completionTokens={record.completionTokens}
+                      promptTokens={record.promptTokens}
+                      reasoningTokens={record.reasoningTokens}
+                      totalTokens={record.totalTokens}
+                    />
+                  </div>
+                  <div className="rounded-lg bg-white/65 px-3 py-2 text-xs ios-muted">
+                    <p className="font-semibold text-stone-900">{record.endpoint || "-"}</p>
+                    <p className="mt-1">
+                      {requestKindLabel(record.requestKind)} · {record.billingMode || "按量"}
+                    </p>
+                    <p className="mt-1">
+                      总 {formatDuration(record.durationMs)} · 首 token{" "}
+                      {formatDuration(record.firstTokenLatencyMs)}
+                    </p>
+                  </div>
+                </div>
+                {record.apiKeyLabel || record.conversationId ? (
+                  <p className="mt-3 truncate text-xs ios-muted">
+                    {record.apiKeyLabel || `会话 ${record.conversationId}`}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function DataTab({
   loadingDataLists,
   onRefreshDataLists,
@@ -151,6 +421,8 @@ export function DataTab({
   onDeleteFile,
   loadingMoreFiles,
   onLoadMoreFiles,
+  loadingMoreUsageRecords,
+  onLoadMoreUsageRecords,
   origin
 }: DataTabProps) {
   return (
@@ -305,54 +577,62 @@ export function DataTab({
             </div>
           ) : (
             <>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <div className="rounded-lg bg-white/55 p-3">
                   <p className="text-xs ios-muted">记录数</p>
-                  <p className="mt-1 text-lg font-semibold">{formatNumber(usageBreakdown.totals.records)}</p>
+                  <p className="mt-1 text-lg font-semibold">
+                    {formatNumber(usageBreakdown.totals.records)}
+                  </p>
+                  <p className="mt-1 text-xs ios-muted">
+                    已载入 {formatNumber(usageBreakdown.recentRecords.length)} 条日志
+                  </p>
                 </div>
                 <div className="rounded-lg bg-white/55 p-3">
-                  <p className="text-xs ios-muted">Tokens</p>
-                  <p className="mt-1 text-lg font-semibold">{formatNumber(usageBreakdown.totals.totalTokens)}</p>
+                  <p className="text-xs ios-muted">Token 总量</p>
+                  <p className="mt-1 text-lg font-semibold">
+                    {formatNumber(usageBreakdown.totals.totalTokens)}
+                  </p>
+                  <p className="mt-1 text-xs ios-muted">
+                    上行 {formatNumber(usageBreakdown.totals.promptTokens ?? 0)} · 下行{" "}
+                    {formatNumber(usageBreakdown.totals.completionTokens ?? 0)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-white/55 p-3">
+                  <p className="text-xs ios-muted">缓存与推理</p>
+                  <p className="mt-1 text-lg font-semibold">
+                    {formatPercent(usageBreakdown.totals.cacheRate ?? 0)}
+                  </p>
+                  <p className="mt-1 text-xs ios-muted">
+                    缓存 {formatNumber(usageBreakdown.totals.cachedPromptTokens ?? 0)} · 推理{" "}
+                    {formatNumber(usageBreakdown.totals.reasoningTokens ?? 0)}
+                  </p>
                 </div>
                 <div className="rounded-lg bg-white/55 p-3">
                   <p className="text-xs ios-muted">估算费用</p>
-                  <p className="mt-1 text-lg font-semibold">{formatCents(usageBreakdown.totals.costCents)}</p>
+                  <p className="mt-1 text-lg font-semibold">
+                    {formatCents(usageBreakdown.totals.costCents)}
+                  </p>
+                  <p className="mt-1 text-xs ios-muted">
+                    全部记录汇总
+                  </p>
                 </div>
               </div>
 
               <UsageTrendChart buckets={usageBreakdown.byDay} />
 
               <div className="grid gap-3 lg:grid-cols-2">
-                <UsageBucketList buckets={usageBreakdown.byModel.slice(0, 6)} title="按模型" />
+                <UsageBucketList buckets={usageBreakdown.byModel} title="按模型" />
                 <UsageBucketList buckets={usageBreakdown.bySurface} title="按聊天 / API / 图片" />
-                <UsageBucketList buckets={(usageBreakdown.byApiKey ?? []).slice(0, 6)} title="按 API Key" />
+                <UsageBucketList buckets={usageBreakdown.byApiKey ?? []} title="按 API Key" />
                 <UsageBucketList buckets={usageBreakdown.byMode} title="按聊天 / 图片" />
-                <UsageBucketList buckets={usageBreakdown.byDay.slice(0, 6)} title="日度明细" />
+                <UsageBucketList buckets={usageBreakdown.byDay} title="日度明细" />
               </div>
 
-              <div className="grid gap-2">
-                <h3 className="text-sm font-semibold text-stone-950">最近记录</h3>
-                {usageBreakdown.recentRecords.slice(0, 6).map((record) => (
-                  <div
-                    className="grid gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/55 px-3 py-2 text-sm sm:grid-cols-[1fr_auto]"
-                    key={record.id}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-stone-900">
-                        {record.surface} · {record.model}
-                      </p>
-                      <p className="mt-1 text-xs ios-muted">
-                        {new Date(record.createdAt).toLocaleString()} ·{" "}
-                        {record.apiKeyLabel ? `${record.apiKeyLabel} · ` : ""}
-                        {record.usageSource}
-                      </p>
-                    </div>
-                    <p className="text-xs font-semibold ios-muted sm:text-right">
-                      {formatNumber(record.totalTokens)} tokens · {formatCents(record.estimatedCostCents)}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              <UsageRecordsTable
+                loadingMore={loadingMoreUsageRecords}
+                onLoadMore={onLoadMoreUsageRecords}
+                usageBreakdown={usageBreakdown}
+              />
             </>
           )}
         </div>

@@ -128,6 +128,7 @@ export function ProfileCenter({
   const [loadingSecurity, setLoadingSecurity] = useState(true);
   const [loadingPayments, setLoadingPayments] = useState(true);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
+  const [loadingMoreUsageRecords, setLoadingMoreUsageRecords] = useState(false);
   const [savingKeyId, setSavingKeyId] = useState<string | null>(null);
   const [savingDataAction, setSavingDataAction] = useState(false);
   const [savingSessionId, setSavingSessionId] = useState<string | null>(null);
@@ -178,7 +179,7 @@ export function ProfileCenter({
       fetch("/api/conversations?archived=1"),
       fetch("/api/profile/shared-links"),
       fetch("/api/profile/file-library?limit=100&offset=0"),
-      fetch("/api/profile/usage")
+      fetch("/api/profile/usage?recordsLimit=50&recordsOffset=0")
     ]);
     const archivedPayload = (await archivedResponse.json().catch(() => null)) as
       | (ArchivedConversationsPayload & { error?: string })
@@ -311,6 +312,49 @@ export function ProfileCenter({
 
     setLoadingMoreFiles(false);
   }, [fileLibrary.length, fileLibraryHasMore, fileLibraryTotal, loadingMoreFiles]);
+
+  const loadMoreUsageRecords = useCallback(async () => {
+    if (loadingMoreUsageRecords || !usageBreakdown?.recordsHasMore) {
+      return;
+    }
+
+    const recordsOffset = usageBreakdown.recentRecords.length;
+    const recordsLimit = usageBreakdown.recordsLimit ?? 50;
+
+    setLoadingMoreUsageRecords(true);
+    setNotice("");
+    setError("");
+
+    const response = await fetch(
+      `/api/profile/usage?recordsLimit=${recordsLimit}&recordsOffset=${recordsOffset}`
+    );
+    const payload = (await response.json().catch(() => null)) as
+      | (UsageBreakdownPayload & { error?: string })
+      | null;
+
+    if (!response.ok || !payload) {
+      setError(payload?.error || "读取更多用量日志失败。");
+    } else {
+      setUsageBreakdown((current) => {
+        if (!current) {
+          return payload;
+        }
+
+        const seen = new Set(current.recentRecords.map((record) => record.id));
+
+        return {
+          ...payload,
+          recentRecords: [
+            ...current.recentRecords,
+            ...payload.recentRecords.filter((record) => !seen.has(record.id))
+          ],
+          recordsOffset: current.recordsOffset ?? 0
+        };
+      });
+    }
+
+    setLoadingMoreUsageRecords(false);
+  }, [loadingMoreUsageRecords, usageBreakdown]);
 
   const loadProjects = useCallback(async () => {
     const response = await fetch("/api/profile/projects");
@@ -1279,6 +1323,8 @@ export function ProfileCenter({
                 onDeleteFile={deleteFile}
                 loadingMoreFiles={loadingMoreFiles}
                 onLoadMoreFiles={loadMoreFiles}
+                loadingMoreUsageRecords={loadingMoreUsageRecords}
+                onLoadMoreUsageRecords={loadMoreUsageRecords}
                 origin={origin}
               />
             )}

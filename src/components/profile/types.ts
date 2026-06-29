@@ -99,6 +99,31 @@ export type UsageBucketView = {
   totalTokens: number;
 };
 
+export type UsageRecordView = {
+  apiKeyLabel?: string | null;
+  billingMode: string;
+  cachedPromptTokens: number;
+  completionTokens: number;
+  conversationId?: string | null;
+  createdAt: string;
+  durationMs?: number | null;
+  endpoint: string;
+  estimatedCostCents: number;
+  firstTokenLatencyMs?: number | null;
+  id: string;
+  messageId?: string | null;
+  mode: string;
+  model: string;
+  promptTokens: number;
+  quotaSource: string;
+  reasoningEffort: string;
+  reasoningTokens: number;
+  requestKind: string;
+  surface: string;
+  totalTokens: number;
+  usageSource: string;
+};
+
 export type UsageBreakdownPayload = {
   byApiKey?: UsageBucketView[];
   byDay: UsageBucketView[];
@@ -107,19 +132,18 @@ export type UsageBreakdownPayload = {
   byMonth: UsageBucketView[];
   bySurface: UsageBucketView[];
   generatedAt: string;
-  recentRecords: Array<{
-    apiKeyLabel?: string | null;
-    createdAt: string;
-    estimatedCostCents: number;
-    id: string;
-    mode: string;
-    model: string;
-    surface: string;
-    totalTokens: number;
-    usageSource: string;
-  }>;
+  recentRecords: UsageRecordView[];
+  recordsHasMore?: boolean;
+  recordsLimit?: number;
+  recordsOffset?: number;
+  recordsTotal?: number;
   totals: {
+    cacheRate?: number;
+    cachedPromptTokens?: number;
+    completionTokens?: number;
     costCents: number;
+    promptTokens?: number;
+    reasoningTokens?: number;
     records: number;
     totalTokens: number;
   };

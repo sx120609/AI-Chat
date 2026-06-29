@@ -7,15 +7,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type UsageRecordItem = {
+  billingMode: string;
   cachedPromptTokens: number;
   completionTokens: number;
   conversationId: string | null;
   createdAt: Date;
+  durationMs: number | null;
+  endpoint: string;
   estimatedCostCents: number;
+  firstTokenLatencyMs: number | null;
   id: string;
+  messageId: string | null;
   mode: string;
   model: string;
   promptTokens: number;
+  quotaSource: string;
+  requestKind: string;
+  reasoningEffort: string;
   reasoningTokens: number;
   totalTokens: number;
   usageSource: string;
@@ -110,10 +118,40 @@ function usageSurface(record: UsageRecordItem) {
   return record.conversationId ? "聊天" : "任务";
 }
 
+function fallbackEndpoint(record: UsageRecordItem) {
+  if (isPersonalApiUsage(record)) {
+    return "个人 API";
+  }
+
+  if (record.mode === "IMAGE") {
+    return "图片";
+  }
+
+  return record.conversationId ? "/api/chat" : "task";
+}
+
+function fallbackRequestKind(record: UsageRecordItem) {
+  if (record.mode === "IMAGE" || !record.conversationId) {
+    return "sync";
+  }
+
+  return "stream";
+}
+
 function csvEscape(value: unknown) {
   const text = String(value ?? "");
 
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function boundedInteger(value: string | null, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
 function usageCsv(records: UsageRecordItem[], apiKeyNames: Map<string, string>) {
@@ -131,6 +169,12 @@ function usageCsv(records: UsageRecordItem[], apiKeyNames: Map<string, string>) 
     "reasoningTokens",
     "totalTokens",
     "estimatedCostCents",
+    "endpoint",
+    "requestKind",
+    "billingMode",
+    "quotaSource",
+    "firstTokenLatencyMs",
+    "durationMs",
     "usageSource"
   ];
   const rows = records.map((record) => {
@@ -150,6 +194,12 @@ function usageCsv(records: UsageRecordItem[], apiKeyNames: Map<string, string>) 
       record.reasoningTokens,
       record.totalTokens,
       record.estimatedCostCents,
+      record.endpoint || fallbackEndpoint(record),
+      record.requestKind || fallbackRequestKind(record),
+      record.billingMode,
+      record.quotaSource,
+      record.firstTokenLatencyMs ?? "",
+      record.durationMs ?? "",
       record.usageSource
     ];
   });
@@ -194,6 +244,25 @@ export async function GET(request: NextRequest) {
   const byMode = new Map<string, UsageBucket>();
   const bySurface = new Map<string, UsageBucket>();
   const byApiKey = new Map<string, UsageBucket>();
+  const recordsLimit = boundedInteger(
+    request.nextUrl.searchParams.get("recordsLimit") ?? request.nextUrl.searchParams.get("limit"),
+    50,
+    10,
+    100
+  );
+  const recordsOffset = boundedInteger(
+    request.nextUrl.searchParams.get("recordsOffset") ?? request.nextUrl.searchParams.get("offset"),
+    0,
+    0,
+    1_000_000
+  );
+  const visibleRecords = records.slice(recordsOffset, recordsOffset + recordsLimit);
+  const promptTokens = records.reduce((total, record) => total + record.promptTokens, 0);
+  const completionTokens = records.reduce((total, record) => total + record.completionTokens, 0);
+  const cachedPromptTokens = records.reduce((total, record) => total + record.cachedPromptTokens, 0);
+  const reasoningTokens = records.reduce((total, record) => total + record.reasoningTokens, 0);
+  const totalTokens = records.reduce((total, record) => total + record.totalTokens, 0);
+  const costCents = records.reduce((total, record) => total + record.estimatedCostCents, 0);
 
   for (const record of records) {
     const day = record.createdAt.toISOString().slice(0, 10);
@@ -213,26 +282,47 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
-    recentRecords: records.slice(0, 50).map((record) => {
+    recordsHasMore: recordsOffset + visibleRecords.length < records.length,
+    recordsLimit,
+    recordsOffset,
+    recordsTotal: records.length,
+    recentRecords: visibleRecords.map((record) => {
       const apiKeyInfo = usageApiKeyInfo(record, apiKeyNames);
 
       return {
         id: record.id,
         apiKeyLabel: apiKeyInfo?.label ?? null,
+        billingMode: record.billingMode,
+        cachedPromptTokens: record.cachedPromptTokens,
+        completionTokens: record.completionTokens,
         conversationId: record.conversationId,
         createdAt: record.createdAt.toISOString(),
+        durationMs: record.durationMs,
+        endpoint: record.endpoint || fallbackEndpoint(record),
         estimatedCostCents: record.estimatedCostCents,
+        firstTokenLatencyMs: record.firstTokenLatencyMs,
+        messageId: record.messageId,
         mode: record.mode,
         model: record.model,
+        promptTokens: record.promptTokens,
+        quotaSource: record.quotaSource,
+        reasoningEffort: record.reasoningEffort,
+        reasoningTokens: record.reasoningTokens,
+        requestKind: record.requestKind || fallbackRequestKind(record),
         surface: usageSurface(record),
         totalTokens: record.totalTokens,
         usageSource: record.usageSource
       };
     }),
     totals: {
-      costCents: records.reduce((total, record) => total + record.estimatedCostCents, 0),
+      cacheRate: promptTokens > 0 ? cachedPromptTokens / promptTokens : 0,
+      cachedPromptTokens,
+      completionTokens,
+      costCents,
+      promptTokens,
+      reasoningTokens,
       records: records.length,
-      totalTokens: records.reduce((total, record) => total + record.totalTokens, 0)
+      totalTokens
     },
     byApiKey: sortedBuckets(byApiKey),
     byDay: sortedMonthBuckets(byDay),

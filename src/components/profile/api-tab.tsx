@@ -16,7 +16,6 @@ import { apiGuideTools, apiGuideOsOptions } from "./components";
 import type { ApiGuideTool, ApiGuideOs } from "./types";
 
 const LOWIQ_API_KEY_ENV = "LOWIQ_API_KEY";
-const CODEX_MODEL_CATALOG_PATH_PLACEHOLDER = "__LOWIQ_CODEX_MODEL_CATALOG_JSON__";
 
 type ApiTabProps = {
   origin: string;
@@ -71,13 +70,11 @@ function powerShellDoubleQuote(value: string) {
 function buildCodexConfig({
   baseUrl,
   envKey = LOWIQ_API_KEY_ENV,
-  modelCatalogPath,
   model,
   siteName
 }: {
   baseUrl: string;
   envKey?: string;
-  modelCatalogPath: string;
   model: string;
   siteName: string;
 }) {
@@ -85,7 +82,6 @@ function buildCodexConfig({
     'model_provider = "lowiq"',
     `model = "${model}"`,
     `review_model = "${model}"`,
-    `model_catalog_json = "${modelCatalogPath}"`,
     'model_reasoning_effort = "high"',
     'disable_response_storage = true',
     'network_access = "enabled"',
@@ -103,93 +99,28 @@ function buildCodexConfig({
   ].join("\n");
 }
 
-function buildCodexModelCatalog(models: ChatModelView[]) {
-  return jsonConfig({
-    models: models.map((model, index) => ({
-      slug: model.id,
-      display_name: model.label || model.id,
-      description:
-        model.contextNote === "上游原生" || model.source === "upstream"
-          ? `${model.upstreamId} from this gateway`
-          : `${model.contextNote || "Chat model"} via ${model.upstreamId}`,
-      default_reasoning_level: model.supportsReasoning ? "medium" : null,
-      supported_reasoning_levels: model.supportsReasoning
-        ? [
-            {
-              effort: "low",
-              description: "Fast responses with lighter reasoning"
-            },
-            {
-              effort: "medium",
-              description: "Balanced speed and reasoning depth"
-            },
-            {
-              effort: "high",
-              description: "Deeper reasoning for complex tasks"
-            },
-            {
-              effort: "xhigh",
-              description: "Extra high reasoning depth"
-            }
-          ]
-        : [],
-      shell_type: "shell_command",
-      visibility: "list",
-      supported_in_api: true,
-      priority: index,
-      additional_speed_tiers: [],
-      service_tiers: [],
-      availability_nux: null,
-      upgrade: null,
-      base_instructions:
-        "You are Codex, a coding agent. Follow the user's request, inspect the workspace before editing, and use tools carefully.",
-      model_messages: null,
-      supports_reasoning_summaries: true,
-      default_reasoning_summary: "none",
-      support_verbosity: true,
-      default_verbosity: "low",
-      apply_patch_tool_type: "freeform",
-      web_search_tool_type: "text_and_image",
-      supports_parallel_tool_calls: true,
-      supports_image_detail_original: true,
-      context_window: model.contextWindowTokens,
-      max_context_window: model.maxContextWindowTokens || model.contextWindowTokens,
-      effective_context_window_percent: 95,
-      experimental_supported_tools: [],
-      input_modalities: ["text", "image"],
-      supports_search_tool: false
-    }))
-  });
-}
-
 function buildCodexInstallCommand({
   apiKey,
-  catalog,
   config,
   os
 }: {
   apiKey: string;
-  catalog: string;
   config: string;
   os: ApiGuideOs;
 }) {
   const encodedConfig = encodeBase64(config);
-  const encodedCatalog = encodeBase64(catalog);
 
-  if (!encodedConfig || !encodedCatalog) {
+  if (!encodedConfig) {
     return "";
   }
 
   if (os === "windows") {
     return [
       '$codexDir = Join-Path $env:USERPROFILE ".codex"',
-      '$catalogDir = Join-Path $codexDir "model-catalogs"',
-      '$catalogPath = Join-Path $catalogDir "lowiq.json"',
-      "New-Item -ItemType Directory -Force -Path $catalogDir | Out-Null",
-      `$config = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encodedConfig}")).Replace("${CODEX_MODEL_CATALOG_PATH_PLACEHOLDER}", ($catalogPath -replace "\\\\", "/"))`,
+      "New-Item -ItemType Directory -Force -Path $codexDir | Out-Null",
+      `$config = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encodedConfig}"))`,
       '$utf8 = [Text.UTF8Encoding]::new($false)',
       '[IO.File]::WriteAllText((Join-Path $codexDir "config.toml"), $config, $utf8)',
-      `[IO.File]::WriteAllText($catalogPath, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encodedCatalog}")), $utf8)`,
       `[Environment]::SetEnvironmentVariable(${powerShellDoubleQuote(LOWIQ_API_KEY_ENV)}, ${powerShellDoubleQuote(apiKey)}, "User")`,
       `$env:${LOWIQ_API_KEY_ENV} = ${powerShellDoubleQuote(apiKey)}`
     ].join("; ");
@@ -197,16 +128,11 @@ function buildCodexInstallCommand({
 
   return [
     "python3 - <<'PY'",
-    "import base64, os, pathlib",
+    "import base64, pathlib",
     `config = base64.b64decode(${JSON.stringify(encodedConfig)}).decode()`,
-    `catalog = base64.b64decode(${JSON.stringify(encodedCatalog)}).decode()`,
     'home = pathlib.Path.home() / ".codex"',
-    'catalog_dir = home / "model-catalogs"',
-    'catalog_path = catalog_dir / "lowiq.json"',
-    "catalog_dir.mkdir(parents=True, exist_ok=True)",
-    `config = config.replace(${JSON.stringify(CODEX_MODEL_CATALOG_PATH_PLACEHOLDER)}, str(catalog_path))`,
+    "home.mkdir(parents=True, exist_ok=True)",
     '(home / "config.toml").write_text(config, encoding="utf-8")',
-    'catalog_path.write_text(catalog, encoding="utf-8")',
     "PY",
     `export ${LOWIQ_API_KEY_ENV}=${shellSingleQuote(apiKey)}`
   ].join("\n");
@@ -468,20 +394,14 @@ function ApiGuideDialog({
   const hasApiKey = Boolean(apiKey);
   const keyValue = apiKey || "sk-user-在这里替换成你的 API Key";
   const primaryModel = models[0]?.id || "gpt-5.5";
-  const codexCatalogPath =
-    os === "windows"
-      ? `${CODEX_MODEL_CATALOG_PATH_PLACEHOLDER}`
-      : CODEX_MODEL_CATALOG_PATH_PLACEHOLDER;
-  const codexModelCatalog = useMemo(() => buildCodexModelCatalog(models), [models]);
   const codexConfig = useMemo(
     () =>
       buildCodexConfig({
         baseUrl,
         model: primaryModel,
-        modelCatalogPath: codexCatalogPath,
         siteName
       }),
-    [baseUrl, codexCatalogPath, primaryModel, siteName]
+    [baseUrl, primaryModel, siteName]
   );
   const codexEnvSetup = useMemo(
     () => buildCodexEnvSetup({ apiKey: keyValue, os }),
@@ -491,11 +411,10 @@ function ApiGuideDialog({
     () =>
       buildCodexInstallCommand({
         apiKey: keyValue,
-        catalog: codexModelCatalog,
         config: codexConfig,
         os
       }),
-    [codexConfig, codexModelCatalog, keyValue, os]
+    [codexConfig, keyValue, os]
   );
   const openCodeConfig = useMemo(
     () => buildOpenCodeConfig({ baseUrl, models, siteName }),
@@ -610,48 +529,10 @@ function ApiGuideDialog({
           <div className="mt-4 grid gap-4">
             {tool === "codex" ? (
               <>
-                <div className="grid gap-3 rounded-xl border border-[color:var(--app-border)] bg-white/55 p-3 text-sm text-stone-700 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-                  <div>
-                    <p className="font-semibold text-stone-950">Codex 模型目录</p>
-                    <p className="mt-1 ios-muted">
-                      一键命令会写入配置和模型目录，让 Codex 下拉显示当前启用的个人 API 模型。
-                    </p>
-                  </div>
-                  <button
-                    className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
-                    onClick={() => onDownload("lowiq-codex-models.json", codexModelCatalog)}
-                    type="button"
-                  >
-                    <Download className="size-4" />
-                    下载目录
-                  </button>
-                  <button
-                    className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
-                    disabled={!hasApiKey}
-                    onClick={() => void onCopy(codexInstallCommand, "Codex 一键安装命令已复制。")}
-                    type="button"
-                  >
-                    <Terminal className="size-4" />
-                    复制安装命令
-                  </button>
-                </div>
                 <ApiCodeBlock
-                  label={
-                    os === "windows"
-                      ? "%USERPROFILE%\\.codex\\config.toml（一键命令会替换目录路径）"
-                      : "~/.codex/config.toml（一键命令会替换目录路径）"
-                  }
+                  label={os === "windows" ? "%USERPROFILE%\\.codex\\config.toml" : "~/.codex/config.toml"}
                   onCopy={onCopy}
                   value={codexConfig}
-                />
-                <ApiCodeBlock
-                  label={
-                    os === "windows"
-                      ? "%USERPROFILE%\\.codex\\model-catalogs\\lowiq.json"
-                      : "~/.codex/model-catalogs/lowiq.json"
-                  }
-                  onCopy={onCopy}
-                  value={codexModelCatalog}
                 />
                 {hasApiKey ? (
                   <ApiCodeBlock

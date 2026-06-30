@@ -11,6 +11,7 @@ import {
   Download,
   Terminal
 } from "lucide-react";
+import { formatCents, formatNumber } from "@/lib/format";
 import type { ChatModelView, SiteSettingsView, UserApiKeyView } from "@/types/gateway";
 import { apiGuideTools, apiGuideOsOptions } from "./components";
 import type { ApiGuideTool, ApiGuideOs } from "./types";
@@ -45,6 +46,25 @@ type ApiTabProps = {
 
 function jsonConfig(value: unknown) {
   return JSON.stringify(value, null, 2);
+}
+
+function formatApiModelContext(model: ChatModelView) {
+  const tokens = model.contextWindowTokens;
+
+  if (tokens >= 1_000_000_000) {
+    return "1M";
+  }
+
+  if (tokens >= 1_000_000) {
+    const value = tokens / 1_000_000;
+    return Number.isInteger(value) ? `${value}M` : `${value.toFixed(1)}M`;
+  }
+
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}K`;
+  }
+
+  return formatNumber(tokens);
 }
 
 function encodeBase64(text: string) {
@@ -739,11 +759,36 @@ export function ApiTab({
             <div className="grid gap-2 md:grid-cols-2">
               {apiModels.map((model) => (
                 <div
-                  className="rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-3 py-2 text-sm"
+                  className="grid gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-3 py-2.5 text-sm"
                   key={model.id}
                 >
-                  <p className="min-w-0 truncate font-semibold">{model.id}</p>
-                  <p className="mt-1 text-xs ios-muted">上游 {model.upstreamId}</p>
+                  <div className="min-w-0">
+                    <p className="min-w-0 truncate font-semibold">{model.id}</p>
+                    <p className="mt-1 truncate text-xs ios-muted">
+                      上游 {model.upstreamId} · 上下文 {formatApiModelContext(model)}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <div className="rounded-md bg-white/70 px-2 py-1.5">
+                      <p className="text-[11px] ios-muted">输入</p>
+                      <p className="mt-0.5 truncate text-xs font-semibold text-stone-900">
+                        {formatCents(model.inputCentsPerMillionTokens)}
+                      </p>
+                    </div>
+                    <div className="rounded-md bg-white/70 px-2 py-1.5">
+                      <p className="text-[11px] ios-muted">缓存</p>
+                      <p className="mt-0.5 truncate text-xs font-semibold text-stone-900">
+                        {formatCents(model.cachedInputCentsPerMillionTokens)}
+                      </p>
+                    </div>
+                    <div className="rounded-md bg-white/70 px-2 py-1.5">
+                      <p className="text-[11px] ios-muted">输出</p>
+                      <p className="mt-0.5 truncate text-xs font-semibold text-stone-900">
+                        {formatCents(model.outputCentsPerMillionTokens)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] ios-muted">单位：每百万 tokens</p>
                 </div>
               ))}
             </div>

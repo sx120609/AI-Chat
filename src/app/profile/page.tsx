@@ -36,6 +36,7 @@ export default async function ProfilePage() {
       initialUsage={usage}
       initialPaymentSettings={paymentSettings}
       apiModels={getEnabledApiModels(aiSettings.chatModels)}
+      apiImageModelId={aiSettings.imageModelId}
       siteSettings={siteSettings}
     />
   );

@@ -12,6 +12,7 @@ import {
   Terminal
 } from "lucide-react";
 import { formatCents, formatNumber } from "@/lib/format";
+import { IMAGE_MODEL } from "@/lib/models";
 import type { ChatModelView, SiteSettingsView, UserApiKeyView } from "@/types/gateway";
 import { apiGuideTools, apiGuideOsOptions } from "./components";
 import type { ApiGuideTool, ApiGuideOs } from "./types";
@@ -21,6 +22,7 @@ const LOWIQ_API_KEY_ENV = "LOWIQ_API_KEY";
 type ApiTabProps = {
   origin: string;
   apiModels: ChatModelView[];
+  apiImageModelId: string;
   siteSettings: SiteSettingsView;
   canCreateApiKey: boolean;
   apiKeyName: string;
@@ -360,6 +362,41 @@ function buildClaudeRouterSetupCommand({
   return ["npm install -g @musistudio/claude-code-router", importCommand, "ccr code"].join("\n");
 }
 
+function buildImageCurlCommand({
+  apiKey,
+  baseUrl,
+  os
+}: {
+  apiKey: string;
+  baseUrl: string;
+  os: ApiGuideOs;
+}) {
+  const body = JSON.stringify({
+    model: "image2",
+    prompt: "一张赛博朋克风格的猫咪头像",
+    size: "1024x1024",
+    response_format: "b64_json"
+  });
+
+  if (os === "windows") {
+    return [
+      `curl.exe ${powerShellDoubleQuote(`${baseUrl}/images/generations`)}`,
+      "-X POST",
+      `-H ${powerShellDoubleQuote(`Authorization: Bearer ${apiKey}`)}`,
+      `-H ${powerShellDoubleQuote("Content-Type: application/json")}`,
+      `-d ${powerShellDoubleQuote(body)}`
+    ].join(" ");
+  }
+
+  return [
+    `curl ${shellSingleQuote(`${baseUrl}/images/generations`)}`,
+    "-X POST",
+    `-H ${shellSingleQuote(`Authorization: Bearer ${apiKey}`)}`,
+    `-H ${shellSingleQuote("Content-Type: application/json")}`,
+    `-d ${shellSingleQuote(body)}`
+  ].join(" \\\n  ");
+}
+
 function ApiCodeBlock({
   label,
   onCopy,
@@ -461,6 +498,10 @@ function ApiGuideDialog({
   const claudeRouterSetupCommand = useMemo(
     () => buildClaudeRouterSetupCommand({ config: claudeRouterConfig, os }),
     [claudeRouterConfig, os]
+  );
+  const imageCurlCommand = useMemo(
+    () => buildImageCurlCommand({ apiKey: keyValue, baseUrl, os }),
+    [baseUrl, keyValue, os]
   );
   const activeTool = apiGuideTools.find((item) => item.id === tool) ?? apiGuideTools[0];
 
@@ -669,6 +710,18 @@ function ApiGuideDialog({
                 />
               </>
             ) : null}
+
+            <div className="rounded-xl border border-[color:var(--app-border)] bg-white/55 p-3 text-sm text-stone-700">
+              <p className="font-semibold text-stone-950">image2 图片 API</p>
+              <p className="mt-1 ios-muted">
+                使用同一个个人 API Key，请求地址是 <code>/v1/images/generations</code>。
+              </p>
+            </div>
+            <ApiCodeBlock
+              label="image2 curl"
+              onCopy={(value) => onCopy(value, "image2 调用示例已复制。")}
+              value={imageCurlCommand}
+            />
           </div>
         </div>
       </section>
@@ -679,6 +732,7 @@ function ApiGuideDialog({
 export function ApiTab({
   origin,
   apiModels,
+  apiImageModelId,
   siteSettings,
   canCreateApiKey,
   apiKeyName,
@@ -732,10 +786,11 @@ export function ApiTab({
                 管理前缀 {origin ? `${origin}/api/v1` : "/api/v1"}
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-4">
               {[
                 ["Responses", "/responses"],
                 ["Chat", "/chat/completions"],
+                ["Images", "/images/generations"],
                 ["Models", "/models"]
               ].map(([label, path]) => (
                 <div
@@ -753,7 +808,7 @@ export function ApiTab({
             <div className="mb-2 flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-stone-950">支持的模型</h3>
               <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-semibold ios-muted">
-                {apiModels.length} 个
+                {apiModels.length + 1} 个
               </span>
             </div>
             <div className="grid gap-2 md:grid-cols-2">
@@ -791,6 +846,35 @@ export function ApiTab({
                   <p className="text-[11px] ios-muted">单位：每百万 tokens</p>
                 </div>
               ))}
+              <div className="grid gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/65 px-3 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <p className="min-w-0 truncate font-semibold">image2</p>
+                  <p className="mt-1 truncate text-xs ios-muted">
+                    上游 {apiImageModelId || "image2"} · /images/generations
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div className="rounded-md bg-white/70 px-2 py-1.5">
+                    <p className="text-[11px] ios-muted">固定</p>
+                    <p className="mt-0.5 truncate text-xs font-semibold text-stone-900">
+                      {formatCents(IMAGE_MODEL.fixedCostCents)}
+                    </p>
+                  </div>
+                  <div className="rounded-md bg-white/70 px-2 py-1.5">
+                    <p className="text-[11px] ios-muted">提示词</p>
+                    <p className="mt-0.5 truncate text-xs font-semibold text-stone-900">
+                      {formatCents(IMAGE_MODEL.promptCentsPerMillionTokens)}
+                    </p>
+                  </div>
+                  <div className="rounded-md bg-white/70 px-2 py-1.5">
+                    <p className="text-[11px] ios-muted">输出</p>
+                    <p className="mt-0.5 truncate text-xs font-semibold text-stone-900">
+                      图片
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[11px] ios-muted">固定费用 / 张，提示词单位：每百万 tokens</p>
+              </div>
             </div>
           </div>
 

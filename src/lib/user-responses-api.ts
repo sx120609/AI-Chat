@@ -2,8 +2,11 @@ import { NextRequest } from "next/server";
 import { authenticateUserApiKey } from "@/lib/user-api-keys";
 import { jsonError } from "@/lib/http";
 import {
+  DEFAULT_IMAGE_UPSTREAM_MODEL,
   estimateChatCostForModel,
+  estimateImageCostCents,
   getEnabledApiModels,
+  IMAGE_MODEL,
   type ChatModelConfig
 } from "@/lib/models";
 import {
@@ -15,6 +18,7 @@ import { resolveApiIdentityPrompt } from "@/lib/system-prompt";
 import { estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
+  generateImage,
   getAiRuntimeSettings,
   type AiRuntimeSettings,
   type UpstreamUsage
@@ -234,6 +238,75 @@ function findEnabledModel(modelId: unknown, catalog: ChatModelConfig[]) {
 
 function promptEstimateFromBody(body: Record<string, unknown>) {
   return Math.max(1, estimateTokens(JSON.stringify(body.input ?? body.messages ?? body)));
+}
+
+function promptEstimateFromImagePrompt(prompt: string) {
+  return Math.max(1, estimateTokens(prompt));
+}
+
+function normalizeImageCount(value: unknown) {
+  if (value === undefined || value === null) {
+    return 1;
+  }
+
+  const parsed = typeof value === "string" ? Number(value) : value;
+
+  if (typeof parsed !== "number" || !Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    return null;
+  }
+
+  if (parsed < 1 || parsed > 4) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function normalizeImageResponseFormat(value: unknown) {
+  return value === "b64_json" ? "b64_json" : "url";
+}
+
+function isAllowedImageModel(modelId: unknown, settings: AiRuntimeSettings) {
+  if (modelId === undefined || modelId === null || modelId === "") {
+    return true;
+  }
+
+  if (typeof modelId !== "string") {
+    return false;
+  }
+
+  const normalized = modelId.trim().toLowerCase();
+  const allowed = [
+    IMAGE_MODEL.id,
+    IMAGE_MODEL.label,
+    settings.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL
+  ].map((item) => item.toLowerCase());
+
+  return allowed.includes(normalized);
+}
+
+function imageDataItemFromUrl(imageUrl: string, responseFormat: "b64_json" | "url") {
+  if (responseFormat === "b64_json") {
+    const match = imageUrl.match(/^data:image\/[^;]+;base64,(.+)$/);
+
+    if (match?.[1]) {
+      return { b64_json: match[1] };
+    }
+  }
+
+  return { url: imageUrl };
+}
+
+function mockImageUrl(prompt: string) {
+  const escapedPrompt = prompt
+    .slice(0, 18)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0f766e"/><stop offset="0.55" stop-color="#2563eb"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/><circle cx="760" cy="260" r="140" fill="#ffffff" opacity="0.18"/><path d="M168 716c95-178 205-268 330-268 116 0 219 70 358 268H168z" fill="#ffffff" opacity="0.28"/><text x="512" y="530" font-size="54" text-anchor="middle" fill="white" font-family="Arial, sans-serif">${escapedPrompt}</text><text x="512" y="610" font-size="34" text-anchor="middle" fill="white" opacity="0.86" font-family="Arial, sans-serif">${IMAGE_MODEL.label} mock</text></svg>`;
+
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
 
 function cleanUpstreamErrorText(text: string) {
@@ -753,6 +826,21 @@ function serializeModel(model: ChatModelConfig) {
     cached_input_cents_per_million_tokens: model.cachedInputCentsPerMillionTokens,
     output_cents_per_million_tokens: model.outputCentsPerMillionTokens,
     supports_reasoning: model.supportsReasoning
+  };
+}
+
+function serializeImageModel(settings: AiRuntimeSettings) {
+  return {
+    id: IMAGE_MODEL.id,
+    object: "model",
+    created: 0,
+    owned_by: "team-ai-gateway",
+    label: IMAGE_MODEL.label,
+    upstream_id: settings.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
+    mode: "image",
+    endpoint: "/v1/images/generations",
+    fixed_cost_cents: IMAGE_MODEL.fixedCostCents,
+    prompt_cents_per_million_tokens: IMAGE_MODEL.promptCentsPerMillionTokens
   };
 }
 
@@ -1289,6 +1377,108 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   });
 }
 
+export async function handleUserImageGenerationsRequest(request: NextRequest) {
+  const requestStartedAt = Date.now();
+  const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
+
+  if (!authenticated) {
+    return jsonError("无效的 API Key，或当前账号不是 VIP 用户组。", 401);
+  }
+
+  let body: Record<string, unknown>;
+
+  try {
+    const parsed = await request.json();
+    const object = jsonObject(parsed);
+
+    if (!object) {
+      return jsonError("请求体必须是 JSON 对象。", 400);
+    }
+
+    body = object;
+  } catch {
+    return jsonError("请求体必须是有效 JSON。", 400);
+  }
+
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+
+  if (!prompt) {
+    return jsonError("图片生成请求必须包含 prompt。", 400);
+  }
+
+  const imageCount = normalizeImageCount(body.n);
+
+  if (!imageCount) {
+    return jsonError("n 必须是 1 到 4 之间的整数。", 400);
+  }
+
+  const settings = await getAiRuntimeSettings();
+
+  if (!isAllowedImageModel(body.model, settings)) {
+    return jsonError("图片模型不可用或未启用。请使用 image2。", 400);
+  }
+
+  const size = typeof body.size === "string" && body.size.trim()
+    ? body.size.trim()
+    : "1024x1024";
+  const responseFormat = normalizeImageResponseFormat(body.response_format);
+  const promptTokens = promptEstimateFromImagePrompt(prompt);
+  const estimatedCostCents = estimateImageCostCents(promptTokens) * imageCount;
+
+  try {
+    await assertQuotaAvailable(authenticated.user.id, estimatedCostCents);
+  } catch (error) {
+    if (error instanceof QuotaError) {
+      return jsonError(error.message, error.status, { usage: error.summary });
+    }
+
+    throw error;
+  }
+
+  let imageUrls: string[];
+
+  try {
+    if (settings.mockResponses) {
+      imageUrls = Array.from({ length: imageCount }, () => mockImageUrl(prompt));
+    } else {
+      try {
+        assertUpstreamConfigured(settings);
+      } catch (error) {
+        return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
+      }
+
+      imageUrls = await Promise.all(
+        Array.from({ length: imageCount }, () => generateImage(prompt, size))
+      );
+    }
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "上游生图失败。", 502);
+  }
+
+  const finishedAt = Date.now();
+  await createUsageRecordWithQuotaDebit({
+    data: {
+      userId: authenticated.user.id,
+      model: IMAGE_MODEL.id,
+      mode: "IMAGE",
+      promptTokens: promptTokens * imageCount,
+      totalTokens: promptTokens * imageCount,
+      estimatedCostCents,
+      endpoint: "/v1/images/generations",
+      requestKind: "sync",
+      billingMode: "按量",
+      usageSource: `user_api:${authenticated.apiKey.keyPrefix}:estimated`,
+      durationMs: finishedAt - requestStartedAt,
+      userAgent: usageUserAgent(request)
+    }
+  });
+
+  return Response.json({
+    created: Math.floor(finishedAt / 1000),
+    data: imageUrls.map((imageUrl) => imageDataItemFromUrl(imageUrl, responseFormat))
+  });
+}
+
 export async function handleUserModelsRequest(request: NextRequest) {
   const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
 
@@ -1300,6 +1490,9 @@ export async function handleUserModelsRequest(request: NextRequest) {
 
   return Response.json({
     object: "list",
-    data: getEnabledApiModels(settings.chatModels).map(serializeModel)
+    data: [
+      ...getEnabledApiModels(settings.chatModels).map(serializeModel),
+      serializeImageModel(settings)
+    ]
   });
 }

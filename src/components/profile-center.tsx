@@ -55,6 +55,7 @@ import { ApiTab } from "./profile/api-tab";
 
 type ProfileCenterProps = {
   apiModels: ChatModelView[];
+  apiImageModelId: string;
   initialUser: UserView;
   initialUsage: UsageSummary;
   initialPaymentSettings: PublicPaymentSettingsView;
@@ -72,6 +73,7 @@ const emptyPaymentSummary: PaymentOrderSummaryView = {
 const DEFAULT_USAGE_RECORD_PAGE_SIZE = 20;
 
 export function ProfileCenter({
+  apiImageModelId,
   apiModels,
   initialPaymentSettings,
   initialUser,
@@ -1328,6 +1330,7 @@ export function ProfileCenter({
               <ApiTab
                 origin={origin}
                 apiModels={apiModels}
+                apiImageModelId={apiImageModelId}
                 siteSettings={siteSettings}
                 canCreateApiKey={canCreateApiKey}
                 apiKeyName={apiKeyName}

@@ -20,7 +20,7 @@ import type {
   PublicPaymentSettingsView,
   ToolEventView
 } from "@/types/gateway";
-import { DEFAULT_IMAGE_SIZE } from "@/lib/models";
+import { DEFAULT_IMAGE_SIZE, supportsMaxReasoning } from "@/lib/models";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { formatPromptClock } from "@/lib/system-prompt";
 import { sanitizeIdentityLeak } from "@/lib/identity";
@@ -191,6 +191,12 @@ export function useChat({
     () => REASONING_EFFORTS_ARRAY.find((item) => item.id === reasoningEffort) ?? REASONING_EFFORTS_ARRAY[0],
     [reasoningEffort]
   );
+
+  useEffect(() => {
+    if (reasoningEffort === "max" && activeModel && !supportsMaxReasoning(activeModel)) {
+      setReasoningEffort("xhigh");
+    }
+  }, [activeModel, reasoningEffort]);
   const webSearchProvider = "duckduckgo";
   const webSearchProviderLabel = "DuckDuckGo";
   const inlineProcessMessageId = useMemo(() => {

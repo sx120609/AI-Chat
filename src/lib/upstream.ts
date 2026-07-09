@@ -10,6 +10,7 @@ import {
   imageSizeDimensions,
   normalizeImageSize,
   normalizeReasoningEffort,
+  normalizeReasoningEffortForModel,
   normalizeReasoningParamMode,
   uniqueModelIds,
   type ChatModelConfig,
@@ -625,8 +626,9 @@ export async function createResponseStream(
   const upstreamSettings = resolveUpstreamSettingsForModel(settings, selectedModel);
   assertUpstreamConfigured(upstreamSettings, selectedModel.label);
   const url = `${upstreamSettings.apiBaseUrl}/responses`;
-  const reasoningEffort = normalizeReasoningEffort(
-    options?.reasoningEffort || upstreamSettings.defaultReasoningEffort
+  const reasoningEffort = normalizeReasoningEffortForModel(
+    options?.reasoningEffort || upstreamSettings.defaultReasoningEffort,
+    selectedModel
   );
 
   const requestInit = (body: Record<string, unknown>): RequestInit => ({
@@ -728,7 +730,10 @@ export async function createResponseText(
   const upstreamSettings = resolveUpstreamSettingsForModel(settings, selectedModel);
   assertUpstreamConfigured(upstreamSettings, selectedModel.label);
   const url = `${upstreamSettings.apiBaseUrl}/responses`;
-  const reasoningEffort = normalizeReasoningEffort(upstreamSettings.defaultReasoningEffort);
+  const reasoningEffort = normalizeReasoningEffortForModel(
+    upstreamSettings.defaultReasoningEffort,
+    selectedModel
+  );
   const bodyCandidates = responseBodyVariants({
     messages,
     model: selectedModel,

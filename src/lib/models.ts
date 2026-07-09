@@ -19,6 +19,12 @@ export type ChatModelConfig = {
   supportsReasoning: boolean;
 };
 
+type ReasoningModelLike =
+  | Pick<ChatModelConfig, "id" | "label" | "upstreamId">
+  | string
+  | null
+  | undefined;
+
 export type ChatModelDisplayConfig = {
   contextNote?: string;
   label?: string;
@@ -556,6 +562,21 @@ export function normalizeReasoningEffort(value: unknown): ReasoningEffort {
   return REASONING_EFFORTS.some((item) => item.id === value)
     ? (value as ReasoningEffort)
     : DEFAULT_REASONING_EFFORT;
+}
+
+export function supportsMaxReasoning(model: ReasoningModelLike) {
+  const signature =
+    typeof model === "string"
+      ? model
+      : `${model?.id || ""} ${model?.label || ""} ${model?.upstreamId || ""}`;
+
+  return signature.toLowerCase().includes("gpt-5.6");
+}
+
+export function normalizeReasoningEffortForModel(value: unknown, model: ReasoningModelLike) {
+  const effort = normalizeReasoningEffort(value);
+
+  return effort === "max" && !supportsMaxReasoning(model) ? "xhigh" : effort;
 }
 
 export function normalizeReasoningParamMode(value: unknown): ReasoningParamMode {

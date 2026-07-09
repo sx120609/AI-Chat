@@ -40,7 +40,7 @@ import {
   getChatModel,
   isChatModel,
   normalizeImageSize,
-  normalizeReasoningEffort
+  normalizeReasoningEffortForModel
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
 import { formatPersonalizationForPrompt, parsePersonalizationSettings } from "@/lib/personalization";
@@ -976,7 +976,7 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
+  const reasoningEffort = normalizeReasoningEffortForModel(body.reasoningEffort, model);
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const securityMode = personalizationSettings.toolPreferences.securityMode;
   const fileAccessEnabled = personalizationSettings.toolPreferences.fileAnalysisEnabled;

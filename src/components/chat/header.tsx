@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { ChatModelView, ConversationSummary, ReasoningEffort, UsageSummary } from "@/types/gateway";
 import { formatCents, formatNumber, formatShortDateTime } from "@/lib/format";
+import { supportsMaxReasoning } from "@/lib/models";
 import { ChatProjectView, ContextStats } from "./types";
 
 function getModelPickerDetail(model: ChatModelView) {
@@ -92,6 +93,10 @@ const REASONING_EFFORTS_ARRAY = [
   { id: "max" as const, name: "max" }
 ];
 
+function reasoningOptionsForModel(model: ChatModelView | undefined) {
+  return REASONING_EFFORTS_ARRAY.filter((item) => item.id !== "max" || supportsMaxReasoning(model));
+}
+
 const chatHeaderIconButtonClass =
   "app-action-button app-chat-header-button grid size-10 shrink-0 place-items-center rounded-full text-[color:var(--app-ink-soft)] transition active:scale-95 disabled:opacity-70";
 const chatHeaderPillButtonClass =
@@ -159,6 +164,10 @@ function ModelReasoningPicker({
   reasoningValue: ReasoningEffort;
 }) {
   const reasoningSupported = activeModel?.supportsReasoning ?? true;
+  const reasoningOptions = reasoningOptionsForModel(activeModel);
+  const effectiveReasoningValue = reasoningOptions.some((item) => item.id === reasoningValue)
+    ? reasoningValue
+    : activeReasoningEffort.id;
   const modelLabel = activeModel?.label || modelValue || "选择模型";
   const activeReasoningLabel = getReasoningUiCopy(activeReasoningEffort.id).label;
   const [portalReady, setPortalReady] = useState(false);
@@ -222,7 +231,13 @@ function ModelReasoningPicker({
                         : "text-stone-700 hover:bg-white/62 hover:text-stone-950"
                     }`}
                     key={item.id}
-                    onClick={() => onModelChange(item.id)}
+                    onClick={() => {
+                      onModelChange(item.id);
+
+                      if (reasoningValue === "max" && !supportsMaxReasoning(item)) {
+                        onReasoningChange("xhigh");
+                      }
+                    }}
                     type="button"
                   >
                     <span className="min-w-0">
@@ -249,9 +264,9 @@ function ModelReasoningPicker({
                 <span className="text-[11px] text-stone-500">可能不会生效</span>
               ) : null}
             </div>
-            <div className="grid grid-cols-5 gap-1">
-              {REASONING_EFFORTS_ARRAY.map((item) => {
-                const selected = item.id === reasoningValue;
+            <div className={`grid gap-1 ${reasoningOptions.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+              {reasoningOptions.map((item) => {
+                const selected = item.id === effectiveReasoningValue;
                 const copy = getReasoningUiCopy(item.id);
 
                 return (
@@ -384,7 +399,12 @@ export function Header({
   setModelPickerOpen,
   startNewConversation
 }: HeaderProps) {
-  const activeReasoningEffort = REASONING_EFFORTS_ARRAY.find((item) => item.id === reasoningEffort) ?? REASONING_EFFORTS_ARRAY[0];
+  const reasoningOptions = reasoningOptionsForModel(activeModel);
+  const activeReasoningEffort =
+    reasoningOptions.find((item) => item.id === reasoningEffort) ??
+    reasoningOptions.find((item) => item.id === "xhigh") ??
+    reasoningOptions[0] ??
+    REASONING_EFFORTS_ARRAY[0];
 
   return (
     <header className="app-header-enter app-chat-header-shell relative z-30 shrink-0 px-3 pb-2 pt-[calc(0.5rem+var(--app-safe-area-top,0px))] sm:px-4 sm:py-3">

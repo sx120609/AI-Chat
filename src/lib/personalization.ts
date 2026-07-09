@@ -27,7 +27,7 @@ export type PersonalizationSettings = {
     imageGenerationEnabled: boolean;
     fileAnalysisEnabled: boolean;
     securityMode: boolean;
-    defaultReasoningEffort: "low" | "medium" | "high" | "xhigh";
+    defaultReasoningEffort: "low" | "medium" | "high" | "xhigh" | "max";
     defaultModel: string;
   };
 };
@@ -44,7 +44,7 @@ const PERSONALITIES: ChatPersonality[] = [
   "professional"
 ];
 const LEVELS: PersonalizationLevel[] = ["default", "low", "medium", "high"];
-const REASONING_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 function defaultPersonalizationSettings(): PersonalizationSettings {
   return {

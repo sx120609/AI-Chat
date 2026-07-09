@@ -338,7 +338,7 @@ async function main() {
           row,
           columns.AiSettings,
           "chatModelMapJson",
-          "{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.5-1M\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Pro\":\"gpt-5.4-pro\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}"
+          "{\"GPT-5.6-Sol\":\"gpt-5.6-sol\",\"GPT-5.6-Sol-Ultra\":\"gpt-5.6-sol-ultra\",\"GPT-5.6-Terra\":\"gpt-5.6-terra\",\"GPT-5.6-Luna\":\"gpt-5.6-luna\",\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.5-1M\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Pro\":\"gpt-5.4-pro\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}"
         ),
         chatModelDisplayJson: stringValue(row, columns.AiSettings, "chatModelDisplayJson", "{}"),
         availableModelsJson: stringValue(row, columns.AiSettings, "availableModelsJson", "[]"),

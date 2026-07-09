@@ -1,7 +1,7 @@
 export type ChatModelId = string;
 export type GatewayMode = "CHAT" | "IMAGE";
 export type ModelSource = "default" | "upstream";
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 
 export type ChatModelConfig = {
@@ -32,7 +32,8 @@ export const REASONING_EFFORTS: Array<{
   { id: "low", label: "低", shortLabel: "低" },
   { id: "medium", label: "中", shortLabel: "中" },
   { id: "high", label: "高", shortLabel: "高" },
-  { id: "xhigh", label: "超高", shortLabel: "超高" }
+  { id: "xhigh", label: "超高", shortLabel: "超高" },
+  { id: "max", label: "Max", shortLabel: "Max" }
 ];
 
 export const REASONING_PARAM_MODES: Array<{
@@ -56,6 +57,62 @@ const DEFAULT_DYNAMIC_CACHED_INPUT_CENTS_PER_MILLION = 10;
 const DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION = 500;
 
 export const CHAT_MODELS: ChatModelConfig[] = [
+  {
+    id: "GPT-5.6-Sol",
+    label: "GPT-5.6 Sol",
+    upstreamId: "gpt-5.6-sol",
+    inputCentsPerMillionTokens: 500,
+    cachedInputCentsPerMillionTokens: 50,
+    outputCentsPerMillionTokens: 3000,
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+    contextNote: "Sol",
+    source: "default",
+    enabled: true,
+    supportsReasoning: true
+  },
+  {
+    id: "GPT-5.6-Sol-Ultra",
+    label: "GPT-5.6 Sol Ultra",
+    upstreamId: "gpt-5.6-sol-ultra",
+    inputCentsPerMillionTokens: 500,
+    cachedInputCentsPerMillionTokens: 50,
+    outputCentsPerMillionTokens: 3000,
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+    contextNote: "Ultra",
+    source: "default",
+    enabled: false,
+    supportsReasoning: true
+  },
+  {
+    id: "GPT-5.6-Terra",
+    label: "GPT-5.6 Terra",
+    upstreamId: "gpt-5.6-terra",
+    inputCentsPerMillionTokens: 250,
+    cachedInputCentsPerMillionTokens: 25,
+    outputCentsPerMillionTokens: 1500,
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+    contextNote: "Terra",
+    source: "default",
+    enabled: true,
+    supportsReasoning: true
+  },
+  {
+    id: "GPT-5.6-Luna",
+    label: "GPT-5.6 Luna",
+    upstreamId: "gpt-5.6-luna",
+    inputCentsPerMillionTokens: 100,
+    cachedInputCentsPerMillionTokens: 10,
+    outputCentsPerMillionTokens: 600,
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+    contextNote: "Luna",
+    source: "default",
+    enabled: false,
+    supportsReasoning: true
+  },
   {
     id: "GPT-5.5",
     label: "GPT-5.5",

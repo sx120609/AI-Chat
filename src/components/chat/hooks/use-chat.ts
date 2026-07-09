@@ -2686,5 +2686,6 @@ const REASONING_EFFORTS_ARRAY = [
   { id: "low" as const, name: "low" },
   { id: "medium" as const, name: "medium" },
   { id: "high" as const, name: "high" },
-  { id: "xhigh" as const, name: "xhigh" }
+  { id: "xhigh" as const, name: "xhigh" },
+  { id: "max" as const, name: "max" }
 ];

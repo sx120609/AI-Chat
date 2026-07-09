@@ -247,6 +247,7 @@ export function reasoningEffortLabel(value: string) {
   const labels: Record<string, string> = {
     high: "High",
     low: "Low",
+    max: "Max",
     medium: "Medium",
     xhigh: "XHigh"
   };

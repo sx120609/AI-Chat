@@ -42,6 +42,10 @@ function getReasoningUiCopy(id: ReasoningEffort) {
     return { label: "最强", hint: "难题" };
   }
 
+  if (id === "max") {
+    return { label: "Max", hint: "Sol" };
+  }
+
   return { label: "均衡", hint: "默认" };
 }
 
@@ -52,7 +56,7 @@ function commonContextTokensForModel(model: ChatModelView | undefined, fallbackT
     return 400_000;
   }
 
-  if (signature.includes("gpt-5.5") || signature.includes("gpt-5.4")) {
+  if (signature.includes("gpt-5.6") || signature.includes("gpt-5.5") || signature.includes("gpt-5.4")) {
     return 1_000_000;
   }
 
@@ -84,7 +88,8 @@ const REASONING_EFFORTS_ARRAY = [
   { id: "low" as const, name: "low" },
   { id: "medium" as const, name: "medium" },
   { id: "high" as const, name: "high" },
-  { id: "xhigh" as const, name: "xhigh" }
+  { id: "xhigh" as const, name: "xhigh" },
+  { id: "max" as const, name: "max" }
 ];
 
 const chatHeaderIconButtonClass =
@@ -244,7 +249,7 @@ function ModelReasoningPicker({
                 <span className="text-[11px] text-stone-500">可能不会生效</span>
               ) : null}
             </div>
-            <div className="grid grid-cols-4 gap-1">
+            <div className="grid grid-cols-5 gap-1">
               {REASONING_EFFORTS_ARRAY.map((item) => {
                 const selected = item.id === reasoningValue;
                 const copy = getReasoningUiCopy(item.id);

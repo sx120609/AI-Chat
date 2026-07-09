@@ -25,7 +25,7 @@ function commonContextTokensForModel(model: ChatModelView) {
     return 400_000;
   }
 
-  if (signature.includes("gpt-5.5") || signature.includes("gpt-5.4")) {
+  if (signature.includes("gpt-5.6") || signature.includes("gpt-5.5") || signature.includes("gpt-5.4")) {
     return 1_000_000;
   }
 

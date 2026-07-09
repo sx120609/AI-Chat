@@ -407,7 +407,7 @@ export function Header({
     REASONING_EFFORTS_ARRAY[0];
 
   return (
-    <header className="app-header-enter app-chat-header-shell relative z-30 shrink-0 px-3 pb-2 pt-[calc(0.5rem+var(--app-safe-area-top,0px))] sm:px-4 sm:py-3">
+    <header className="chat-topbar app-header-enter app-chat-header-shell relative z-30 shrink-0 px-3 pb-2 pt-[calc(0.5rem+var(--app-safe-area-top,0px))] sm:px-4 sm:py-3">
       {!desktopSidebarOpen ? (
         <button
           aria-expanded={desktopSidebarOpen}

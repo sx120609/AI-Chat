@@ -453,16 +453,20 @@ export const MessageBubble = memo(function MessageBubble({
   const modelTitle = isUser ? "" : getMessageModelTitle(message, modelLabelById);
 
   return (
-    <div className={`app-message flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`chat-message app-message flex ${
+        isUser ? "chat-message-user justify-end" : "chat-message-assistant justify-start"
+      }`}
+    >
       <div
-        className={`${
+        className={`chat-message-frame ${
           isUser
             ? "flex max-w-[min(680px,86%)] flex-col items-end"
             : "min-w-0 w-full max-w-[760px]"
         }`}
       >
         <div
-          className={`${
+          className={`chat-message-surface ${
             isUser
               ? "max-w-full break-words rounded-2xl bg-[color:var(--claude-accent)] px-4 py-3 text-white shadow-sm"
               : "min-w-0 w-full px-1 py-1 text-stone-900"

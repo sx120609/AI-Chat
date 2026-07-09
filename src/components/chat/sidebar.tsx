@@ -154,6 +154,7 @@ type SidebarProps = {
   sharingConversationId: string | null;
   shareConversation: (conversation: ConversationSummary) => Promise<void>;
   requestDeleteConversation: (conversation: ConversationSummary) => void;
+  experience?: "classic" | "beta";
 };
 
 export function Sidebar({
@@ -183,7 +184,8 @@ export function Sidebar({
   beginRenameConversation,
   sharingConversationId,
   shareConversation,
-  requestDeleteConversation
+  requestDeleteConversation,
+  experience = "classic"
 }: SidebarProps) {
   const groupedConversations = useMemo(() => groupConversations(conversations), [conversations]);
   const sidebarHeaderButtonClass =
@@ -191,14 +193,25 @@ export function Sidebar({
 
   return (
     <>
-      <div className="border-b border-[color:var(--ios-separator)] p-4 max-lg:border-b-0 max-lg:px-0 max-lg:pb-3 max-lg:pt-[calc(1rem+var(--app-safe-area-top,0px))]">
+      <div className="chat-sidebar-brand border-b border-[color:var(--ios-separator)] p-4 max-lg:border-b-0 max-lg:px-0 max-lg:pb-3 max-lg:pt-[calc(1rem+var(--app-safe-area-top,0px))]">
         <div className="flex items-center justify-between gap-3 max-lg:px-5 max-lg:pr-16">
           <div className="flex min-w-0 items-center gap-2">
             <SiteLogo className="hidden size-8 shrink-0 lg:block" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-stone-800 max-lg:text-[1.65rem] max-lg:font-bold max-lg:leading-9">
-                {siteSettings.siteName}
-              </p>
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 truncate text-sm font-semibold text-stone-800 max-lg:text-[1.65rem] max-lg:font-bold max-lg:leading-9">
+                  {siteSettings.siteName}
+                </p>
+                {experience === "beta" ? (
+                  <a
+                    className="beta-release-pill shrink-0"
+                    href="/chat"
+                    title="返回经典版"
+                  >
+                    BETA
+                  </a>
+                ) : null}
+              </div>
               <p className="mt-1 truncate text-xs ios-muted max-lg:hidden">{user.email}</p>
             </div>
           </div>
@@ -236,6 +249,7 @@ export function Sidebar({
           <label className="app-glass-control flex h-9 items-center gap-2 rounded-xl px-2.5 text-sm text-stone-700 max-lg:h-11 max-lg:rounded-2xl max-lg:px-3.5">
             <Search className="size-4 shrink-0 text-stone-400" />
             <input
+              aria-label="搜索聊天"
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 max-lg:text-[15px]"
               onChange={(event) => setConversationSearch(event.target.value)}
               placeholder="搜索聊天"
@@ -265,6 +279,7 @@ export function Sidebar({
           <label className="app-glass-control flex h-11 min-w-0 items-center gap-2 rounded-2xl px-3.5 text-[15px] font-semibold text-stone-700">
             <Search className="size-4 shrink-0 text-stone-400" />
             <input
+              aria-label="搜索聊天"
               className="min-w-0 flex-1 bg-transparent text-[15px] font-semibold outline-none placeholder:text-stone-400"
               onChange={(event) => setConversationSearch(event.target.value)}
               placeholder="搜索聊天"
@@ -284,7 +299,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="hidden border-b border-white/40 p-2.5 lg:block lg:p-4">
+      <div className="chat-sidebar-usage hidden border-b border-white/40 p-2.5 lg:block lg:p-4">
         <UsageBars
           onRecharge={() => setPaymentDialogOpen(true)}
           paymentEnabled={paymentEnabled}
@@ -304,7 +319,7 @@ export function Sidebar({
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-5 max-lg:pb-20 max-lg:pt-1">
+      <div className="chat-sidebar-scroll min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-5 max-lg:pb-20 max-lg:pt-1">
         {groupedConversations.length === 0 ? (
           <div className="px-3 py-8 text-center text-xs leading-5 ios-muted">
             {conversationSearch.trim() ? "没有找到匹配的聊天。" : "暂无会话。"}
@@ -325,13 +340,14 @@ export function Sidebar({
 
                 return (
                   <div
-                    className={`app-list-row group relative flex items-center gap-2 rounded-xl px-2 py-2.5 transition lg:rounded-lg lg:py-2 ${
+                    className={`chat-conversation-row app-list-row group relative flex items-center gap-2 rounded-xl px-2 py-2.5 transition lg:rounded-lg lg:py-2 ${
                       menuOpen ? "z-30" : "z-0"
                     } ${
                       active
                         ? "border border-white/45 bg-white/48 text-stone-950 shadow-[0_10px_30px_rgba(18,42,35,0.08),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl"
                         : "border border-transparent text-stone-700 hover:border-white/40 hover:bg-white/35 hover:shadow-[0_10px_28px_rgba(18,42,35,0.07)] hover:backdrop-blur-xl"
                     }`}
+                    data-active={active ? "true" : "false"}
                     key={conversation.id}
                   >
                     {renaming ? (
@@ -359,6 +375,7 @@ export function Sidebar({
                       </form>
                     ) : (
                       <button
+                        aria-current={active ? "page" : undefined}
                         className="min-w-0 flex-1 text-left"
                         onClick={() => openConversation(conversation.id)}
                         type="button"
@@ -453,7 +470,7 @@ export function Sidebar({
         ))}
       </div>
 
-      <div className="m-3 hidden gap-2 lg:grid">
+      <div className="chat-sidebar-footer m-3 hidden gap-2 lg:grid">
         <a
           className="app-action-button app-glass-control flex h-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-stone-700 transition"
           href="/profile"

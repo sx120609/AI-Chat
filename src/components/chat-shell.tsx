@@ -24,6 +24,12 @@ import { ComposerInputArea } from "./chat/composer-input";
 import { EasyPayDialog } from "./chat/easy-pay-dialog";
 import { AttachmentChip, ProcessTimelinePanel } from "./chat/message-bubble";
 
+export type ChatExperience = "classic" | "beta";
+
+type ChatShellComponentProps = ChatShellProps & {
+  experience?: ChatExperience;
+};
+
 function ShareNoticeToast({
   notice,
   onCopy,
@@ -105,7 +111,7 @@ function ShareNoticeToast({
   );
 }
 
-export function ChatShell(props: ChatShellProps) {
+export function ChatShell({ experience = "classic", ...props }: ChatShellComponentProps) {
   const {
     user,
     siteSettings,
@@ -227,14 +233,32 @@ export function ChatShell(props: ChatShellProps) {
     continueGeneratingHandler,
     sendHandler,
     stopGenerationHandler,
+    setComposerText,
     securityModeDefault
   } = useChat(props);
 
+  useEffect(() => {
+    if (experience !== "beta") {
+      return;
+    }
+
+    document.documentElement.classList.add("beta-experience");
+
+    return () => {
+      document.documentElement.classList.remove("beta-experience");
+    };
+  }, [experience]);
+
   return (
     <>
-      <main className="ios-page app-shell app-route-enter flex text-stone-950">
+      <main
+        className={`ios-page app-shell app-route-enter flex text-stone-950 ${
+          experience === "beta" ? "beta-shell" : ""
+        }`}
+        data-experience={experience}
+      >
       <aside
-        className={`ios-glass app-glass-sidebar app-sidebar-sheet hidden h-full w-80 shrink-0 border-r border-white/40 ${
+        className={`chat-sidebar ios-glass app-glass-sidebar app-sidebar-sheet hidden h-full w-80 shrink-0 border-r border-white/40 ${
           desktopSidebarOpen ? "lg:flex lg:flex-col" : "lg:hidden"
         }`}
       >
@@ -266,6 +290,7 @@ export function ChatShell(props: ChatShellProps) {
           sharingConversationId={sharingConversationId}
           shareConversation={shareConversation}
           requestDeleteConversation={requestDeleteConversation}
+          experience={experience}
         />
       </aside>
 
@@ -277,7 +302,7 @@ export function ChatShell(props: ChatShellProps) {
             onClick={() => setMobileSidebarOpen(false)}
             type="button"
           />
-          <aside className="ios-glass app-sidebar-sheet absolute inset-0 flex flex-col text-stone-950 shadow-none">
+          <aside className="chat-sidebar ios-glass app-sidebar-sheet absolute inset-0 flex flex-col text-stone-950 shadow-none">
             <button
               className="app-action-button absolute right-5 top-[calc(1rem+var(--app-safe-area-top,0px))] z-20 grid size-10 place-items-center rounded-full border border-white/50 bg-white/45 text-[color:var(--app-ink-soft)] shadow-[0_12px_34px_rgba(18,42,35,0.12),inset_0_1px_0_rgba(255,255,255,0.72)] backdrop-blur-xl transition active:scale-95"
               onClick={() => setMobileSidebarOpen(false)}
@@ -314,13 +339,14 @@ export function ChatShell(props: ChatShellProps) {
               sharingConversationId={sharingConversationId}
               shareConversation={shareConversation}
               requestDeleteConversation={requestDeleteConversation}
+              experience={experience}
             />
           </aside>
         </div>
       ) : null}
 
       <section
-        className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+        className="chat-stage relative flex min-h-0 min-w-0 flex-1 flex-col"
         onDragEnter={handleFileDragEnter}
         onDragLeave={handleFileDragLeave}
         onDragOver={handleFileDragOver}
@@ -392,9 +418,11 @@ export function ChatShell(props: ChatShellProps) {
           editMessageHandler={editMessageHandler}
           editImageHandler={editImageHandler}
           regenerateMessageHandler={regenerateMessageHandler}
+          experience={experience}
+          onPromptSelect={(prompt) => setComposerText(prompt, true)}
         />
 
-        <footer className="shrink-0 border-t border-[color:var(--ios-separator)] bg-[color:var(--app-surface)] px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
+        <footer className="chat-composer-dock shrink-0 border-t border-[color:var(--ios-separator)] bg-[color:var(--app-surface)] px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur sm:border-0 sm:bg-transparent sm:px-6 sm:pb-6 sm:pt-0 sm:backdrop-blur-none">
           <div className="mx-auto max-w-3xl">
             {imageGenerationAvailable && imageToolEnabled ? (
               <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
@@ -427,18 +455,28 @@ export function ChatShell(props: ChatShellProps) {
                 status={streamStatus}
               />
             ) : streamStatus ? (
-              <div className="app-status-pill app-glass-control mb-3 flex items-center gap-2 rounded-full px-3 py-1 text-xs text-stone-600">
+              <div
+                aria-live="polite"
+                className="app-status-pill app-glass-control mb-3 flex items-center gap-2 rounded-full px-3 py-1 text-xs text-stone-600"
+                role="status"
+              >
                 {loading ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 <span>{streamStatus}</span>
               </div>
             ) : null}
             {error && error.trim() && !error.toLowerCase().includes("network error") && !error.toLowerCase().includes("gateway") ? (
-              <div className="app-inline-alert mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <div
+                className="app-inline-alert mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                role="alert"
+              >
                 {error}
               </div>
             ) : null}
             {quotaBlocked ? (
-              <div className="app-inline-alert mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <div
+                className="app-inline-alert mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                role="alert"
+              >
                 额度不足，请充值 AI 点数或联系管理员。
               </div>
             ) : null}
@@ -490,7 +528,7 @@ export function ChatShell(props: ChatShellProps) {
                 ))}
               </div>
             ) : null}
-            <div className="ios-panel app-glass-panel claude-composer app-composer flex min-h-11 items-center gap-1.5 px-1.5 py-0.5 sm:gap-2 sm:px-2">
+            <div className="chat-composer-surface ios-panel app-glass-panel claude-composer app-composer flex min-h-11 items-center gap-1.5 px-1.5 py-0.5 sm:gap-2 sm:px-2">
               <input
                 className="hidden"
                 multiple

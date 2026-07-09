@@ -7,6 +7,14 @@ import { LoginForm } from "@/components/login-form";
 import { SiteLogo } from "@/components/site-logo";
 import { getSiteSettings } from "@/lib/site-settings";
 
+type LoginPageProps = {
+  searchParams: Promise<{ next?: string | string[] }>;
+};
+
+function safeNextPath(value: string | string[] | undefined): "/chat" | "/beta" {
+  return value === "/beta" ? "/beta" : "/chat";
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   const siteSettings = await getSiteSettings();
 
@@ -15,11 +23,13 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+  const nextPath = safeNextPath(params.next);
   const user = await getCurrentUser();
 
   if (user) {
-    redirect("/chat");
+    redirect(nextPath);
   }
 
   const siteSettings = await getSiteSettings();
@@ -40,7 +50,7 @@ export default async function LoginPage() {
             {authSettings.registrationEnabled ? "登录或注册" : "登录"}
           </h1>
         </div>
-        <LoginForm authSettings={authSettings} />
+        <LoginForm authSettings={authSettings} nextPath={nextPath} />
       </div>
     </main>
   );

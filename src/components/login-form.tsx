@@ -7,11 +7,12 @@ import type { PublicAuthSettingsView } from "@/types/gateway";
 
 type LoginFormProps = {
   authSettings: PublicAuthSettingsView;
+  nextPath?: "/chat" | "/beta";
 };
 
 type AuthMode = "forgot" | "login" | "register";
 
-export function LoginForm({ authSettings }: LoginFormProps) {
+export function LoginForm({ authSettings, nextPath = "/chat" }: LoginFormProps) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -76,7 +77,7 @@ export function LoginForm({ authSettings }: LoginFormProps) {
       }
     }
 
-    window.location.href = "/chat";
+    window.location.href = nextPath;
   }
 
   async function resendVerification() {

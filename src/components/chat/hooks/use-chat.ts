@@ -2683,7 +2683,8 @@ export function useChat({
     regenerateMessageHandler,
     continueGeneratingHandler,
     sendHandler,
-    stopGenerationHandler
+    stopGenerationHandler,
+    setComposerText
   };
 }
 

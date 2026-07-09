@@ -153,6 +153,7 @@ export const ComposerInputArea = memo(function ComposerInputArea({
             </button>
           ) : null}
           <textarea
+            aria-label="消息输入"
             className={`block min-h-9 w-full min-w-0 resize-none bg-transparent px-2 py-1.5 text-base leading-6 text-stone-950 outline-none placeholder:text-stone-400 sm:text-sm ${
               fullscreenButtonVisible ? "pr-10" : ""
             }`}
@@ -193,6 +194,7 @@ export const ComposerInputArea = memo(function ComposerInputArea({
                   </button>
                 </header>
                 <textarea
+                  aria-label="全屏消息输入"
                   className="min-h-0 flex-1 resize-none bg-transparent px-4 py-4 text-base leading-7 text-stone-950 outline-none placeholder:text-stone-400"
                   disabled={composerDisabled}
                   onChange={(event) => setDraft(event.target.value)}

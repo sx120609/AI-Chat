@@ -36,6 +36,10 @@ export type SettingsForm = {
   apiBaseUrl: string;
   apiKey: string;
   orgId: string;
+  gpt54ProApiBaseUrl: string;
+  gpt54ProApiKey: string;
+  gpt54ProOrgId: string;
+  clearGpt54ProApiKey: boolean;
   mockResponses: boolean;
   clearApiKey: boolean;
   chatModelMap: Record<string, string>;

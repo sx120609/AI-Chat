@@ -51,6 +51,10 @@ type SettingsBody = {
   apiKey?: string;
   clearApiKey?: boolean;
   orgId?: string;
+  gpt54ProApiBaseUrl?: string;
+  gpt54ProApiKey?: string;
+  clearGpt54ProApiKey?: boolean;
+  gpt54ProOrgId?: string;
   mockResponses?: boolean;
   chatModelMap?: Record<string, string>;
   chatModelDisplay?: Record<string, ChatModelDisplayConfig>;
@@ -112,6 +116,9 @@ function serializeSettings(settings: {
   apiBaseUrl: string;
   apiKey: string | null;
   orgId: string | null;
+  gpt54ProApiBaseUrl: string;
+  gpt54ProApiKey: string | null;
+  gpt54ProOrgId: string | null;
   mockResponses: boolean;
   chatModelMapJson: string;
   chatModelDisplayJson: string;
@@ -171,6 +178,10 @@ function serializeSettings(settings: {
     hasApiKey: Boolean(settings.apiKey),
     apiKeyPreview: maskKey(settings.apiKey),
     orgId: settings.orgId || "",
+    gpt54ProApiBaseUrl: settings.gpt54ProApiBaseUrl || "",
+    gpt54ProHasApiKey: Boolean(settings.gpt54ProApiKey),
+    gpt54ProApiKeyPreview: maskKey(settings.gpt54ProApiKey),
+    gpt54ProOrgId: settings.gpt54ProOrgId || "",
     mockResponses: settings.mockResponses,
     chatModelMap,
     chatModelDisplay,
@@ -297,6 +308,10 @@ function normalizeBaseUrl(value: string | undefined) {
   }
 }
 
+function normalizeOptionalBaseUrl(value: string | undefined) {
+  return value?.trim() ? normalizeBaseUrl(value) : "";
+}
+
 function normalizeCodeInterpreterSandbox(value: string | undefined) {
   const sandbox = value?.trim() || "docker";
 
@@ -353,6 +368,9 @@ export async function GET(request: NextRequest) {
       apiBaseUrl: process.env.AI_API_BASE_URL || "https://api.openai.com/v1",
       apiKey: process.env.AI_API_KEY || null,
       orgId: process.env.AI_ORG_ID || null,
+      gpt54ProApiBaseUrl: process.env.AI_GPT54_PRO_API_BASE_URL || "",
+      gpt54ProApiKey: process.env.AI_GPT54_PRO_API_KEY || null,
+      gpt54ProOrgId: process.env.AI_GPT54_PRO_ORG_ID || null,
       mockResponses: process.env.AI_MOCK_RESPONSES === "true",
       chatModelMapJson: JSON.stringify(DEFAULT_UPSTREAM_MODEL_MAP),
       chatModelDisplayJson: "{}",
@@ -436,10 +454,12 @@ export async function PATCH(request: NextRequest) {
   let apiBaseUrl: string;
   let codeInterpreterPipIndexUrl: string;
   let codeInterpreterSandbox: string;
+  let gpt54ProApiBaseUrl: string;
   let siteUrl: string;
 
   try {
     apiBaseUrl = normalizeBaseUrl(body.apiBaseUrl);
+    gpt54ProApiBaseUrl = normalizeOptionalBaseUrl(body.gpt54ProApiBaseUrl);
     codeInterpreterSandbox = normalizeCodeInterpreterSandbox(body.codeInterpreterSandbox);
     codeInterpreterPipIndexUrl = normalizePipIndexUrl(body.codeInterpreterPipIndexUrl);
     siteUrl = normalizeSiteUrl(body.siteUrl);
@@ -453,6 +473,11 @@ export async function PATCH(request: NextRequest) {
   const existingSettings = await prisma.aiSettings.findUnique({
     where: { id: "default" }
   });
+  const nextGpt54ProApiKey = body.clearGpt54ProApiKey
+    ? null
+    : typeof body.gpt54ProApiKey === "string" && body.gpt54ProApiKey.trim()
+      ? body.gpt54ProApiKey.trim()
+      : existingSettings?.gpt54ProApiKey || null;
   const nextSmtpPassword = body.clearSmtpPassword
     ? null
     : typeof body.smtpPassword === "string" && body.smtpPassword.trim()
@@ -521,6 +546,9 @@ export async function PATCH(request: NextRequest) {
     apiBaseUrl: string;
     apiKey?: string | null;
     orgId: string | null;
+    gpt54ProApiBaseUrl: string;
+    gpt54ProApiKey?: string | null;
+    gpt54ProOrgId: string | null;
     mockResponses: boolean;
     chatModelMapJson: string;
     chatModelDisplayJson: string;
@@ -566,6 +594,9 @@ export async function PATCH(request: NextRequest) {
     siteUrl,
     apiBaseUrl,
     orgId: body.orgId?.trim() || null,
+    gpt54ProApiBaseUrl,
+    gpt54ProApiKey: nextGpt54ProApiKey,
+    gpt54ProOrgId: body.gpt54ProOrgId?.trim() || null,
     mockResponses: Boolean(body.mockResponses),
     chatModelMapJson: JSON.stringify(normalizeModelMap(body.chatModelMap)),
     chatModelDisplayJson: "{}",

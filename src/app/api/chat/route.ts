@@ -57,6 +57,7 @@ import {
   createResponseStream,
   generateImage,
   getAiRuntimeSettings,
+  resolveUpstreamSettingsForModel,
   uploadResponseFile,
   type AiRuntimeSettings,
   type UpstreamMessage,
@@ -933,17 +934,6 @@ export async function POST(request: NextRequest) {
 
   const aiSettings = await getAiRuntimeSettings();
   const rawFileUploadCache = new Map<string, string>();
-  const rawFileUploadOptions: RawFileUploadOptions = {
-    settings: aiSettings,
-    signal: request.signal,
-    uploadCache: rawFileUploadCache
-  };
-
-  try {
-    assertUpstreamConfigured(aiSettings);
-  } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
-  }
 
   const requestedProjectId =
     typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
@@ -971,6 +961,19 @@ export async function POST(request: NextRequest) {
   }
 
   const model = getChatModel(requestedModel, aiSettings.chatModels);
+  const modelUpstreamSettings = resolveUpstreamSettingsForModel(aiSettings, model);
+  const rawFileUploadOptions: RawFileUploadOptions = {
+    settings: modelUpstreamSettings,
+    signal: request.signal,
+    uploadCache: rawFileUploadCache
+  };
+
+  try {
+    assertUpstreamConfigured(modelUpstreamSettings, model.label);
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
+  }
+
   const reasoningEffort = normalizeReasoningEffort(body.reasoningEffort);
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const securityMode = personalizationSettings.toolPreferences.securityMode;

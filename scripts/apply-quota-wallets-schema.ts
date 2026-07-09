@@ -16,7 +16,10 @@ const statements = [
   'ALTER TABLE "User" ALTER COLUMN "monthlyCostLimitCents" SET DEFAULT 0',
   'ALTER TABLE "UsageRecord" ADD COLUMN IF NOT EXISTS "subscriptionCostCents" DOUBLE PRECISION NOT NULL DEFAULT 0',
   'ALTER TABLE "UsageRecord" ADD COLUMN IF NOT EXISTS "aiPointsCostCents" DOUBLE PRECISION NOT NULL DEFAULT 0',
-  'ALTER TABLE "UsageRecord" ADD COLUMN IF NOT EXISTS "quotaSource" TEXT NOT NULL DEFAULT \'MONTHLY_SUBSCRIPTION\''
+  'ALTER TABLE "UsageRecord" ADD COLUMN IF NOT EXISTS "quotaSource" TEXT NOT NULL DEFAULT \'MONTHLY_SUBSCRIPTION\'',
+  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "gpt54ProApiBaseUrl" TEXT NOT NULL DEFAULT \'\'',
+  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "gpt54ProApiKey" TEXT',
+  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "gpt54ProOrgId" TEXT'
 ];
 
 async function main() {
@@ -39,7 +42,7 @@ async function main() {
     await client.end();
   }
 
-  console.log("Applied quota wallet schema additions.");
+  console.log("Applied quota wallet and model upstream schema additions.");
 }
 
 main().catch((error) => {

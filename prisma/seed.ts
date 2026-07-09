@@ -70,6 +70,10 @@ async function main() {
       apiBaseUrl: process.env.AI_API_BASE_URL || existingSettings?.apiBaseUrl,
       apiKey: process.env.AI_API_KEY || existingSettings?.apiKey,
       orgId: process.env.AI_ORG_ID || existingSettings?.orgId,
+      gpt54ProApiBaseUrl:
+        process.env.AI_GPT54_PRO_API_BASE_URL || existingSettings?.gpt54ProApiBaseUrl || "",
+      gpt54ProApiKey: process.env.AI_GPT54_PRO_API_KEY || existingSettings?.gpt54ProApiKey,
+      gpt54ProOrgId: process.env.AI_GPT54_PRO_ORG_ID || existingSettings?.gpt54ProOrgId,
       mockResponses:
         process.env.AI_MOCK_RESPONSES === undefined
           ? existingSettings?.mockResponses
@@ -181,6 +185,9 @@ async function main() {
       apiBaseUrl: process.env.AI_API_BASE_URL || "https://api.openai.com/v1",
       apiKey: process.env.AI_API_KEY || null,
       orgId: process.env.AI_ORG_ID || null,
+      gpt54ProApiBaseUrl: process.env.AI_GPT54_PRO_API_BASE_URL || "",
+      gpt54ProApiKey: process.env.AI_GPT54_PRO_API_KEY || null,
+      gpt54ProOrgId: process.env.AI_GPT54_PRO_ORG_ID || null,
       mockResponses: process.env.AI_MOCK_RESPONSES === "true",
       chatModelMapJson: JSON.stringify(DEFAULT_UPSTREAM_MODEL_MAP),
       chatModelDisplayJson: "{}",

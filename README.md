@@ -8,7 +8,7 @@
 - 个人中心：昵称、密码、个人 AI 风格和个人 API Key 管理
 - 类 ChatGPT 聊天界面，支持服务端流式输出
 - 会话与消息历史持久化
-- 模型选择：`GPT-5.5`、`GPT-5.5-1M`、`GPT-5.4`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
+- 模型选择：`GPT-5.5`、`GPT-5.4`、`GPT-5.4-Pro`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
 - 管理员可从上游 `/models` 自动刷新模型，并启用/停用聊天模型
 - 聊天页支持推理强度选择：低、中、高、超高
 - 支持全局和模型专属系统提示词，用于修正 Sub2API 后端透出的 Codex CLI 等身份设定
@@ -21,6 +21,7 @@
 - 预留代码解释器式沙箱配置；当前聊天不会自动用轻量模型生成代码分析附件
 - 可选服务端联网搜索：管理员允许后，后端会先规划是否需要搜索，用户也可为单次消息强制开启，回答保留来源卡片
 - 管理后台可设置站点名称、站点地址、API Base URL、API Key、Org ID 和 Mock 模式
+- `GPT-5.4-Pro` 支持单独配置专用中转站（Base URL、API Key、Org ID），网页聊天和个人 Responses API 调用该模型时会走专用上游 `/responses`
 - 用户级月订阅额度 + AI 点数余额，费用按模型输入/输出 token 单价估算
 - 超额前置拦截，超额后禁止继续调用
 - 可选易支付 AI 点数充值，支持支付宝/微信支付、异步回调验签和到账幂等处理
@@ -122,6 +123,9 @@ CACHE_ENABLED="true"
 AUTH_SECRET="change-me-to-a-long-random-secret"
 AI_API_KEY=""
 AI_API_BASE_URL="https://api.openai.com/v1"
+AI_GPT54_PRO_API_KEY=""
+AI_GPT54_PRO_API_BASE_URL=""
+AI_GPT54_PRO_ORG_ID=""
 AI_MOCK_RESPONSES="false"
 SITE_NAME="Team AI Gateway"
 SITE_URL=""
@@ -155,6 +159,8 @@ ADMIN_NAME="管理员"
 Redis 是默认缓存依赖。`deploy.sh` 会先检测 `.env` 里的 `REDIS_URL` 是否可连接；可连接时直接复用现有 Redis，不会强制重启 `redis-server.service`。如果不需要 Redis 缓存，可以设置 `CACHE_ENABLED="false"`。后端会缓存 AI 运行设置、站点设置和短 TTL 用量摘要；发消息前的额度校验仍强制刷新数据库，避免缓存导致超额放行。Redis 连接失败时应用会短暂退避并继续运行，避免每个请求都重复撞失败连接。可选调优项包括 `REDIS_FAILURE_BACKOFF_MS`、`CACHE_MEMORY_MAX_ENTRIES`、`CACHE_MEMORY_MAX_TTL_SECONDS` 和 `CACHE_MEMORY_READ_TTL_SECONDS`。
 
 `AI_API_BASE_URL` 可指向任何 OpenAI-compatible 的自定义接口地址，例如 `https://your-gateway.example.com/v1`。推荐在管理后台配置；前端只会看到是否已设置 Key 和 Key 尾号，不会拿到完整 Key。
+
+`AI_GPT54_PRO_API_BASE_URL`、`AI_GPT54_PRO_API_KEY`、`AI_GPT54_PRO_ORG_ID` 是 `GPT-5.4-Pro` 的专用上游兜底配置，也可以在管理后台的“接入”页填写。完全留空时 `GPT-5.4-Pro` 会回退主中转站；填写专用字段后，网页聊天和个人 `/v1/responses` 会将该模型请求发往专用上游 `/responses`。
 
 本地无 API Key 时可把 `AI_MOCK_RESPONSES` 设为 `true`，聊天和 image2 会走本地 mock。
 

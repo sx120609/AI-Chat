@@ -299,6 +299,9 @@ AUTH_SECRET="$AUTH_SECRET"
 
 AI_API_KEY="${AI_API_KEY:-}"
 AI_API_BASE_URL="${AI_API_BASE_URL:-https://api.openai.com/v1}"
+AI_GPT54_PRO_API_KEY="${AI_GPT54_PRO_API_KEY:-}"
+AI_GPT54_PRO_API_BASE_URL="${AI_GPT54_PRO_API_BASE_URL:-}"
+AI_GPT54_PRO_ORG_ID="${AI_GPT54_PRO_ORG_ID:-}"
 AI_MOCK_RESPONSES="${AI_MOCK_RESPONSES:-false}"
 
 SITE_NAME="${SITE_NAME:-Team AI Gateway}"
@@ -368,6 +371,13 @@ EOF
     if [[ -z "${AUTH_SECRET:-}" ]]; then
       append_env_line_if_missing "AUTH_SECRET" "$(random_hex 32)"
     fi
+
+    append_env_line_if_missing "AI_API_KEY" "${AI_API_KEY:-}"
+    append_env_line_if_missing "AI_API_BASE_URL" "${AI_API_BASE_URL:-https://api.openai.com/v1}"
+    append_env_line_if_missing "AI_GPT54_PRO_API_KEY" "${AI_GPT54_PRO_API_KEY:-}"
+    append_env_line_if_missing "AI_GPT54_PRO_API_BASE_URL" "${AI_GPT54_PRO_API_BASE_URL:-}"
+    append_env_line_if_missing "AI_GPT54_PRO_ORG_ID" "${AI_GPT54_PRO_ORG_ID:-}"
+    append_env_line_if_missing "AI_MOCK_RESPONSES" "${AI_MOCK_RESPONSES:-false}"
 
     if [[ -z "${ADMIN_EMAIL:-}" ]]; then
       append_env_line_if_missing "ADMIN_EMAIL" "admin@example.com"

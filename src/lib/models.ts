@@ -46,6 +46,7 @@ export const REASONING_PARAM_MODES: Array<{
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
 export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "responses";
 export const LIGHTWEIGHT_TASK_MODEL_ID = "GPT-5.3-Codex-Spark";
+export const GPT_54_PRO_MODEL_ID = "GPT-5.4-Pro";
 export const UNLIMITED_CONTEXT_WINDOW_TOKENS = 1_000_000_000;
 export const DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS = UNLIMITED_CONTEXT_WINDOW_TOKENS;
 export const MAX_CONTEXT_WINDOW_LIMIT_TOKENS = UNLIMITED_CONTEXT_WINDOW_TOKENS;
@@ -79,6 +80,20 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
     maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
     contextNote: "均衡",
+    source: "default",
+    enabled: true,
+    supportsReasoning: true
+  },
+  {
+    id: GPT_54_PRO_MODEL_ID,
+    label: "GPT-5.4-Pro",
+    upstreamId: "gpt-5.4-pro",
+    inputCentsPerMillionTokens: 350,
+    cachedInputCentsPerMillionTokens: 35,
+    outputCentsPerMillionTokens: 2100,
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+    contextNote: "Pro",
     source: "default",
     enabled: true,
     supportsReasoning: true
@@ -369,19 +384,21 @@ export function getEnabledApiModels(catalog: ChatModelConfig[]) {
   const grouped = new Map<string, ChatModelConfig[]>();
 
   for (const model of getEnabledChatModels(catalog)) {
-    const key = model.upstreamId || model.id;
+    const key = model.id === GPT_54_PRO_MODEL_ID ? model.id : model.upstreamId || model.id;
     grouped.set(key, [...(grouped.get(key) ?? []), model]);
   }
 
-  return [...grouped.entries()].map(([upstreamId, models]) => {
+  return [...grouped.entries()].map(([groupKey, models]) => {
     const model = preferredApiModelVariant(models);
+    const upstreamId = model.upstreamId || model.id;
+    const apiModelId = model.id === GPT_54_PRO_MODEL_ID ? model.id : groupKey;
     const contextWindowTokens = capContextWindowTokens(
       Math.max(model.maxContextWindowTokens, inferContextWindowTokens(upstreamId))
     );
 
     return {
       ...model,
-      id: upstreamId,
+      id: apiModelId,
       label: model.label || upstreamId,
       upstreamId,
       contextWindowTokens,

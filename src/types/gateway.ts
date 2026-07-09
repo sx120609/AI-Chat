@@ -341,6 +341,10 @@ export type AiSettingsView = {
   hasApiKey: boolean;
   apiKeyPreview: string;
   orgId: string;
+  gpt54ProApiBaseUrl: string;
+  gpt54ProHasApiKey: boolean;
+  gpt54ProApiKeyPreview: string;
+  gpt54ProOrgId: string;
   mockResponses: boolean;
   chatModelMap: Record<string, string>;
   chatModelDisplay: Record<string, ChatModelDisplayConfig>;

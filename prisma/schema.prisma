@@ -326,8 +326,11 @@ model AiSettings {
   apiBaseUrl            String   @default("https://api.openai.com/v1")
   apiKey                String?
   orgId                 String?
+  gpt54ProApiBaseUrl    String   @default("")
+  gpt54ProApiKey        String?
+  gpt54ProOrgId         String?
   mockResponses         Boolean  @default(false)
-  chatModelMapJson      String   @default("{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}")
+  chatModelMapJson      String   @default("{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Pro\":\"gpt-5.4-pro\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}")
   chatModelDisplayJson  String   @default("{}")
   availableModelsJson   String   @default("[]")
   enabledChatModelsJson String   @default("[]")

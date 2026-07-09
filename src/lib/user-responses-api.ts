@@ -20,6 +20,7 @@ import {
   assertUpstreamConfigured,
   generateImage,
   getAiRuntimeSettings,
+  resolveUpstreamSettingsForModel,
   type AiRuntimeSettings,
   type UpstreamUsage
 } from "@/lib/upstream";
@@ -980,6 +981,8 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
+  const upstreamSettings = resolveUpstreamSettingsForModel(settings, model);
+
   const auditBase: UsageAuditMetadata = {
     billingMode: "按量",
     endpoint: "/v1/responses",
@@ -990,7 +993,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
   const upstreamBody = upstreamRequestBody({
     body,
     model,
-    settings
+    settings: upstreamSettings
   });
   const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
   const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
@@ -1026,7 +1029,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
   }
 
   try {
-    assertUpstreamConfigured(settings);
+    assertUpstreamConfigured(upstreamSettings, model.label);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
@@ -1034,7 +1037,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
   const upstream = await fetchUpstreamResponses({
     body: upstreamBody,
     incomingHeaders: request.headers,
-    settings,
+    settings: upstreamSettings,
     signal: request.signal
   });
 
@@ -1189,6 +1192,8 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     return jsonError("模型不可用或未启用。", 400);
   }
 
+  const upstreamSettings = resolveUpstreamSettingsForModel(settings, model);
+
   const auditBase: UsageAuditMetadata = {
     billingMode: "按量",
     endpoint: "/v1/chat/completions",
@@ -1199,7 +1204,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   const upstreamBody = chatCompletionRequestToUpstreamBody({
     body,
     model,
-    settings
+    settings: upstreamSettings
   });
 
   if (!upstreamBody) {
@@ -1245,7 +1250,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   }
 
   try {
-    assertUpstreamConfigured(settings);
+    assertUpstreamConfigured(upstreamSettings, model.label);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
@@ -1253,7 +1258,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   const upstream = await fetchUpstreamChatCompletions({
     body: upstreamBody,
     incomingHeaders: request.headers,
-    settings,
+    settings: upstreamSettings,
     signal: request.signal
   });
 

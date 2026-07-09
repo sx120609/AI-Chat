@@ -330,12 +330,15 @@ async function main() {
         apiBaseUrl: stringValue(row, columns.AiSettings, "apiBaseUrl", "https://api.openai.com/v1"),
         apiKey: optionalString(row, columns.AiSettings, "apiKey"),
         orgId: optionalString(row, columns.AiSettings, "orgId"),
+        gpt54ProApiBaseUrl: stringValue(row, columns.AiSettings, "gpt54ProApiBaseUrl", ""),
+        gpt54ProApiKey: optionalString(row, columns.AiSettings, "gpt54ProApiKey"),
+        gpt54ProOrgId: optionalString(row, columns.AiSettings, "gpt54ProOrgId"),
         mockResponses: boolValue(row, columns.AiSettings, "mockResponses", false),
         chatModelMapJson: stringValue(
           row,
           columns.AiSettings,
           "chatModelMapJson",
-          "{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.5-1M\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}"
+          "{\"GPT-5.5\":\"gpt-5.5\",\"GPT-5.5-1M\":\"gpt-5.5\",\"GPT-5.4\":\"gpt-5.4\",\"GPT-5.4-Pro\":\"gpt-5.4-pro\",\"GPT-5.4-Mini\":\"gpt-5.4-mini\",\"GPT-5.3-Codex-Spark\":\"gpt-5.3-codex-spark\"}"
         ),
         chatModelDisplayJson: stringValue(row, columns.AiSettings, "chatModelDisplayJson", "{}"),
         availableModelsJson: stringValue(row, columns.AiSettings, "availableModelsJson", "[]"),

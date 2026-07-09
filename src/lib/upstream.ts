@@ -4,6 +4,7 @@ import {
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_PARAM_MODE,
   getChatModel,
+  GPT_54_PRO_MODEL_ID,
   IMAGE_MODEL,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
@@ -70,6 +71,9 @@ export type AiRuntimeSettings = {
   apiBaseUrl: string;
   apiKey: string;
   orgId: string;
+  gpt54ProApiBaseUrl: string;
+  gpt54ProApiKey: string;
+  gpt54ProOrgId: string;
   mockResponses: boolean;
   chatModels: ChatModelConfig[];
   imageModelId: string;
@@ -94,6 +98,10 @@ const IMAGE_TIMEOUT_MS = 300_000;
 export const AI_RUNTIME_SETTINGS_CACHE_KEY = "ai-runtime-settings:v1";
 const AI_RUNTIME_SETTINGS_CACHE_TTL_SECONDS = 30;
 
+function normalizeRuntimeBaseUrl(value: string | null | undefined, fallback = "") {
+  return (value || fallback).replace(/\/+$/, "");
+}
+
 export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
   const cached = await cacheGetJson<AiRuntimeSettings>(AI_RUNTIME_SETTINGS_CACHE_KEY);
 
@@ -106,13 +114,17 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
   });
 
   const runtimeSettings: AiRuntimeSettings = {
-    apiBaseUrl: (
-      settings?.apiBaseUrl ||
-      process.env.AI_API_BASE_URL ||
+    apiBaseUrl: normalizeRuntimeBaseUrl(
+      settings?.apiBaseUrl || process.env.AI_API_BASE_URL,
       "https://api.openai.com/v1"
-    ).replace(/\/+$/, ""),
+    ),
     apiKey: settings?.apiKey || process.env.AI_API_KEY || "",
     orgId: settings?.orgId || process.env.AI_ORG_ID || "",
+    gpt54ProApiBaseUrl: normalizeRuntimeBaseUrl(
+      settings?.gpt54ProApiBaseUrl || process.env.AI_GPT54_PRO_API_BASE_URL
+    ),
+    gpt54ProApiKey: settings?.gpt54ProApiKey || process.env.AI_GPT54_PRO_API_KEY || "",
+    gpt54ProOrgId: settings?.gpt54ProOrgId || process.env.AI_GPT54_PRO_ORG_ID || "",
     mockResponses: settings ? settings.mockResponses : process.env.AI_MOCK_RESPONSES === "true",
     chatModels: buildChatModelCatalog(settings ?? undefined),
     imageModelId: settings?.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
@@ -333,9 +345,39 @@ async function openAiCompatibleBody(response: Response) {
   }
 }
 
-export function assertUpstreamConfigured(settings: AiRuntimeSettings) {
+function isGpt54ProModel(model: ChatModelConfig | string) {
+  const id = typeof model === "string" ? model : model.id;
+
+  return id === GPT_54_PRO_MODEL_ID;
+}
+
+export function hasDedicatedGpt54ProUpstream(settings: AiRuntimeSettings) {
+  return Boolean(
+    settings.gpt54ProApiBaseUrl || settings.gpt54ProApiKey || settings.gpt54ProOrgId
+  );
+}
+
+export function resolveUpstreamSettingsForModel(
+  settings: AiRuntimeSettings,
+  model: ChatModelConfig | string
+): AiRuntimeSettings {
+  if (!isGpt54ProModel(model) || !hasDedicatedGpt54ProUpstream(settings)) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    apiBaseUrl: settings.gpt54ProApiBaseUrl || settings.apiBaseUrl,
+    apiKey: settings.gpt54ProApiKey,
+    orgId: settings.gpt54ProOrgId
+  };
+}
+
+export function assertUpstreamConfigured(settings: AiRuntimeSettings, label = "API") {
   if (!settings.mockResponses && !settings.apiKey) {
-    throw new Error("请先在管理后台设置 API Key，或开启 Mock 模式。");
+    const keyLabel = label === "API" ? "API Key" : `${label} API Key`;
+
+    throw new Error(`请先在管理后台设置 ${keyLabel}，或开启 Mock 模式。`);
   }
 }
 
@@ -576,16 +618,17 @@ export async function createResponseStream(
     signal?: AbortSignal;
   }
 ) {
-  assertUpstreamConfigured(settings);
   const selectedModel = getChatModel(model, settings.chatModels);
-  const url = `${settings.apiBaseUrl}/responses`;
+  const upstreamSettings = resolveUpstreamSettingsForModel(settings, selectedModel);
+  assertUpstreamConfigured(upstreamSettings, selectedModel.label);
+  const url = `${upstreamSettings.apiBaseUrl}/responses`;
   const reasoningEffort = normalizeReasoningEffort(
-    options?.reasoningEffort || settings.defaultReasoningEffort
+    options?.reasoningEffort || upstreamSettings.defaultReasoningEffort
   );
 
   const requestInit = (body: Record<string, unknown>): RequestInit => ({
     method: "POST",
-    headers: upstreamHeaders(settings),
+    headers: upstreamHeaders(upstreamSettings),
     body: JSON.stringify(body),
     signal: options?.signal
   });
@@ -594,7 +637,7 @@ export async function createResponseStream(
     messages,
     model: selectedModel,
     reasoningEffort,
-    settings,
+    settings: upstreamSettings,
     stream: true
   });
 
@@ -640,7 +683,7 @@ export async function createResponseStream(
       messages: fallbackMessages,
       model: selectedModel,
       reasoningEffort,
-      settings,
+      settings: upstreamSettings,
       stream: true
     })) {
       const response = await fetchWithHeadersTimeout(
@@ -676,17 +719,18 @@ export async function createResponseText(
     signal?: AbortSignal;
   }
 ) {
-  assertUpstreamConfigured(settings);
   const selectedModel = getChatModel(model, settings.chatModels, {
     includeDisabled: options?.allowDisabledModel
   });
-  const url = `${settings.apiBaseUrl}/responses`;
-  const reasoningEffort = normalizeReasoningEffort(settings.defaultReasoningEffort);
+  const upstreamSettings = resolveUpstreamSettingsForModel(settings, selectedModel);
+  assertUpstreamConfigured(upstreamSettings, selectedModel.label);
+  const url = `${upstreamSettings.apiBaseUrl}/responses`;
+  const reasoningEffort = normalizeReasoningEffort(upstreamSettings.defaultReasoningEffort);
   const bodyCandidates = responseBodyVariants({
     messages,
     model: selectedModel,
     reasoningEffort,
-    settings,
+    settings: upstreamSettings,
     stream: false
   });
   let lastUnsupportedParamError = "";
@@ -699,7 +743,7 @@ export async function createResponseText(
         url,
         {
           method: "POST",
-          headers: upstreamHeaders(settings),
+          headers: upstreamHeaders(upstreamSettings),
           body: JSON.stringify(body),
           signal: options?.signal
         },
@@ -738,14 +782,14 @@ export async function createResponseText(
       messages: fallbackMessages,
       model: selectedModel,
       reasoningEffort,
-      settings,
+      settings: upstreamSettings,
       stream: false
     })) {
       const response = await fetchWithHeadersTimeout(
         url,
         {
           method: "POST",
-          headers: upstreamHeaders(settings),
+          headers: upstreamHeaders(upstreamSettings),
           body: JSON.stringify(body),
           signal: options?.signal
         },

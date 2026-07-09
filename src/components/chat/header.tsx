@@ -44,7 +44,7 @@ function getReasoningUiCopy(id: ReasoningEffort) {
   }
 
   if (id === "max") {
-    return { label: "Max", hint: "Sol" };
+    return { label: "Max", hint: "极限" };
   }
 
   return { label: "均衡", hint: "默认" };

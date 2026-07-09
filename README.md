@@ -162,6 +162,8 @@ Redis 是默认缓存依赖。`deploy.sh` 会先检测 `.env` 里的 `REDIS_URL`
 
 `AI_GPT54_PRO_API_BASE_URL`、`AI_GPT54_PRO_API_KEY`、`AI_GPT54_PRO_ORG_ID` 是 `GPT-5.4-Pro` 的专用上游兜底配置，也可以在管理后台的“接入”页填写。完全留空时 `GPT-5.4-Pro` 会回退主中转站；填写专用字段后，网页聊天和个人 `/v1/responses` 会将该模型请求发往专用上游 `/responses`。
 
+`GPT-5.4-Pro` 默认按 OneAPI 上游定价展示和估算：输入 `$30.00 / 1M tokens`，输出 `$180.00 / 1M tokens`。如果上游响应包含 `usage.cost` / `total_cost` / `cost_usd`，系统会优先使用上游返回的实际费用；否则使用上游 `usage` 中的 token 数按上述价格估算。
+
 本地无 API Key 时可把 `AI_MOCK_RESPONSES` 设为 `true`，聊天和 image2 会走本地 mock。
 
 ## 文件上传

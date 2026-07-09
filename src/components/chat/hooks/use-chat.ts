@@ -20,6 +20,7 @@ import type {
   PublicPaymentSettingsView,
   ToolEventView
 } from "@/types/gateway";
+import { DEFAULT_IMAGE_SIZE } from "@/lib/models";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { formatPromptClock } from "@/lib/system-prompt";
 import { sanitizeIdentityLeak } from "@/lib/identity";
@@ -97,6 +98,7 @@ export function useChat({
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [imageToolEnabled, setImageToolEnabled] = useState(false);
+  const [imageSize, setImageSize] = useState<string>(DEFAULT_IMAGE_SIZE);
   const [sourceImageMessage, setSourceImageMessage] = useState<MessageView | null>(null);
   const [webSearchAvailable, setWebSearchAvailable] = useState(initialWebSearchEnabled);
   const [webSearchEnabledForMessage, setWebSearchEnabledForMessage] = useState(
@@ -1072,6 +1074,7 @@ export function useChat({
     attachments: AttachmentView[],
     options: {
       disableMemoryWrite?: boolean;
+      imageSize?: string;
       imageToolRequested?: boolean;
       reuseUserMessage?: MessageView;
       sourceImageMessage?: MessageView | null;
@@ -1201,6 +1204,7 @@ export function useChat({
           reasoningEffort,
           content: prompt,
           disableMemoryWrite: requestDisableMemoryWrite,
+          imageSize: options.imageSize ?? imageSize,
           imageToolRequested: Boolean(options.imageToolRequested),
           reuseUserMessageId,
           sourceImageMessageId,
@@ -2170,6 +2174,7 @@ export function useChat({
           projectId: activeProjectId || null,
           prompt,
           reuseUserMessageId,
+          size: imageSize,
           sourceImageMessageId
         }),
         signal: controller.signal
@@ -2510,6 +2515,7 @@ export function useChat({
 
       await sendChat(prompt, attachments, {
         disableMemoryWrite: requestDisableMemoryWrite,
+        imageSize,
         imageToolRequested,
         sourceImageMessage: sourceImage,
         temporary: requestTemporary,
@@ -2567,6 +2573,7 @@ export function useChat({
     loadingConversationId,
     messages,
     imageToolEnabled,
+    imageSize,
     sourceImageMessage,
     webSearchAvailable,
     webSearchEnabledForMessage,
@@ -2627,6 +2634,7 @@ export function useChat({
     setShareNotice,
     setWebSearchEnabledForMessage,
     setImageToolEnabled,
+    setImageSize,
     setTemporaryChatEnabled,
     setModel,
     setReasoningEffort,

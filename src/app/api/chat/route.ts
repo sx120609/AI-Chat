@@ -39,6 +39,7 @@ import {
   estimateImageCostCents,
   getChatModel,
   isChatModel,
+  normalizeImageSize,
   normalizeReasoningEffort
 } from "@/lib/models";
 import { prisma } from "@/lib/prisma";
@@ -75,6 +76,7 @@ type ChatBody = {
   content?: string;
   reasoningEffort?: string;
   attachmentIds?: string[];
+  imageSize?: string;
   imageToolRequested?: boolean;
   reuseUserMessageId?: string;
   sourceImageMessageId?: string;
@@ -981,6 +983,7 @@ export async function POST(request: NextRequest) {
   const webSearchRuntimeEnabled = !securityMode;
   const requestedAttachmentIds = uniqueAttachmentIds(body.attachmentIds);
   const temporaryChat = body.temporary === true || securityMode;
+  const imageSize = normalizeImageSize(body.imageSize);
 
   if (temporaryChat && body.reuseUserMessageId) {
     return jsonError("临时聊天不会改写已有聊天记录，请直接发送新消息。", 400);
@@ -1313,7 +1316,7 @@ export async function POST(request: NextRequest) {
                   : [])
               ]
             );
-            const imageUrl = await generateImage(promptWithAttachmentContext, "1024x1024", {
+            const imageUrl = await generateImage(promptWithAttachmentContext, imageSize, {
               sourceImages
             });
             const finishedAt = Date.now();
@@ -1573,7 +1576,7 @@ export async function POST(request: NextRequest) {
                 : [])
             ]
           );
-          const imageUrl = await generateImage(promptWithAttachmentContext, "1024x1024", {
+          const imageUrl = await generateImage(promptWithAttachmentContext, imageSize, {
             sourceImages
           });
           const finishedAt = Date.now();

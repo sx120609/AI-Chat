@@ -14,6 +14,7 @@ import {
   X
 } from "lucide-react";
 import { SiteConfirmDialog } from "@/components/site-dialog";
+import { IMAGE_SIZE_OPTIONS } from "@/lib/models";
 import { ChatShellProps, ShareNotice } from "./chat/types";
 import { useChat } from "./chat/hooks/use-chat";
 import { Sidebar } from "./chat/sidebar";
@@ -127,6 +128,7 @@ export function ChatShell(props: ChatShellProps) {
     shareNotice,
     messages,
     imageToolEnabled,
+    imageSize,
     sourceImageMessage,
     webSearchEnabledForMessage,
     temporaryChatEnabled,
@@ -182,6 +184,7 @@ export function ChatShell(props: ChatShellProps) {
     setShareNotice,
     setWebSearchEnabledForMessage,
     setImageToolEnabled,
+    setImageSize,
     setTemporaryChatEnabled,
     setModel,
     setReasoningEffort,
@@ -545,6 +548,22 @@ export function ChatShell(props: ChatShellProps) {
                 >
                   <ImageIcon className="size-4" />
                 </button>
+                {imageGenerationAvailable && imageToolEnabled ? (
+                  <select
+                    aria-label="图片尺寸"
+                    className="app-action-button app-glass-control h-9 w-[4.75rem] shrink-0 rounded-full border px-2 text-xs font-semibold text-stone-600 outline-none transition disabled:opacity-50"
+                    disabled={loading || quotaBlocked || conversationSwitching}
+                    onChange={(event) => setImageSize(event.target.value)}
+                    title={`图片尺寸 ${imageSize}`}
+                    value={imageSize}
+                  >
+                    {IMAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 {webSearchToolAvailable ? (
                   <div className="relative flex min-w-0 shrink-0 items-center">
                     <button

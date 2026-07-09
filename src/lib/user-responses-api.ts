@@ -2,11 +2,14 @@ import { NextRequest } from "next/server";
 import { authenticateUserApiKey } from "@/lib/user-api-keys";
 import { jsonError } from "@/lib/http";
 import {
+  DEFAULT_IMAGE_SIZE,
   DEFAULT_IMAGE_UPSTREAM_MODEL,
   estimateChatCostForModel,
   estimateImageCostCents,
   getEnabledApiModels,
   IMAGE_MODEL,
+  imageSizeDimensions,
+  normalizeImageSize,
   type ChatModelConfig
 } from "@/lib/models";
 import {
@@ -298,14 +301,22 @@ function imageDataItemFromUrl(imageUrl: string, responseFormat: "b64_json" | "ur
   return { url: imageUrl };
 }
 
-function mockImageUrl(prompt: string) {
+function mockImageUrl(prompt: string, size = DEFAULT_IMAGE_SIZE) {
+  const imageSize = normalizeImageSize(size);
+  const { width, height } = imageSizeDimensions(imageSize);
+  const minSide = Math.min(width, height);
+  const centerX = Math.round(width / 2);
+  const promptY = Math.round(height * 0.52);
+  const labelY = promptY + Math.round(minSide * 0.08);
+  const titleFont = Math.max(24, Math.round(minSide * 0.053));
+  const labelFont = Math.max(18, Math.round(minSide * 0.033));
   const escapedPrompt = prompt
     .slice(0, 18)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0f766e"/><stop offset="0.55" stop-color="#2563eb"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/><circle cx="760" cy="260" r="140" fill="#ffffff" opacity="0.18"/><path d="M168 716c95-178 205-268 330-268 116 0 219 70 358 268H168z" fill="#ffffff" opacity="0.28"/><text x="512" y="530" font-size="54" text-anchor="middle" fill="white" font-family="Arial, sans-serif">${escapedPrompt}</text><text x="512" y="610" font-size="34" text-anchor="middle" fill="white" opacity="0.86" font-family="Arial, sans-serif">${IMAGE_MODEL.label} mock</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0f766e"/><stop offset="0.55" stop-color="#2563eb"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs><rect width="${width}" height="${height}" fill="url(#g)"/><circle cx="${Math.round(width * 0.74)}" cy="${Math.round(height * 0.25)}" r="${Math.round(minSide * 0.14)}" fill="#ffffff" opacity="0.18"/><path d="M${Math.round(width * 0.16)} ${Math.round(height * 0.7)}C${Math.round(width * 0.25)} ${Math.round(height * 0.53)} ${Math.round(width * 0.36)} ${Math.round(height * 0.44)} ${Math.round(width * 0.49)} ${Math.round(height * 0.44)}C${Math.round(width * 0.61)} ${Math.round(height * 0.44)} ${Math.round(width * 0.71)} ${Math.round(height * 0.52)} ${Math.round(width * 0.84)} ${Math.round(height * 0.7)}H${Math.round(width * 0.16)}Z" fill="#ffffff" opacity="0.28"/><text x="${centerX}" y="${promptY}" font-size="${titleFont}" text-anchor="middle" fill="white" font-family="Arial, sans-serif">${escapedPrompt}</text><text x="${centerX}" y="${labelY}" font-size="${labelFont}" text-anchor="middle" fill="white" opacity="0.86" font-family="Arial, sans-serif">${IMAGE_MODEL.label} mock ${imageSize}</text></svg>`;
 
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
@@ -1423,9 +1434,7 @@ export async function handleUserImageGenerationsRequest(request: NextRequest) {
     return jsonError("图片模型不可用或未启用。请使用 image2。", 400);
   }
 
-  const size = typeof body.size === "string" && body.size.trim()
-    ? body.size.trim()
-    : "1024x1024";
+  const size = normalizeImageSize(body.size);
   const responseFormat = normalizeImageResponseFormat(body.response_format);
   const promptTokens = promptEstimateFromImagePrompt(prompt);
   const estimatedCostCents = estimateImageCostCents(promptTokens) * imageCount;
@@ -1444,7 +1453,7 @@ export async function handleUserImageGenerationsRequest(request: NextRequest) {
 
   try {
     if (settings.mockResponses) {
-      imageUrls = Array.from({ length: imageCount }, () => mockImageUrl(prompt));
+      imageUrls = Array.from({ length: imageCount }, () => mockImageUrl(prompt, size));
     } else {
       try {
         assertUpstreamConfigured(settings);

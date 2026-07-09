@@ -140,9 +140,64 @@ export const DEFAULT_UPSTREAM_MODEL_MAP: Record<string, string> = Object.fromEnt
 );
 
 export const DEFAULT_IMAGE_UPSTREAM_MODEL = "image2";
+export const DEFAULT_IMAGE_SIZE = "1024x1024";
+export const IMAGE_SIZE_OPTIONS = [
+  { id: DEFAULT_IMAGE_SIZE, label: "1:1", dimensions: "1024 x 1024" },
+  { id: "1024x1536", label: "2:3", dimensions: "1024 x 1536" },
+  { id: "1536x1024", label: "3:2", dimensions: "1536 x 1024" }
+] as const;
 
 const MAX_MODEL_LABEL_CHARS = 80;
 const MAX_MODEL_CONTEXT_NOTE_CHARS = 120;
+const IMAGE_SIZE_PATTERN = /^([1-9]\d{1,4})x([1-9]\d{1,4})$/;
+const MIN_IMAGE_SIZE_PX = 64;
+const MAX_IMAGE_SIZE_PX = 4096;
+
+function isImageDimensionSize(value: string) {
+  const match = value.match(IMAGE_SIZE_PATTERN);
+
+  if (!match) {
+    return false;
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+
+  return (
+    width >= MIN_IMAGE_SIZE_PX &&
+    width <= MAX_IMAGE_SIZE_PX &&
+    height >= MIN_IMAGE_SIZE_PX &&
+    height <= MAX_IMAGE_SIZE_PX
+  );
+}
+
+export function normalizeImageSize(value: unknown, fallback = DEFAULT_IMAGE_SIZE) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+
+  if (normalized === "auto" || isImageDimensionSize(normalized)) {
+    return normalized;
+  }
+
+  const fallbackValue = fallback.trim().toLowerCase();
+
+  return fallbackValue === "auto" || isImageDimensionSize(fallbackValue)
+    ? fallbackValue
+    : DEFAULT_IMAGE_SIZE;
+}
+
+export function imageSizeDimensions(value: unknown) {
+  const normalized = normalizeImageSize(value);
+  const match = normalized.match(IMAGE_SIZE_PATTERN);
+
+  if (!match) {
+    return { width: 1024, height: 1024 };
+  }
+
+  return {
+    width: Number(match[1]),
+    height: Number(match[2])
+  };
+}
 
 export function parseModelMap(value: string | null | undefined) {
   const next = { ...DEFAULT_UPSTREAM_MODEL_MAP };

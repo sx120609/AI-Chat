@@ -17,7 +17,7 @@ import {
   stringifyToolEvents,
   type PersistedToolEvent
 } from "@/lib/message-process";
-import { estimateImageCostCents } from "@/lib/models";
+import { estimateImageCostCents, normalizeImageSize } from "@/lib/models";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { prisma } from "@/lib/prisma";
 import {
@@ -338,6 +338,7 @@ export async function POST(request: NextRequest) {
   }
 
   const promptWithAttachmentContext = contentWithAttachmentContext(prompt, effectiveAttachments);
+  const imageSize = normalizeImageSize(body.size);
   const promptTokens = estimateTokens(promptWithAttachmentContext);
   const estimatedCostCents = estimateImageCostCents(promptTokens);
 
@@ -485,7 +486,7 @@ export async function POST(request: NextRequest) {
           : [])
       ]
     );
-    const imageUrl = await generateImage(promptWithAttachmentContext, body.size || "1024x1024", {
+    const imageUrl = await generateImage(promptWithAttachmentContext, imageSize, {
       sourceImages
     });
     const finishedAt = Date.now();

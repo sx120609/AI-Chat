@@ -672,17 +672,24 @@ function upstreamRequestBody({
   model: ChatModelConfig;
   settings: AiRuntimeSettings;
 }) {
+  // Normalize caller-provided system/developer input before adding the gateway
+  // identity layer. This keeps the gateway identity prompt first and the
+  // caller's workspace/tool instructions last, so newer models do not treat
+  // the lightweight identity correction as an environment capability override.
+  const normalizedBody = normalizeResponsesBodyForSub2Api({
+    ...body,
+    model: model.upstreamId || model.id
+  });
   const instructions = gatewayInstructions({
-    body,
+    body: normalizedBody,
     model,
     settings
   });
 
-  return normalizeResponsesBodyForSub2Api({
-    ...body,
-    ...(instructions ? { instructions } : {}),
-    model: model.upstreamId || model.id
-  });
+  return {
+    ...normalizedBody,
+    ...(instructions ? { instructions } : {})
+  };
 }
 
 function chatCompletionRequestToUpstreamBody({

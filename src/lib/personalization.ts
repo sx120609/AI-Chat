@@ -27,7 +27,7 @@ export type PersonalizationSettings = {
     imageGenerationEnabled: boolean;
     fileAnalysisEnabled: boolean;
     securityMode: boolean;
-    defaultReasoningEffort: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+    defaultReasoningEffort: "low" | "medium" | "high" | "xhigh" | "max";
     defaultModel: string;
   };
 };
@@ -44,7 +44,7 @@ const PERSONALITIES: ChatPersonality[] = [
   "professional"
 ];
 const LEVELS: PersonalizationLevel[] = ["default", "low", "medium", "high"];
-const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
+const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 function defaultPersonalizationSettings(): PersonalizationSettings {
   return {
@@ -109,6 +109,7 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
       ? input.chatHistoryMemoryEnabled
       : legacyMemoryEnabled ?? defaults.chatHistoryMemoryEnabled);
   const legacyUltraDefaultModel = isLegacyGpt56SolUltraModel(toolPreferences.defaultModel);
+  const legacyUltraReasoningEffort = String(toolPreferences.defaultReasoningEffort || "") === "ultra";
 
   return {
     customizationEnabled:
@@ -153,8 +154,8 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
         typeof toolPreferences.securityMode === "boolean"
           ? toolPreferences.securityMode
           : defaults.toolPreferences.securityMode,
-      defaultReasoningEffort: legacyUltraDefaultModel
-        ? "ultra"
+      defaultReasoningEffort: legacyUltraDefaultModel || legacyUltraReasoningEffort
+        ? "max"
         : pickOption(
             toolPreferences.defaultReasoningEffort,
             REASONING_EFFORTS,

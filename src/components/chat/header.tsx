@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import type { ChatModelView, ConversationSummary, ReasoningEffort, UsageSummary } from "@/types/gateway";
 import { formatCents, formatNumber, formatShortDateTime } from "@/lib/format";
-import { supportsMaxReasoning, supportsUltraReasoning } from "@/lib/models";
+import { supportsMaxReasoning } from "@/lib/models";
 import { ChatProjectView, ContextStats } from "./types";
 
 function getModelPickerDetail(model: ChatModelView) {
@@ -45,10 +45,6 @@ function getReasoningUiCopy(id: ReasoningEffort) {
 
   if (id === "max") {
     return { label: "Max", hint: "极限" };
-  }
-
-  if (id === "ultra") {
-    return { label: "Ultra", hint: "委派" };
   }
 
   return { label: "均衡", hint: "默认" };
@@ -94,15 +90,12 @@ const REASONING_EFFORTS_ARRAY = [
   { id: "medium" as const, name: "medium" },
   { id: "high" as const, name: "high" },
   { id: "xhigh" as const, name: "xhigh" },
-  { id: "max" as const, name: "max" },
-  { id: "ultra" as const, name: "ultra" }
+  { id: "max" as const, name: "max" }
 ];
 
 function reasoningOptionsForModel(model: ChatModelView | undefined) {
   return REASONING_EFFORTS_ARRAY.filter(
-    (item) =>
-      (item.id !== "max" || supportsMaxReasoning(model)) &&
-      (item.id !== "ultra" || supportsUltraReasoning(model))
+    (item) => item.id !== "max" || supportsMaxReasoning(model)
   );
 }
 
@@ -243,9 +236,7 @@ function ModelReasoningPicker({
                     onClick={() => {
                       onModelChange(item.id);
 
-                      if (reasoningValue === "ultra" && !supportsUltraReasoning(item)) {
-                        onReasoningChange(supportsMaxReasoning(item) ? "max" : "xhigh");
-                      } else if (reasoningValue === "max" && !supportsMaxReasoning(item)) {
+                      if (reasoningValue === "max" && !supportsMaxReasoning(item)) {
                         onReasoningChange("xhigh");
                       }
                     }}
@@ -277,11 +268,7 @@ function ModelReasoningPicker({
             </div>
             <div
               className={`grid gap-1 ${
-                reasoningOptions.length === 6
-                  ? "grid-cols-3 sm:grid-cols-6"
-                  : reasoningOptions.length === 5
-                    ? "grid-cols-5"
-                    : "grid-cols-4"
+                reasoningOptions.length === 5 ? "grid-cols-5" : "grid-cols-4"
               }`}
             >
               {reasoningOptions.map((item) => {

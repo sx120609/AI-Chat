@@ -10,7 +10,7 @@
 - 会话与消息历史持久化
 - 模型选择：`GPT-5.6 Sol`、`GPT-5.6 Terra`、`GPT-5.6 Luna`、`GPT-5.5`、`GPT-5.4`、`GPT-5.4-Pro`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
 - 管理员可从上游 `/models` 自动刷新模型，并启用/停用聊天模型
-- 聊天页支持推理强度选择：低、中、高、超高、Max、Ultra
+- 聊天页支持推理强度选择：低、中、高、超高、Max
 - 支持全局和模型专属系统提示词，用于修正 Sub2API 后端透出的 Codex CLI 等身份设定
 - 支持 Responses API 流式输出状态提示，并兼容部分上游把非 SSE JSON 返回给 `/responses` 的情况
 - 默认不向用户展示上游原始 `reasoning_content`，避免泄漏订阅后端的内部身份或推理噪声
@@ -103,13 +103,13 @@ http://your-sub2api-host:8080/v1
 
 点击“测试连接”会在后端检查 API 地址格式、`/v1` 路径、Key 是否已保存，以及 `/models` 是否可访问。诊断结果只返回状态和模型样例，不会把完整 Key 发给前端。
 
-“默认推理强度”提供 Codex 风格的 `低`、`中`、`高`、`超高`、`Max`、`Ultra`。聊天、工具路由、搜索规划、上下文压缩等文本请求统一调用 Responses API，并按 `reasoning.effort` 透传为 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`；如果你的上游不支持推理参数，可在后台关闭。Ultra 是 GPT-5.6 Sol/Terra 的最高推理并自动任务委派档位，实际请求仍使用所选模型，不再暴露为独立模型。历史 `GPT-5.6-Sol-Ultra` 会自动兼容为 `GPT-5.6 Sol + Ultra`。
+“默认推理强度”提供 `低`、`中`、`高`、`超高`、`Max`。聊天、工具路由、搜索规划、上下文压缩等文本请求统一调用 Responses API，并按 `reasoning.effort` 透传为 `low`、`medium`、`high`、`xhigh`、`max`；如果你的上游不支持推理参数，可在后台关闭。Ultra 不作为模型或推理参数发送给上游，历史 `GPT-5.6-Sol-Ultra` 模型 ID 或 `ultra` 参数会自动兼容为 `GPT-5.6 Sol + Max`。
 
 聊天请求会优先使用 Responses API 的 `stream: true`、`store: false`、`input` 和 `reasoning.effort`。如果上游返回“不支持/无效参数”类兼容错误，会依次去掉推理参数、去掉 `store`，带原始文件的请求还会退回到纯文本附件上下文。生图消息会保留在普通聊天会话中，不需要切换到单独的生图模式。
 
 “身份与系统提示词”用于修正订阅转发类上游可能携带的默认身份设定。默认模板会让模型在网页聊天场景下按当前选择的模型名回答身份问题；`GPT-5.5-1M` 会自称有 1M 超长上下文的 GPT-5.5。也可以设置全局自定义提示词，或为某个模型单独覆盖。提示词支持 `{model}`、`{model_identity}`、`{date}`、`{time}` 和 `{timezone}` 占位符；聊天请求会优先使用用户浏览器传来的本地日期、时间和时区。
 
-“长上下文阈值”默认是 `270000` tokens。OpenAI 当前价格页说明 GPT-5.6、GPT-5.5、GPT-5.4、GPT-5.4 mini 的标准价格适用于 270K 以下上下文；如果你使用的 Sub2API 上游另有规则，可以在后台调整。GPT-5.6 默认按 Sol `$5/$30`、Terra `$2.50/$15`、Luna `$1/$6` 每 1M 输入/输出 tokens 估算；Ultra 只改变推理与任务委派档位，不改变模型单价。聊天页显示的是后端估算值，最终计费仍以上游返回的 `usage` 为准。
+“长上下文阈值”默认是 `270000` tokens。OpenAI 当前价格页说明 GPT-5.6、GPT-5.5、GPT-5.4、GPT-5.4 mini 的标准价格适用于 270K 以下上下文；如果你使用的 Sub2API 上游另有规则，可以在后台调整。GPT-5.6 默认按 Sol `$5/$30`、Terra `$2.50/$15`、Luna `$1/$6` 每 1M 输入/输出 tokens 估算。聊天页显示的是后端估算值，最终计费仍以上游返回的 `usage` 为准。
 
 ## 环境变量
 

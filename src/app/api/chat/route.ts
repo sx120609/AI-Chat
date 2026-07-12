@@ -978,7 +978,7 @@ export async function POST(request: NextRequest) {
   }
 
   const reasoningEffort = isLegacyGpt56SolUltraModel(requestedModel)
-    ? "ultra"
+    ? "max"
     : normalizeReasoningEffortForModel(body.reasoningEffort, model);
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const securityMode = personalizationSettings.toolPreferences.securityMode;

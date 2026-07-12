@@ -1,7 +1,7 @@
 export type ChatModelId = string;
 export type GatewayMode = "CHAT" | "IMAGE";
 export type ModelSource = "default" | "upstream";
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 
 export type ChatModelConfig = {
@@ -42,8 +42,7 @@ export const REASONING_EFFORTS: Array<{
   { id: "medium", label: "中", shortLabel: "中" },
   { id: "high", label: "高", shortLabel: "高" },
   { id: "xhigh", label: "超高", shortLabel: "超高" },
-  { id: "max", label: "Max", shortLabel: "Max" },
-  { id: "ultra", label: "Ultra", shortLabel: "Ultra" }
+  { id: "max", label: "Max", shortLabel: "Max" }
 ];
 
 export const REASONING_PARAM_MODES: Array<{
@@ -622,6 +621,10 @@ export function normalizeReasoningEffort(value: unknown): ReasoningEffort {
     return DEFAULT_REASONING_EFFORT;
   }
 
+  if (value === "ultra") {
+    return "max";
+  }
+
   return REASONING_EFFORTS.some((item) => item.id === value)
     ? (value as ReasoningEffort)
     : DEFAULT_REASONING_EFFORT;
@@ -636,23 +639,8 @@ export function supportsMaxReasoning(model: ReasoningModelLike) {
   return signature.toLowerCase().includes("gpt-5.6");
 }
 
-export function supportsUltraReasoning(model: ReasoningModelLike) {
-  const signature =
-    typeof model === "string"
-      ? model
-      : `${model?.id || ""} ${model?.label || ""} ${model?.upstreamId || ""}`;
-  const normalized = signature.toLowerCase();
-
-  return normalized.includes("gpt-5.6-sol") || normalized.includes("gpt-5.6-terra");
-}
-
 export function normalizeReasoningEffortForModel(value: unknown, model: ReasoningModelLike) {
   const effort = normalizeReasoningEffort(value);
-
-  if (effort === "ultra" && !supportsUltraReasoning(model)) {
-    return supportsMaxReasoning(model) ? "max" : "xhigh";
-  }
-
   return effort === "max" && !supportsMaxReasoning(model) ? "xhigh" : effort;
 }
 

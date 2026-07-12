@@ -585,13 +585,16 @@ function upstreamRequestBody({
 }) {
   const legacyUltra = isLegacyGpt56SolUltraModel(body.model);
   const reasoning = jsonObject(body.reasoning) ?? {};
+  const usesRemovedUltraEffort = reasoning.effort === "ultra";
 
   // Personal API requests may come from coding agents. Preserve their full
   // instructions, input items and tool protocol; only map the public model id
   // to the configured upstream id.
   return {
     ...body,
-    ...(legacyUltra ? { reasoning: { ...reasoning, effort: "ultra" } } : {}),
+    ...(legacyUltra || usesRemovedUltraEffort
+      ? { reasoning: { ...reasoning, effort: "max" } }
+      : {}),
     model: model.upstreamId || model.id
   };
 }
@@ -627,7 +630,9 @@ function chatCompletionRequestToUpstreamBody({
   });
   const upstreamBody: Record<string, unknown> = {
     ...body,
-    ...(isLegacyGpt56SolUltraModel(body.model) ? { reasoning_effort: "ultra" } : {}),
+    ...(isLegacyGpt56SolUltraModel(body.model) || body.reasoning_effort === "ultra"
+      ? { reasoning_effort: "max" }
+      : {}),
     messages: [...injectedMessages, ...upstreamMessages],
     model: model.upstreamId || model.id
   };
@@ -682,7 +687,7 @@ function usageReasoningEffort(body: Record<string, unknown>) {
     (typeof reasoning?.effort === "string" ? reasoning.effort : "") ||
     (typeof body.reasoning_effort === "string" ? body.reasoning_effort : "");
 
-  return effort.slice(0, 32);
+  return (effort === "ultra" ? "max" : effort).slice(0, 32);
 }
 
 function usageUserAgent(request: NextRequest) {
@@ -913,7 +918,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
     billingMode: "按量",
     endpoint: "/v1/responses",
     reasoningEffort: isLegacyGpt56SolUltraModel(body.model)
-      ? "ultra"
+      ? "max"
       : usageReasoningEffort(body),
     requestKind: usageRequestKind(body),
     userAgent: usageUserAgent(request)
@@ -1133,7 +1138,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
     billingMode: "按量",
     endpoint: "/v1/chat/completions",
     reasoningEffort: isLegacyGpt56SolUltraModel(body.model)
-      ? "ultra"
+      ? "max"
       : usageReasoningEffort(body),
     requestKind: usageRequestKind(body),
     userAgent: usageUserAgent(request)

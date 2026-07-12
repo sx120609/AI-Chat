@@ -24,8 +24,7 @@ import {
   DEFAULT_IMAGE_SIZE,
   isLegacyGpt56SolUltraModel,
   normalizeChatModelId,
-  supportsMaxReasoning,
-  supportsUltraReasoning
+  supportsMaxReasoning
 } from "@/lib/models";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { formatPromptClock } from "@/lib/system-prompt";
@@ -199,9 +198,7 @@ export function useChat({
   );
 
   useEffect(() => {
-    if (reasoningEffort === "ultra" && activeModel && !supportsUltraReasoning(activeModel)) {
-      setReasoningEffort(supportsMaxReasoning(activeModel) ? "max" : "xhigh");
-    } else if (reasoningEffort === "max" && activeModel && !supportsMaxReasoning(activeModel)) {
+    if (reasoningEffort === "max" && activeModel && !supportsMaxReasoning(activeModel)) {
       setReasoningEffort("xhigh");
     }
   }, [activeModel, reasoningEffort]);
@@ -439,7 +436,7 @@ export function useChat({
         setModel(normalizeChatModelId(payload.conversation.model) || payload.conversation.model);
 
         if (isLegacyGpt56SolUltraModel(payload.conversation.model)) {
-          setReasoningEffort("ultra");
+          setReasoningEffort("max");
         }
       }
       setImageToolEnabled(false);
@@ -2706,6 +2703,5 @@ const REASONING_EFFORTS_ARRAY = [
   { id: "medium" as const, name: "medium" },
   { id: "high" as const, name: "high" },
   { id: "xhigh" as const, name: "xhigh" },
-  { id: "max" as const, name: "max" },
-  { id: "ultra" as const, name: "ultra" }
+  { id: "max" as const, name: "max" }
 ];

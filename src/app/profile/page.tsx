@@ -29,13 +29,17 @@ export default async function ProfilePage() {
     getAiRuntimeSettings(),
     getPublicPaymentSettings()
   ]);
+  const apiModels = getEnabledApiModels(aiSettings.chatModels).map((model) => ({
+    ...model,
+    id: model.upstreamId || model.id
+  }));
 
   return (
     <ProfileCenter
       initialUser={serializeCurrentUser(user)}
       initialUsage={usage}
       initialPaymentSettings={paymentSettings}
-      apiModels={getEnabledApiModels(aiSettings.chatModels)}
+      apiModels={apiModels}
       apiImageModelId={aiSettings.imageModelId}
       siteSettings={siteSettings}
     />

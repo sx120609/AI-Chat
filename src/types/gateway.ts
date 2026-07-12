@@ -2,7 +2,7 @@ export type Role = "USER" | "ADMIN";
 export type UserGroup = "NORMAL" | "VIP";
 export type MessageRole = "USER" | "ASSISTANT" | "SYSTEM";
 export type GenerationMode = "CHAT" | "IMAGE";
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 export type SystemPromptMode = "default" | "append" | "custom" | "off";
 export type EasyPayMethod = "alipay" | "wxpay";
@@ -57,8 +57,11 @@ export type ChatModelView = {
 };
 
 export type ChatModelDisplayConfig = {
+  cachedInputCentsPerMillionTokens?: number;
   contextNote?: string;
+  inputCentsPerMillionTokens?: number;
   label?: string;
+  outputCentsPerMillionTokens?: number;
 };
 
 export type UsageSummary = {

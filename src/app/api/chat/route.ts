@@ -38,6 +38,7 @@ import {
   estimateChatCostForModel,
   estimateImageCostCents,
   getChatModel,
+  isLegacyGpt56SolUltraModel,
   isChatModel,
   normalizeImageSize,
   normalizeReasoningEffortForModel
@@ -976,7 +977,9 @@ export async function POST(request: NextRequest) {
     return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
   }
 
-  const reasoningEffort = normalizeReasoningEffortForModel(body.reasoningEffort, model);
+  const reasoningEffort = isLegacyGpt56SolUltraModel(requestedModel)
+    ? "ultra"
+    : normalizeReasoningEffortForModel(body.reasoningEffort, model);
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const securityMode = personalizationSettings.toolPreferences.securityMode;
   const fileAccessEnabled = personalizationSettings.toolPreferences.fileAnalysisEnabled;

@@ -8,9 +8,9 @@
 - 个人中心：昵称、密码、个人 AI 风格和个人 API Key 管理
 - 类 ChatGPT 聊天界面，支持服务端流式输出
 - 会话与消息历史持久化
-- 模型选择：`GPT-5.6 Sol`、`GPT-5.6 Sol Ultra`、`GPT-5.6 Terra`、`GPT-5.6 Luna`、`GPT-5.5`、`GPT-5.4`、`GPT-5.4-Pro`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
+- 模型选择：`GPT-5.6 Sol`、`GPT-5.6 Terra`、`GPT-5.6 Luna`、`GPT-5.5`、`GPT-5.4`、`GPT-5.4-Pro`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
 - 管理员可从上游 `/models` 自动刷新模型，并启用/停用聊天模型
-- 聊天页支持推理强度选择：低、中、高、超高、Max
+- 聊天页支持推理强度选择：低、中、高、超高、Max、Ultra
 - 支持全局和模型专属系统提示词，用于修正 Sub2API 后端透出的 Codex CLI 等身份设定
 - 支持 Responses API 流式输出状态提示，并兼容部分上游把非 SSE JSON 返回给 `/responses` 的情况
 - 默认不向用户展示上游原始 `reasoning_content`，避免泄漏订阅后端的内部身份或推理噪声
@@ -99,17 +99,17 @@ http://your-sub2api-host:8080/v1
 
 后台的“模型映射”用于把页面上的展示模型名转换成实际发给上游的模型 ID。若 Sub2API 面板里显示的模型 ID 不同，请把对应输入框改成上游实际模型名。
 
-点击“刷新上游模型”会调用当前 API 地址下的 `/models`。网关会过滤掉常见的 image、embedding、audio、moderation 等非聊天模型，聊天模型是否对用户可见由“启用模型”决定。
+点击“刷新模型与价格”会调用当前 API 地址下的 `/models`。网关会过滤掉常见的 image、embedding、audio、moderation 等非聊天模型，聊天模型是否对用户可见由“启用模型”决定。如果 `/models` 返回 OpenRouter 风格的 `pricing`，或同域 New API 提供公开的 `/api/pricing`，刷新还会同步输入、缓存输入和输出单价；未暴露价格接口的 Sub2API 渠道继续使用本地价格表。
 
 点击“测试连接”会在后端检查 API 地址格式、`/v1` 路径、Key 是否已保存，以及 `/models` 是否可访问。诊断结果只返回状态和模型样例，不会把完整 Key 发给前端。
 
-“默认推理强度”提供 Codex 风格的 `低`、`中`、`高`、`超高`、`Max`。聊天、工具路由、搜索规划、上下文压缩等文本请求统一调用 Responses API，并按 `reasoning.effort` 透传为 `low`、`medium`、`high`、`xhigh`、`max`；如果你的上游不支持推理参数，可在后台关闭。GPT-5.6 的 `ultra` 不是普通 `reasoning.effort`，本项目按 `GPT-5.6 Sol Ultra` 单独模型入口接入。
+“默认推理强度”提供 Codex 风格的 `低`、`中`、`高`、`超高`、`Max`、`Ultra`。聊天、工具路由、搜索规划、上下文压缩等文本请求统一调用 Responses API，并按 `reasoning.effort` 透传为 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`；如果你的上游不支持推理参数，可在后台关闭。Ultra 是 GPT-5.6 Sol/Terra 的最高推理并自动任务委派档位，实际请求仍使用所选模型，不再暴露为独立模型。历史 `GPT-5.6-Sol-Ultra` 会自动兼容为 `GPT-5.6 Sol + Ultra`。
 
 聊天请求会优先使用 Responses API 的 `stream: true`、`store: false`、`input` 和 `reasoning.effort`。如果上游返回“不支持/无效参数”类兼容错误，会依次去掉推理参数、去掉 `store`，带原始文件的请求还会退回到纯文本附件上下文。生图消息会保留在普通聊天会话中，不需要切换到单独的生图模式。
 
 “身份与系统提示词”用于修正订阅转发类上游可能携带的默认身份设定。默认模板会让模型在网页聊天场景下按当前选择的模型名回答身份问题；`GPT-5.5-1M` 会自称有 1M 超长上下文的 GPT-5.5。也可以设置全局自定义提示词，或为某个模型单独覆盖。提示词支持 `{model}`、`{model_identity}`、`{date}`、`{time}` 和 `{timezone}` 占位符；聊天请求会优先使用用户浏览器传来的本地日期、时间和时区。
 
-“长上下文阈值”默认是 `270000` tokens。OpenAI 当前价格页说明 GPT-5.6、GPT-5.5、GPT-5.4、GPT-5.4 mini 的标准价格适用于 270K 以下上下文；如果你使用的 Sub2API 上游另有规则，可以在后台调整。GPT-5.6 默认按 Sol/Ultra `$5/$30`、Terra `$2.50/$15`、Luna `$1/$6` 每 1M 输入/输出 tokens 估算；聊天页显示的是后端估算值，最终计费仍以上游返回的 `usage` 为准。
+“长上下文阈值”默认是 `270000` tokens。OpenAI 当前价格页说明 GPT-5.6、GPT-5.5、GPT-5.4、GPT-5.4 mini 的标准价格适用于 270K 以下上下文；如果你使用的 Sub2API 上游另有规则，可以在后台调整。GPT-5.6 默认按 Sol `$5/$30`、Terra `$2.50/$15`、Luna `$1/$6` 每 1M 输入/输出 tokens 估算；Ultra 只改变推理与任务委派档位，不改变模型单价。聊天页显示的是后端估算值，最终计费仍以上游返回的 `usage` 为准。
 
 ## 环境变量
 
@@ -273,7 +273,7 @@ curl https://your-site.example/v1/models \
   -H "Authorization: Bearer sk-user-..."
 ```
 
-个人 API 只注入一层轻量身份说明，用于纠正上游兼容网关可能返回的 Codex CLI 等身份设定；不会套用网页聊天的“无终端/无文件系统”等场景特调。Responses 会保留调用方传入的 `instructions`；Chat Completions 会把 `system` / `developer` 消息并入调用方指令后再转给上游。
+个人 API 不注入网页聊天或身份覆盖提示词，完整保留 Codex、OpenCode 等调用方传入的 `instructions`、输入项和工具协议。兼容重试也不会删除 `tools` / `tool_choice`；如果上游不支持代理工具，请求会明确失败，而不会静默退化成无法读取文件的普通对话。Chat Completions 会保留调用方消息；若额外传入非标准 `instructions`，会将其作为首条 system 消息转给上游。
 
 ## 易支付充值
 
@@ -311,7 +311,7 @@ npm run db:migrate:sqlite-to-pg
 
 额度拆成两部分：月订阅额度和 AI 点数。系统会优先消耗当期月订阅额度，不足部分再扣 AI 点数；AI 点数是独立余额，不会因为管理员开启下一周期而被重置。订阅周期不是自然月，用户级 `quotaResetAt` / `quotaNextResetAt` 决定当前周期起止，管理员可以修改下次刷新时间，也可以手动提前开启下一订阅周期。额度只按费用扣减，消息数和 token 数仅作为用量明细展示。
 
-聊天模型的输入/缓存输入/输出 token 单价与 image2 固定费用位于 `src/lib/models.ts`，管理后台模型列表也会展示单价。由于 MVP 支持的模型名可能来自自定义上游，默认价格是网关侧估算值，可按实际供应商价格调整。
+聊天模型的输入/缓存输入/输出 token 默认单价与 image2 固定费用位于 `src/lib/models.ts`，管理后台模型列表也会展示单价。上游暴露可识别的价格元数据时，“刷新模型与价格”会把价格覆盖保存到现有 AI 设置中；否则继续使用本地默认价格。由于模型名可能来自自定义上游，页面价格仍是网关侧估算值，最终计费以上游返回费用为准。
 
 token 统计优先使用上游返回的 `usage`，包括 `prompt_tokens`、`completion_tokens`、`prompt_tokens_details.cached_tokens` 和 `completion_tokens_details.reasoning_tokens` 等细项；如果 usage 中包含 `cost` / `total_cost` / `cost_usd`，会优先采用上游返回费用。聊天费用以小数美分存储，能展示 `$0.010155` 这类 Sub2API 明细级别的小额费用。如果上游流式响应没有返回 usage，网关会用 `src/lib/tokens.ts` 的近似算法估算，并在消息底部标记“估算”。
 

@@ -108,7 +108,7 @@ export function ModelsTab({
             ) : (
               <RefreshCw className="size-3.5" />
             )}
-            刷新上游模型
+            刷新模型与价格
           </button>
         </div>
         <div className="grid gap-3 p-3 md:grid-cols-2">

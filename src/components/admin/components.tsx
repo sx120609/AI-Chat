@@ -249,6 +249,7 @@ export function reasoningEffortLabel(value: string) {
     low: "Low",
     max: "Max",
     medium: "Medium",
+    ultra: "Ultra",
     xhigh: "XHigh"
   };
 

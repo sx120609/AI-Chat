@@ -20,7 +20,13 @@ import type {
   PublicPaymentSettingsView,
   ToolEventView
 } from "@/types/gateway";
-import { DEFAULT_IMAGE_SIZE, supportsMaxReasoning } from "@/lib/models";
+import {
+  DEFAULT_IMAGE_SIZE,
+  isLegacyGpt56SolUltraModel,
+  normalizeChatModelId,
+  supportsMaxReasoning,
+  supportsUltraReasoning
+} from "@/lib/models";
 import { parsePersonalizationSettings } from "@/lib/personalization";
 import { formatPromptClock } from "@/lib/system-prompt";
 import { sanitizeIdentityLeak } from "@/lib/identity";
@@ -193,7 +199,9 @@ export function useChat({
   );
 
   useEffect(() => {
-    if (reasoningEffort === "max" && activeModel && !supportsMaxReasoning(activeModel)) {
+    if (reasoningEffort === "ultra" && activeModel && !supportsUltraReasoning(activeModel)) {
+      setReasoningEffort(supportsMaxReasoning(activeModel) ? "max" : "xhigh");
+    } else if (reasoningEffort === "max" && activeModel && !supportsMaxReasoning(activeModel)) {
       setReasoningEffort("xhigh");
     }
   }, [activeModel, reasoningEffort]);
@@ -428,7 +436,11 @@ export function useChat({
       }
 
       if (payload.conversation.model && payload.conversation.model !== "image2") {
-        setModel(payload.conversation.model);
+        setModel(normalizeChatModelId(payload.conversation.model) || payload.conversation.model);
+
+        if (isLegacyGpt56SolUltraModel(payload.conversation.model)) {
+          setReasoningEffort("ultra");
+        }
       }
       setImageToolEnabled(false);
       setSourceImageMessage(null);
@@ -2694,5 +2706,6 @@ const REASONING_EFFORTS_ARRAY = [
   { id: "medium" as const, name: "medium" },
   { id: "high" as const, name: "high" },
   { id: "xhigh" as const, name: "xhigh" },
-  { id: "max" as const, name: "max" }
+  { id: "max" as const, name: "max" },
+  { id: "ultra" as const, name: "ultra" }
 ];

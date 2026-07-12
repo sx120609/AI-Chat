@@ -358,9 +358,17 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       return;
     }
 
-    const payload = (await response.json()) as { settings: AiSettingsView; count: number };
+    const payload = (await response.json()) as {
+      settings: AiSettingsView;
+      count: number;
+      pricingCount: number;
+    };
     applySettings(payload.settings);
-    setNotice(`已从上游获取 ${payload.count} 个模型。`);
+    setNotice(
+      payload.pricingCount > 0
+        ? `已从上游获取 ${payload.count} 个模型，并同步 ${payload.pricingCount} 个模型的价格。`
+        : `已从上游获取 ${payload.count} 个模型；上游未提供可识别的价格数据。`
+    );
     setRefreshingModels(false);
   }
 

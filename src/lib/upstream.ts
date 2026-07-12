@@ -870,7 +870,70 @@ export async function uploadResponseFile(
   return fileId;
 }
 
-function collectModelIds(payload: unknown) {
+export type UpstreamModelPricing = {
+  cachedInputCentsPerMillionTokens: number;
+  inputCentsPerMillionTokens: number;
+  outputCentsPerMillionTokens: number;
+};
+
+export type UpstreamModelDefinition = {
+  id: string;
+  pricing?: UpstreamModelPricing;
+};
+
+function finiteNonNegative(value: unknown) {
+  const numeric = typeof value === "string" && value.trim() ? Number(value) : value;
+
+  return typeof numeric === "number" && Number.isFinite(numeric) && numeric >= 0
+    ? numeric
+    : undefined;
+}
+
+function centsPerMillionFromDollarsPerToken(value: unknown) {
+  const price = finiteNonNegative(value);
+
+  return price === undefined ? undefined : price * 100_000_000;
+}
+
+function centsPerMillionFromDollarsPerMillion(value: unknown) {
+  const price = finiteNonNegative(value);
+
+  return price === undefined ? undefined : price * 100;
+}
+
+function directModelPricing(source: Record<string, unknown>) {
+  const pricing =
+    source.pricing && typeof source.pricing === "object"
+      ? (source.pricing as Record<string, unknown>)
+      : {};
+  const input =
+    centsPerMillionFromDollarsPerMillion(
+      source.input_price_per_million ?? source.input_cost_per_million
+    ) ?? centsPerMillionFromDollarsPerToken(pricing.prompt ?? pricing.input);
+  const output =
+    centsPerMillionFromDollarsPerMillion(
+      source.output_price_per_million ?? source.output_cost_per_million
+    ) ?? centsPerMillionFromDollarsPerToken(pricing.completion ?? pricing.output);
+  const cached =
+    centsPerMillionFromDollarsPerMillion(
+      source.cached_input_price_per_million ?? source.cache_read_cost_per_million
+    ) ??
+    centsPerMillionFromDollarsPerToken(
+      pricing.input_cache_read ?? pricing.cached_input ?? pricing.cache_read
+    );
+
+  if (input === undefined || output === undefined) {
+    return undefined;
+  }
+
+  return {
+    inputCentsPerMillionTokens: input,
+    cachedInputCentsPerMillionTokens: cached ?? input * 0.1,
+    outputCentsPerMillionTokens: output
+  } satisfies UpstreamModelPricing;
+}
+
+function collectModels(payload: unknown) {
   const json = payload as {
     data?: unknown;
     models?: unknown;
@@ -886,24 +949,100 @@ function collectModelIds(payload: unknown) {
   return (list as Array<unknown>)
     .map((item) => {
       if (typeof item === "string") {
-        return item.trim();
+        return { id: item.trim() } satisfies UpstreamModelDefinition;
       }
 
       if (item && typeof item === "object" && "id" in item) {
-        const id = (item as { id?: unknown }).id;
-        return typeof id === "string" ? id.trim() : "";
+        const source = item as Record<string, unknown>;
+        const id = typeof source.id === "string" ? source.id.trim() : "";
+        const pricing = directModelPricing(source);
+
+        return {
+          id,
+          ...(pricing ? { pricing } : {})
+        } satisfies UpstreamModelDefinition;
       }
 
-      return "";
+      return { id: "" } satisfies UpstreamModelDefinition;
     })
-    .filter(Boolean);
+    .filter((model) => model.id);
 }
 
-export async function fetchUpstreamModelIds(settings: AiRuntimeSettings) {
+function pricingEndpoint(apiBaseUrl: string) {
+  const url = new URL(apiBaseUrl);
+  url.pathname = `${url.pathname.replace(/\/(?:api\/)?v1\/?$/i, "").replace(/\/$/, "")}/api/pricing`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function collectNewApiPricing(payload: unknown) {
+  const json = payload as { data?: unknown };
+  const list = Array.isArray(json?.data) ? json.data : Array.isArray(payload) ? payload : [];
+  const prices = new Map<string, UpstreamModelPricing>();
+
+  for (const item of list) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const source = item as Record<string, unknown>;
+    const id = typeof source.model_name === "string" ? source.model_name.trim() : "";
+    const quotaType = finiteNonNegative(source.quota_type);
+    const modelRatio = finiteNonNegative(source.model_ratio);
+    const completionRatio = finiteNonNegative(source.completion_ratio) ?? 1;
+
+    // New API's quota_type=1 is a fixed per-request price and cannot be represented
+    // by this gateway's input/output token price fields.
+    if (!id || quotaType === 1 || modelRatio === undefined) {
+      continue;
+    }
+
+    const input = modelRatio * 200;
+    const cacheRatio = finiteNonNegative(source.cache_ratio) ?? 0.1;
+    prices.set(id, {
+      inputCentsPerMillionTokens: input,
+      cachedInputCentsPerMillionTokens: input * cacheRatio,
+      outputCentsPerMillionTokens: input * completionRatio
+    });
+  }
+
+  return prices;
+}
+
+async function fetchUpstreamPricing(settings: AiRuntimeSettings) {
+  try {
+    const response = await fetchWithHeadersTimeout(
+      pricingEndpoint(settings.apiBaseUrl),
+      {
+        method: "GET",
+        headers: { "content-type": "application/json" }
+      },
+      MODELS_TIMEOUT_MS
+    );
+
+    if (!response.ok) {
+      return new Map<string, UpstreamModelPricing>();
+    }
+
+    return collectNewApiPricing((await response.json().catch(() => null)) as unknown);
+  } catch {
+    return new Map<string, UpstreamModelPricing>();
+  }
+}
+
+export async function fetchUpstreamModels(settings: AiRuntimeSettings) {
   assertUpstreamConfigured(settings);
 
   if (settings.mockResponses) {
-    return settings.chatModels.map((model) => model.upstreamId);
+    return settings.chatModels.map((model) => ({
+      id: model.upstreamId,
+      pricing: {
+        inputCentsPerMillionTokens: model.inputCentsPerMillionTokens,
+        cachedInputCentsPerMillionTokens: model.cachedInputCentsPerMillionTokens,
+        outputCentsPerMillionTokens: model.outputCentsPerMillionTokens
+      }
+    }));
   }
 
   const response = await fetchWithHeadersTimeout(
@@ -925,9 +1064,24 @@ export async function fetchUpstreamModelIds(settings: AiRuntimeSettings) {
     throw new Error("上游 /models 返回的不是有效 JSON。");
   }
 
-  const ids = collectModelIds(payload);
+  const models = collectModels(payload);
+  const pricing = await fetchUpstreamPricing(settings);
+  const byId = new Map<string, UpstreamModelDefinition>();
 
-  return uniqueModelIds(ids).sort((left, right) => left.localeCompare(right));
+  for (const model of models) {
+    byId.set(model.id, {
+      ...model,
+      ...(pricing.get(model.id) ? { pricing: pricing.get(model.id) } : {})
+    });
+  }
+
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export async function fetchUpstreamModelIds(settings: AiRuntimeSettings) {
+  const models = await fetchUpstreamModels(settings);
+
+  return uniqueModelIds(models.map((model) => model.id));
 }
 
 type SourceImage = {

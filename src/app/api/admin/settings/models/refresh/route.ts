@@ -30,7 +30,7 @@ import {
 import { maskSecret } from "@/lib/smtp";
 import {
   AI_RUNTIME_SETTINGS_CACHE_KEY,
-  fetchUpstreamModelIds,
+  fetchUpstreamModels,
   getAiRuntimeSettings
 } from "@/lib/upstream";
 
@@ -139,17 +139,40 @@ export async function POST(request: NextRequest) {
   const runtimeSettings = await getAiRuntimeSettings();
 
   try {
-    const modelIds = await fetchUpstreamModelIds(runtimeSettings);
+    const upstreamModels = await fetchUpstreamModels(runtimeSettings);
+    const modelIds = upstreamModels.map((model) => model.id);
     const existingSettings = await prisma.aiSettings.findUnique({
       where: { id: "default" }
     });
     const existingEnabled = existingSettings?.enabledChatModelsJson || "[]";
+    const existingDisplay = parseModelDisplayConfig(existingSettings?.chatModelDisplayJson);
+    const modelMap = parseModelMap(existingSettings?.chatModelMapJson);
+    const nextDisplay = { ...existingDisplay };
+
+    for (const model of upstreamModels) {
+      if (!model.pricing) {
+        continue;
+      }
+
+      const mappedIds = Object.entries(modelMap)
+        .filter(([, upstreamId]) => upstreamId === model.id)
+        .map(([id]) => id);
+      const displayIds = mappedIds.length > 0 ? mappedIds : [model.id];
+
+      for (const id of displayIds) {
+        nextDisplay[id] = {
+          ...nextDisplay[id],
+          ...model.pricing
+        };
+      }
+    }
 
     await prisma.aiSettings.upsert({
       where: { id: "default" },
       update: {
         availableModelsJson: JSON.stringify(modelIds),
-        enabledChatModelsJson: existingEnabled
+        enabledChatModelsJson: existingEnabled,
+        chatModelDisplayJson: JSON.stringify(nextDisplay)
       },
       create: {
         id: "default",
@@ -161,7 +184,7 @@ export async function POST(request: NextRequest) {
         gpt54ProOrgId: runtimeSettings.gpt54ProOrgId || null,
         mockResponses: runtimeSettings.mockResponses,
         chatModelMapJson: JSON.stringify(DEFAULT_UPSTREAM_MODEL_MAP),
-        chatModelDisplayJson: "{}",
+        chatModelDisplayJson: JSON.stringify(nextDisplay),
         availableModelsJson: JSON.stringify(modelIds),
         enabledChatModelsJson: "[]",
         imageModelId: runtimeSettings.imageModelId,
@@ -207,6 +230,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       count: modelIds.length,
+      pricingCount: upstreamModels.filter((model) => Boolean(model.pricing)).length,
       settings: await serializeSettings()
     });
   } catch (refreshError) {

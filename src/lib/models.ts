@@ -1,7 +1,7 @@
 export type ChatModelId = string;
 export type GatewayMode = "CHAT" | "IMAGE";
 export type ModelSource = "default" | "upstream";
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 
 export type ChatModelConfig = {
@@ -26,8 +26,11 @@ type ReasoningModelLike =
   | undefined;
 
 export type ChatModelDisplayConfig = {
+  cachedInputCentsPerMillionTokens?: number;
   contextNote?: string;
+  inputCentsPerMillionTokens?: number;
   label?: string;
+  outputCentsPerMillionTokens?: number;
 };
 
 export const REASONING_EFFORTS: Array<{
@@ -39,7 +42,8 @@ export const REASONING_EFFORTS: Array<{
   { id: "medium", label: "中", shortLabel: "中" },
   { id: "high", label: "高", shortLabel: "高" },
   { id: "xhigh", label: "超高", shortLabel: "超高" },
-  { id: "max", label: "Max", shortLabel: "Max" }
+  { id: "max", label: "Max", shortLabel: "Max" },
+  { id: "ultra", label: "Ultra", shortLabel: "Ultra" }
 ];
 
 export const REASONING_PARAM_MODES: Array<{
@@ -54,6 +58,11 @@ export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
 export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "responses";
 export const LIGHTWEIGHT_TASK_MODEL_ID = "GPT-5.3-Codex-Spark";
 export const GPT_54_PRO_MODEL_ID = "GPT-5.4-Pro";
+export const GPT_56_SOL_MODEL_ID = "GPT-5.6-Sol";
+export const LEGACY_GPT_56_SOL_ULTRA_IDS = [
+  "GPT-5.6-Sol-Ultra",
+  "gpt-5.6-sol-ultra"
+] as const;
 export const UNLIMITED_CONTEXT_WINDOW_TOKENS = 1_000_000_000;
 export const DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS = UNLIMITED_CONTEXT_WINDOW_TOKENS;
 export const MAX_CONTEXT_WINDOW_LIMIT_TOKENS = UNLIMITED_CONTEXT_WINDOW_TOKENS;
@@ -64,7 +73,7 @@ const DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION = 500;
 
 export const CHAT_MODELS: ChatModelConfig[] = [
   {
-    id: "GPT-5.6-Sol",
+    id: GPT_56_SOL_MODEL_ID,
     label: "GPT-5.6 Sol",
     upstreamId: "gpt-5.6-sol",
     inputCentsPerMillionTokens: 500,
@@ -75,20 +84,6 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "Sol",
     source: "default",
     enabled: true,
-    supportsReasoning: true
-  },
-  {
-    id: "GPT-5.6-Sol-Ultra",
-    label: "GPT-5.6 Sol Ultra",
-    upstreamId: "gpt-5.6-sol-ultra",
-    inputCentsPerMillionTokens: 500,
-    cachedInputCentsPerMillionTokens: 50,
-    outputCentsPerMillionTokens: 3000,
-    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
-    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
-    contextNote: "Ultra",
-    source: "default",
-    enabled: false,
     supportsReasoning: true
   },
   {
@@ -179,9 +174,9 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     id: "GPT-5.3-Codex-Spark",
     label: "GPT-5.3-Codex-Spark",
     upstreamId: "gpt-5.3-codex-spark",
-    inputCentsPerMillionTokens: 300,
-    cachedInputCentsPerMillionTokens: 30,
-    outputCentsPerMillionTokens: 1500,
+    inputCentsPerMillionTokens: 175,
+    cachedInputCentsPerMillionTokens: 17.5,
+    outputCentsPerMillionTokens: 1400,
     contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
     maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
     contextNote: "轻量代码",
@@ -290,6 +285,12 @@ function cleanModelDisplayText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
+function cleanModelPrice(value: unknown) {
+  const numeric = typeof value === "number" ? value : Number.NaN;
+
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
 export function parseModelDisplayConfig(value: string | null | undefined) {
   const next: Record<string, ChatModelDisplayConfig> = {};
 
@@ -310,11 +311,35 @@ export function parseModelDisplayConfig(value: string | null | undefined) {
       const source = config as Record<string, unknown>;
       const label = cleanModelDisplayText(source.label, MAX_MODEL_LABEL_CHARS);
       const contextNote = cleanModelDisplayText(source.contextNote, MAX_MODEL_CONTEXT_NOTE_CHARS);
+      const inputCentsPerMillionTokens = cleanModelPrice(
+        source.inputCentsPerMillionTokens
+      );
+      const cachedInputCentsPerMillionTokens = cleanModelPrice(
+        source.cachedInputCentsPerMillionTokens
+      );
+      const outputCentsPerMillionTokens = cleanModelPrice(
+        source.outputCentsPerMillionTokens
+      );
 
-      if (label || contextNote) {
+      if (
+        label ||
+        contextNote ||
+        inputCentsPerMillionTokens !== undefined ||
+        cachedInputCentsPerMillionTokens !== undefined ||
+        outputCentsPerMillionTokens !== undefined
+      ) {
         next[modelId] = {
           ...(label ? { label } : {}),
-          ...(contextNote ? { contextNote } : {})
+          ...(contextNote ? { contextNote } : {}),
+          ...(inputCentsPerMillionTokens !== undefined
+            ? { inputCentsPerMillionTokens }
+            : {}),
+          ...(cachedInputCentsPerMillionTokens !== undefined
+            ? { cachedInputCentsPerMillionTokens }
+            : {}),
+          ...(outputCentsPerMillionTokens !== undefined
+            ? { outputCentsPerMillionTokens }
+            : {})
         };
       }
     }
@@ -435,6 +460,12 @@ export function buildChatModelCatalog(settings?: {
       ...model,
       label: display.label || model.label,
       upstreamId,
+      inputCentsPerMillionTokens:
+        display.inputCentsPerMillionTokens ?? model.inputCentsPerMillionTokens,
+      cachedInputCentsPerMillionTokens:
+        display.cachedInputCentsPerMillionTokens ?? model.cachedInputCentsPerMillionTokens,
+      outputCentsPerMillionTokens:
+        display.outputCentsPerMillionTokens ?? model.outputCentsPerMillionTokens,
       contextWindowTokens: Math.min(model.contextWindowTokens, maxContextWindowTokens),
       contextNote: display.contextNote || model.contextNote,
       maxContextWindowTokens,
@@ -449,7 +480,12 @@ export function buildChatModelCatalog(settings?: {
   }
 
   const fetchedModels = upstreamIds
-    .filter((id) => !knownIds.has(id) && isLikelyChatModelId(id))
+    .filter(
+      (id) =>
+        !knownIds.has(id) &&
+        !isLegacyGpt56SolUltraModel(id) &&
+        isLikelyChatModelId(id)
+    )
     .map<ChatModelConfig>((id) => {
       const display = modelDisplay[id] || {};
       const maxContextWindowTokens = capContextWindowTokens(inferContextWindowTokens(id));
@@ -458,9 +494,13 @@ export function buildChatModelCatalog(settings?: {
         id,
         label: display.label || id,
         upstreamId: id,
-        inputCentsPerMillionTokens: DEFAULT_DYNAMIC_INPUT_CENTS_PER_MILLION,
-        cachedInputCentsPerMillionTokens: DEFAULT_DYNAMIC_CACHED_INPUT_CENTS_PER_MILLION,
-        outputCentsPerMillionTokens: DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION,
+        inputCentsPerMillionTokens:
+          display.inputCentsPerMillionTokens ?? DEFAULT_DYNAMIC_INPUT_CENTS_PER_MILLION,
+        cachedInputCentsPerMillionTokens:
+          display.cachedInputCentsPerMillionTokens ??
+          DEFAULT_DYNAMIC_CACHED_INPUT_CENTS_PER_MILLION,
+        outputCentsPerMillionTokens:
+          display.outputCentsPerMillionTokens ?? DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION,
         contextWindowTokens: Math.min(
           maxContextWindowTokens,
           DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS
@@ -532,9 +572,12 @@ export function getChatModel(
   options?: { includeDisabled?: boolean }
 ) {
   const enabled = options?.includeDisabled ? catalog : getEnabledChatModels(catalog);
+  const normalizedModelId = normalizeChatModelId(modelId);
 
   return (
-    enabled.find((model) => model.id === modelId || model.upstreamId === modelId) ??
+    enabled.find(
+      (model) => model.id === normalizedModelId || model.upstreamId === normalizedModelId
+    ) ??
     enabled[0] ??
     CHAT_MODELS[0]
   );
@@ -545,9 +588,29 @@ export function isChatModel(modelId: string | undefined, catalog = CHAT_MODELS):
     return false;
   }
 
+  const normalizedModelId = normalizeChatModelId(modelId);
+
   return getEnabledChatModels(catalog).some(
-    (model) => model.id === modelId || model.upstreamId === modelId
+    (model) => model.id === normalizedModelId || model.upstreamId === normalizedModelId
   );
+}
+
+export function isLegacyGpt56SolUltraModel(modelId: unknown) {
+  if (typeof modelId !== "string") {
+    return false;
+  }
+
+  const normalized = modelId.trim().toLowerCase();
+
+  return LEGACY_GPT_56_SOL_ULTRA_IDS.some((id) => id.toLowerCase() === normalized);
+}
+
+export function normalizeChatModelId(modelId: string | undefined) {
+  if (!modelId) {
+    return modelId;
+  }
+
+  return isLegacyGpt56SolUltraModel(modelId) ? GPT_56_SOL_MODEL_ID : modelId.trim();
 }
 
 export function normalizeReasoningEffort(value: unknown): ReasoningEffort {
@@ -573,8 +636,22 @@ export function supportsMaxReasoning(model: ReasoningModelLike) {
   return signature.toLowerCase().includes("gpt-5.6");
 }
 
+export function supportsUltraReasoning(model: ReasoningModelLike) {
+  const signature =
+    typeof model === "string"
+      ? model
+      : `${model?.id || ""} ${model?.label || ""} ${model?.upstreamId || ""}`;
+  const normalized = signature.toLowerCase();
+
+  return normalized.includes("gpt-5.6-sol") || normalized.includes("gpt-5.6-terra");
+}
+
 export function normalizeReasoningEffortForModel(value: unknown, model: ReasoningModelLike) {
   const effort = normalizeReasoningEffort(value);
+
+  if (effort === "ultra" && !supportsUltraReasoning(model)) {
+    return supportsMaxReasoning(model) ? "max" : "xhigh";
+  }
 
   return effort === "max" && !supportsMaxReasoning(model) ? "xhigh" : effort;
 }

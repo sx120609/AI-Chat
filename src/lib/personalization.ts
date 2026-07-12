@@ -27,7 +27,7 @@ export type PersonalizationSettings = {
     imageGenerationEnabled: boolean;
     fileAnalysisEnabled: boolean;
     securityMode: boolean;
-    defaultReasoningEffort: "low" | "medium" | "high" | "xhigh" | "max";
+    defaultReasoningEffort: "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
     defaultModel: string;
   };
 };
@@ -44,7 +44,7 @@ const PERSONALITIES: ChatPersonality[] = [
   "professional"
 ];
 const LEVELS: PersonalizationLevel[] = ["default", "low", "medium", "high"];
-const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
 
 function defaultPersonalizationSettings(): PersonalizationSettings {
   return {
@@ -108,6 +108,7 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
     (typeof input.chatHistoryMemoryEnabled === "boolean"
       ? input.chatHistoryMemoryEnabled
       : legacyMemoryEnabled ?? defaults.chatHistoryMemoryEnabled);
+  const legacyUltraDefaultModel = isLegacyGpt56SolUltraModel(toolPreferences.defaultModel);
 
   return {
     customizationEnabled:
@@ -152,12 +153,17 @@ export function normalizePersonalizationSettings(value: unknown): Personalizatio
         typeof toolPreferences.securityMode === "boolean"
           ? toolPreferences.securityMode
           : defaults.toolPreferences.securityMode,
-      defaultReasoningEffort: pickOption(
-        toolPreferences.defaultReasoningEffort,
-        REASONING_EFFORTS,
-        defaults.toolPreferences.defaultReasoningEffort
-      ),
-      defaultModel: cleanText(toolPreferences.defaultModel, 80)
+      defaultReasoningEffort: legacyUltraDefaultModel
+        ? "ultra"
+        : pickOption(
+            toolPreferences.defaultReasoningEffort,
+            REASONING_EFFORTS,
+            defaults.toolPreferences.defaultReasoningEffort
+          ),
+      defaultModel: cleanText(
+        normalizeChatModelId(cleanText(toolPreferences.defaultModel, 80)),
+        80
+      )
     }
   };
 }
@@ -285,3 +291,7 @@ export function formatPersonalizationForPrompt(value: unknown) {
 
   return lines.join("\n");
 }
+import {
+  isLegacyGpt56SolUltraModel,
+  normalizeChatModelId
+} from "@/lib/models";

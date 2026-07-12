@@ -9,6 +9,8 @@ import {
   getEnabledApiModels,
   IMAGE_MODEL,
   imageSizeDimensions,
+  isLegacyGpt56SolUltraModel,
+  normalizeChatModelId,
   normalizeImageSize,
   type ChatModelConfig
 } from "@/lib/models";
@@ -17,7 +19,6 @@ import {
   createUsageRecordWithQuotaDebit,
   QuotaError
 } from "@/lib/quota";
-import { resolveApiIdentityPrompt } from "@/lib/system-prompt";
 import { estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
@@ -217,7 +218,8 @@ function findEnabledModel(modelId: unknown, catalog: ChatModelConfig[]) {
     return null;
   }
 
-  const id = modelId.trim();
+  const requestedId = modelId.trim();
+  const id = normalizeChatModelId(requestedId) || requestedId;
   const apiModels = getEnabledApiModels(catalog);
   const exactApiModel =
     apiModels.find((model) => model.id === id || model.upstreamId === id || model.label === id) ?? null;
@@ -434,24 +436,25 @@ function uniqueBodyCandidates(candidates: Record<string, unknown>[]) {
 }
 
 function responseBodyFallbackCandidates(body: Record<string, unknown>) {
+  // Tool definitions and tool_choice are part of the agent contract. Never
+  // silently remove them to turn an agent request into a text-only request:
+  // clients such as Codex would receive HTTP 200 but lose shell/file access.
   const stripped = withoutKeys(body, [
     "metadata",
-    "parallel_tool_calls",
     "reasoning",
     "store",
-    "tool_choice",
     "user"
   ]);
+  const withoutParallel = withoutKeys(stripped, ["parallel_tool_calls"]);
 
-  return uniqueBodyCandidates([body, stripped]);
+  return uniqueBodyCandidates([body, stripped, withoutParallel]);
 }
 
 function chatCompletionBodyFallbackCandidates(body: Record<string, unknown>) {
   const stripped = withoutKeys(body, ["metadata", "reasoning", "store", "user"]);
   const withoutParallel = withoutKeys(stripped, ["parallel_tool_calls"]);
-  const withoutTools = withoutKeys(withoutParallel, ["tool_choice", "tools"]);
 
-  return uniqueBodyCandidates([body, stripped, withoutParallel, withoutTools]);
+  return uniqueBodyCandidates([body, stripped, withoutParallel]);
 }
 
 async function fetchUpstreamResponses({
@@ -573,133 +576,32 @@ function upstreamJsonError(failure: UpstreamFailure, model: ChatModelConfig) {
   });
 }
 
-function textFromMessageContent(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return "";
-  }
-
-  return content
-    .map((part) => {
-      const object = jsonObject(part);
-
-      if (!object) {
-        return "";
-      }
-
-      if (typeof object.text === "string") {
-        return object.text;
-      }
-
-      if (typeof object.content === "string") {
-        return object.content;
-      }
-
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-function normalizeResponsesBodyForSub2Api(body: Record<string, unknown>) {
-  const input = Array.isArray(body.input) ? body.input : null;
-  const next = withoutKeys(body, ["user"]);
-
-  if (!input) {
-    return next;
-  }
-
-  const extractedInstructions: string[] = [];
-  const normalizedInput = input.filter((item) => {
-    const object = jsonObject(item);
-    const role = typeof object?.role === "string" ? object.role.toLowerCase() : "";
-
-    if (role !== "system" && role !== "developer") {
-      return true;
-    }
-
-    const text = textFromMessageContent(object?.content).trim();
-
-    if (text) {
-      extractedInstructions.push(text);
-    }
-
-    return false;
-  });
-
-  if (extractedInstructions.length === 0) {
-    return next;
-  }
-
-  const currentInstructions = typeof next.instructions === "string" ? next.instructions.trim() : "";
-
-  return {
-    ...next,
-    input: normalizedInput,
-    instructions: [...extractedInstructions, currentInstructions].filter(Boolean).join("\n\n")
-  };
-}
-
-function gatewayInstructions({
-  body,
-  model,
-  settings
-}: {
-  body: Record<string, unknown>;
-  model: ChatModelConfig;
-  settings: AiRuntimeSettings;
-}) {
-  const identityPrompt = resolveApiIdentityPrompt({
-    mode: settings.systemPromptMode,
-    modelLabel: model.label
-  });
-  const callerInstructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
-
-  return [identityPrompt, callerInstructions]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
 function upstreamRequestBody({
   body,
-  model,
-  settings
+  model
 }: {
   body: Record<string, unknown>;
   model: ChatModelConfig;
-  settings: AiRuntimeSettings;
 }) {
-  // Normalize caller-provided system/developer input before adding the gateway
-  // identity layer. This keeps the gateway identity prompt first and the
-  // caller's workspace/tool instructions last, so newer models do not treat
-  // the lightweight identity correction as an environment capability override.
-  const normalizedBody = normalizeResponsesBodyForSub2Api({
-    ...body,
-    model: model.upstreamId || model.id
-  });
-  const instructions = gatewayInstructions({
-    body: normalizedBody,
-    model,
-    settings
-  });
+  const legacyUltra = isLegacyGpt56SolUltraModel(body.model);
+  const reasoning = jsonObject(body.reasoning) ?? {};
 
+  // Personal API requests may come from coding agents. Preserve their full
+  // instructions, input items and tool protocol; only map the public model id
+  // to the configured upstream id.
   return {
-    ...normalizedBody,
-    ...(instructions ? { instructions } : {})
+    ...body,
+    ...(legacyUltra ? { reasoning: { ...reasoning, effort: "ultra" } } : {}),
+    model: model.upstreamId || model.id
   };
 }
 
 function chatCompletionRequestToUpstreamBody({
   body,
-  model,
-  settings
+  model
 }: {
   body: Record<string, unknown>;
   model: ChatModelConfig;
-  settings: AiRuntimeSettings;
 }) {
   const messages = Array.isArray(body.messages) ? body.messages : null;
 
@@ -707,12 +609,8 @@ function chatCompletionRequestToUpstreamBody({
     return null;
   }
 
-  const identityPrompt = resolveApiIdentityPrompt({
-    mode: settings.systemPromptMode,
-    modelLabel: model.label
-  });
   const callerInstructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
-  const injectedMessages = [identityPrompt, callerInstructions]
+  const injectedMessages = [callerInstructions]
     .filter(Boolean)
     .map((content) => ({
       role: "system",
@@ -729,6 +627,7 @@ function chatCompletionRequestToUpstreamBody({
   });
   const upstreamBody: Record<string, unknown> = {
     ...body,
+    ...(isLegacyGpt56SolUltraModel(body.model) ? { reasoning_effort: "ultra" } : {}),
     messages: [...injectedMessages, ...upstreamMessages],
     model: model.upstreamId || model.id
   };
@@ -1013,14 +912,15 @@ export async function handleUserResponsesRequest(request: NextRequest) {
   const auditBase: UsageAuditMetadata = {
     billingMode: "按量",
     endpoint: "/v1/responses",
-    reasoningEffort: usageReasoningEffort(body),
+    reasoningEffort: isLegacyGpt56SolUltraModel(body.model)
+      ? "ultra"
+      : usageReasoningEffort(body),
     requestKind: usageRequestKind(body),
     userAgent: usageUserAgent(request)
   };
   const upstreamBody = upstreamRequestBody({
     body,
-    model,
-    settings: upstreamSettings
+    model
   });
   const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
   const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
@@ -1232,14 +1132,15 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   const auditBase: UsageAuditMetadata = {
     billingMode: "按量",
     endpoint: "/v1/chat/completions",
-    reasoningEffort: usageReasoningEffort(body),
+    reasoningEffort: isLegacyGpt56SolUltraModel(body.model)
+      ? "ultra"
+      : usageReasoningEffort(body),
     requestKind: usageRequestKind(body),
     userAgent: usageUserAgent(request)
   };
   const upstreamBody = chatCompletionRequestToUpstreamBody({
     body,
-    model,
-    settings: upstreamSettings
+    model
   });
 
   if (!upstreamBody) {

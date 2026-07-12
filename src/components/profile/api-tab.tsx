@@ -89,6 +89,10 @@ function powerShellDoubleQuote(value: string) {
   return `"${value.replace(/`/g, "``").replace(/"/g, '`"')}"`;
 }
 
+function apiModelId(model: ChatModelView | undefined) {
+  return model?.upstreamId || model?.id || "";
+}
+
 function buildCodexConfig({
   baseUrl,
   envKey = LOWIQ_API_KEY_ENV,
@@ -190,13 +194,13 @@ function buildOpenCodeConfig({
 }) {
   const modelEntries = Object.fromEntries(
     models.map((model) => [
-      model.id,
+      apiModelId(model),
       {
         name: model.label || model.id
       }
     ])
   );
-  const primaryModel = models[0]?.id || "gpt-5.5";
+  const primaryModel = apiModelId(models[0]) || "gpt-5.5";
 
   return jsonConfig({
     $schema: "https://opencode.ai/config.json",
@@ -280,11 +284,12 @@ function buildClaudeRouterConfig({
   models: ChatModelView[];
   siteName: string;
 }) {
-  const modelIds = models.map((model) => model.id);
+  const modelIds = models.map((model) => apiModelId(model));
   const primaryModel = modelIds[0] || "gpt-5.5";
-  const smallModel =
-    models.find((model) => /mini|flash|lite|small/i.test(`${model.id} ${model.label}`))?.id ||
-    primaryModel;
+  const smallModelConfig = models.find((model) =>
+    /mini|flash|lite|small/i.test(`${model.id} ${model.label}`)
+  );
+  const smallModel = apiModelId(smallModelConfig) || primaryModel;
 
   return jsonConfig({
     LOG: true,
@@ -450,7 +455,7 @@ function ApiGuideDialog({
   const baseUrl = origin ? `${origin}/v1` : "/v1";
   const hasApiKey = Boolean(apiKey);
   const keyValue = apiKey || "sk-user-在这里替换成你的 API Key";
-  const primaryModel = models[0]?.id || "gpt-5.5";
+  const primaryModel = apiModelId(models[0]) || "gpt-5.5";
   const codexConfig = useMemo(
     () =>
       buildCodexConfig({

@@ -832,10 +832,14 @@ function chatCompletionResponse({
 
 function serializeModel(model: ChatModelConfig) {
   return {
-    id: model.id,
+    // OpenAI-compatible clients use the public model id to select local model
+    // metadata. Expose the real upstream slug so clients such as Codex can
+    // recognize GPT-5.6 and enable its shell/apply-patch tool protocol.
+    id: model.upstreamId || model.id,
     object: "model",
     created: 0,
     owned_by: "team-ai-gateway",
+    gateway_id: model.id,
     label: model.label,
     upstream_id: model.upstreamId,
     context_window_tokens: model.contextWindowTokens,
@@ -919,6 +923,11 @@ function passthroughHeaders(response: Response) {
 
   if (contentType) {
     headers.set("content-type", contentType);
+  }
+
+  if (contentType?.includes("text/event-stream")) {
+    headers.set("cache-control", "no-cache, no-transform");
+    headers.set("x-accel-buffering", "no");
   }
 
   return headers;
@@ -1120,7 +1129,16 @@ export async function handleUserResponsesRequest(request: NextRequest) {
               boundary = buffer.indexOf("\n\n");
             }
           }
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+          return;
+        }
 
+        // The client has already received a complete upstream SSE response.
+        // Accounting must not turn that successful response into a transport
+        // failure that makes agent clients retry the whole turn.
+        try {
           await recordUserApiUsage({
             apiKeyPrefix: authenticated.apiKey.keyPrefix,
             audit: {
@@ -1134,9 +1152,8 @@ export async function handleUserResponsesRequest(request: NextRequest) {
             upstreamUsage,
             userId: authenticated.user.id
           });
-          controller.close();
         } catch (error) {
-          controller.error(error);
+          console.error("[user-api] Failed to record completed Responses usage:", error);
         }
       },
       cancel() {

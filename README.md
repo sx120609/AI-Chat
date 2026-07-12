@@ -258,14 +258,14 @@ API 模型列表按上游模型 ID 去重，不暴露网页聊天里的上下文
 curl https://your-site.example/api/v1/responses \
   -H "Authorization: Bearer sk-user-..." \
   -H "Content-Type: application/json" \
-  -d '{"model":"GPT-5.5","input":"你好","stream":false}'
+  -d '{"model":"gpt-5.5","input":"你好","stream":false}'
 ```
 
 ```bash
 curl https://your-site.example/v1/chat/completions \
   -H "Authorization: Bearer sk-user-..." \
   -H "Content-Type: application/json" \
-  -d '{"model":"GPT-5.5","messages":[{"role":"user","content":"你好"}],"stream":false}'
+  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"你好"}],"stream":false}'
 ```
 
 ```bash

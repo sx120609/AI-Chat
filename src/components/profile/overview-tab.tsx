@@ -30,7 +30,6 @@ type OverviewTabProps = {
   initialUsage: UsageSummary;
   loadingPayments: boolean;
   onRecharge: () => void;
-  onSubscribeCodingPlan: (planId: string) => void;
   onRefreshPayments: () => void;
   savingProfile: boolean;
   onSaveProfile: (event: FormEvent<HTMLFormElement>) => void;
@@ -115,7 +114,6 @@ export function OverviewTab({
   initialUsage,
   loadingPayments,
   onRecharge,
-  onSubscribeCodingPlan,
   onRefreshPayments,
   savingProfile,
   onSaveProfile,
@@ -228,41 +226,6 @@ export function OverviewTab({
                 ) : null}
               </div>
             ) : null}
-            {paymentSettings.easyPayEnabled && paymentSettings.codingPlans.some((plan) => plan.enabled) ? (
-              <div className="mt-3 grid gap-2">
-                {paymentSettings.codingPlans
-                  .filter((plan) => plan.enabled)
-                  .map((plan) => (
-                    <button
-                      className="ios-button-secondary app-action-button flex min-h-10 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm"
-                      data-testid={`profile-coding-plan-${plan.id}`}
-                      key={plan.id}
-                      onClick={() => onSubscribeCodingPlan(plan.id)}
-                      type="button"
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <Code2 className="size-4 shrink-0" />
-                        <span className="min-w-0">
-                          <span className="block truncate font-semibold">{plan.name}</span>
-                          <span className="block truncate text-[11px] ios-muted">
-                            月额度 {formatCents(plan.monthlyCostLimitCents)}
-                            {plan.dailyCostLimitCents > 0
-                              ? ` · 日限 ${formatCents(plan.dailyCostLimitCents)}`
-                              : ""}
-                            {plan.weeklyCostLimitCents > 0
-                              ? ` · 周限 ${formatCents(plan.weeklyCostLimitCents)}`
-                              : ""}
-                            {plan.personalApiEnabled ? " · 含 API Key" : ""}
-                          </span>
-                        </span>
-                      </span>
-                      <span className="shrink-0 font-semibold">
-                        {formatPaymentYuan(plan.priceCents)}/月
-                      </span>
-                    </button>
-                  ))}
-              </div>
-            ) : null}
             {paymentSettings.easyPayEnabled ? (
               <button
                 className="ios-button-primary app-action-button mt-4 flex h-10 w-full items-center justify-center gap-2 px-4 text-sm"
@@ -271,7 +234,7 @@ export function OverviewTab({
                 type="button"
               >
                 <CreditCard className="size-4" />
-                充值 AI 点数
+                充值 / 购买套餐
               </button>
             ) : null}
           </div>

@@ -32,8 +32,18 @@ export function EasyPayDialog({
   open,
   paymentSettings
 }: EasyPayDialogProps) {
-  const isCodingPlan = mode === "coding_plan";
-  const matchedCodingPlan = paymentSettings.codingPlans.find((plan) => plan.id === codingPlanId);
+  const [selectedProduct, setSelectedProduct] = useState<"ai_points" | "coding_plan">(mode);
+  const [selectedCodingPlanId, setSelectedCodingPlanId] = useState<string | null>(
+    codingPlanId ?? null
+  );
+  const availableCodingPlans = useMemo(
+    () => paymentSettings.codingPlans.filter((plan) => plan.enabled),
+    [paymentSettings.codingPlans]
+  );
+  const matchedCodingPlan = availableCodingPlans.find(
+    (plan) => plan.id === selectedCodingPlanId
+  );
+  const isCodingPlan = selectedProduct === "coding_plan" && Boolean(matchedCodingPlan);
   const codingPlan = matchedCodingPlan ?? {
     dailyCostLimitCents: 0,
     description: "",
@@ -76,7 +86,19 @@ export function EasyPayDialog({
     }
   }, [method, paymentSettings.easyPayMethods]);
 
-  if (!mounted || !open || (isCodingPlan && !matchedCodingPlan)) {
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const initialPlan = availableCodingPlans.find((plan) => plan.id === codingPlanId);
+
+    setSelectedCodingPlanId(initialPlan?.id ?? null);
+    setSelectedProduct(mode === "coding_plan" && initialPlan ? "coding_plan" : "ai_points");
+    setError("");
+  }, [availableCodingPlans, codingPlanId, mode, open]);
+
+  if (!mounted || !open) {
     return null;
   }
 
@@ -144,9 +166,7 @@ export function EasyPayDialog({
               {isCodingPlan ? <Code2 className="size-4" /> : <CreditCard className="size-4" />}
             </div>
             <div>
-              <h2 className="text-base font-semibold">
-                {isCodingPlan ? codingPlan.name : "充值 AI 点数"}
-              </h2>
+              <h2 className="text-base font-semibold">{isCodingPlan ? codingPlan.name : "充值 AI 点数"}</h2>
               <p className="mt-0.5 text-xs ios-muted">
                 {isCodingPlan ? "支付后开通或顺延一个月，不自动续费" : "支付完成后异步通知到账"}
               </p>
@@ -162,6 +182,66 @@ export function EasyPayDialog({
           </button>
         </div>
         <div className="grid gap-3">
+          <div>
+            <p className="mb-2 text-xs font-medium ios-muted">购买内容</p>
+            <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
+              <button
+                className={`app-action-button flex min-h-12 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
+                  !isCodingPlan
+                    ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                    : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                }`}
+                onClick={() => {
+                  setSelectedProduct("ai_points");
+                  setSelectedCodingPlanId(null);
+                  setError("");
+                }}
+                type="button"
+              >
+                <span className="flex items-center gap-2">
+                  <CreditCard className="size-4 shrink-0" />
+                  <span>
+                    <span className="block text-sm font-semibold">充值 AI 点数</span>
+                    <span className="block text-[11px] ios-muted">按金额灵活充值</span>
+                  </span>
+                </span>
+                <span className="text-xs font-medium ios-muted">点数</span>
+              </button>
+              {availableCodingPlans.map((plan) => (
+                <button
+                  className={`app-action-button flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
+                    isCodingPlan && plan.id === codingPlan.id
+                      ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                      : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                  }`}
+                  key={plan.id}
+                  onClick={() => {
+                    setSelectedProduct("coding_plan");
+                    setSelectedCodingPlanId(plan.id);
+                    setError("");
+                  }}
+                  type="button"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Code2 className="size-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{plan.name}</span>
+                      <span className="block truncate text-[11px] ios-muted">
+                        月额度 {formatCents(plan.monthlyCostLimitCents)}
+                        {plan.dailyCostLimitCents > 0
+                          ? ` · 日限 ${formatCents(plan.dailyCostLimitCents)}`
+                          : ""}
+                        {plan.weeklyCostLimitCents > 0
+                          ? ` · 周限 ${formatCents(plan.weeklyCostLimitCents)}`
+                          : ""}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold">{formatPaymentYuan(plan.priceCents)}/月</span>
+                </button>
+              ))}
+            </div>
+          </div>
           {isCodingPlan ? (
             <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-3 text-sm text-stone-700">
               <div className="flex items-baseline justify-between gap-3">

@@ -71,11 +71,13 @@ export async function PATCH(request: NextRequest) {
       emailVerified: true,
       aiStylePrompt: true,
       aiPointsBalanceCents: true,
+      codingPlanDailyCostLimitCents: true,
       codingPlanExpiresAt: true,
       codingPlanId: true,
       codingPlanMonthlyCostLimitCents: true,
       codingPlanName: true,
       codingPlanPersonalApiEnabled: true,
+      codingPlanWeeklyCostLimitCents: true,
       monthlyCostLimitCents: true,
       quotaNextResetAt: true,
       quotaResetAt: true

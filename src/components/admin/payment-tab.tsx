@@ -509,13 +509,15 @@ export function PaymentTab({
                 codingPlans: [
                   ...current.codingPlans,
                   {
+                    dailyCostLimitCents: 0,
                     description: "面向编码任务的月度额度套餐",
                     enabled: false,
                     id: `coding-plan-${Date.now().toString(36)}`,
                     monthlyCostLimitCents: 1000,
                     name: "新 Coding Plan",
                     personalApiEnabled: true,
-                    priceCents: 1990
+                    priceCents: 1990,
+                    weeklyCostLimitCents: 0
                   }
                 ]
               }))
@@ -636,6 +638,38 @@ export function PaymentTab({
                   value={plan.monthlyCostLimitCents}
                 />
               </label>
+              <label className="block lg:col-span-2">
+                <span className="mb-1 block text-xs font-medium ios-muted">每日限额（美元，0 为不限）</span>
+                <CentsDraftInput
+                  className="ios-input w-full"
+                  minCents={0}
+                  onChange={(dailyCostLimitCents) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, dailyCostLimitCents } : item
+                      )
+                    }))
+                  }
+                  value={plan.dailyCostLimitCents}
+                />
+              </label>
+              <label className="block lg:col-span-2">
+                <span className="mb-1 block text-xs font-medium ios-muted">每周限额（美元，0 为不限）</span>
+                <CentsDraftInput
+                  className="ios-input w-full"
+                  minCents={0}
+                  onChange={(weeklyCostLimitCents) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, weeklyCostLimitCents } : item
+                      )
+                    }))
+                  }
+                  value={plan.weeklyCostLimitCents}
+                />
+              </label>
               <label className="block lg:col-span-6">
                 <span className="mb-1 block text-xs font-medium ios-muted">用户说明</span>
                 <textarea
@@ -654,6 +688,8 @@ export function PaymentTab({
               </label>
               <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2 text-sm text-stone-700 lg:col-span-6">
                 {plan.enabled ? "上架" : "未上架"} · ¥{(plan.priceCents / 100).toFixed(2)} / 月 · 月额度 {formatCents(plan.monthlyCostLimitCents)}
+                {plan.dailyCostLimitCents > 0 ? ` · 日限 ${formatCents(plan.dailyCostLimitCents)}` : ""}
+                {plan.weeklyCostLimitCents > 0 ? ` · 周限 ${formatCents(plan.weeklyCostLimitCents)}` : ""}
                 {plan.personalApiEnabled ? " · 含个人 API Key" : ""}
               </div>
             </div>

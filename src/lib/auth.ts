@@ -24,11 +24,13 @@ export type CurrentUser = {
   emailVerified: boolean;
   aiStylePrompt: string;
   aiPointsBalanceCents: number;
+  codingPlanDailyCostLimitCents: number;
   codingPlanExpiresAt: Date | null;
   codingPlanId: string;
   codingPlanMonthlyCostLimitCents: number;
   codingPlanName: string;
   codingPlanPersonalApiEnabled: boolean;
+  codingPlanWeeklyCostLimitCents: number;
   monthlyCostLimitCents: number;
   quotaNextResetAt: Date;
   quotaResetAt: Date;
@@ -42,11 +44,13 @@ type CurrentUserRecord = {
   emailVerified?: boolean | null;
   id: string;
   aiPointsBalanceCents?: number | null;
+  codingPlanDailyCostLimitCents?: number | null;
   codingPlanExpiresAt?: Date | null;
   codingPlanId?: string | null;
   codingPlanMonthlyCostLimitCents?: number | null;
   codingPlanName?: string | null;
   codingPlanPersonalApiEnabled?: boolean | null;
+  codingPlanWeeklyCostLimitCents?: number | null;
   monthlyCostLimitCents?: number | null;
   name: string;
   quotaNextResetAt?: Date | null;
@@ -73,11 +77,13 @@ function normalizeCurrentUserRecord(
     emailVerified: user.emailVerified ?? true,
     aiStylePrompt: user.aiStylePrompt || "",
     aiPointsBalanceCents: user.aiPointsBalanceCents ?? 0,
+    codingPlanDailyCostLimitCents: user.codingPlanDailyCostLimitCents ?? 0,
     codingPlanExpiresAt: user.codingPlanExpiresAt ?? null,
     codingPlanId: user.codingPlanId ?? "",
     codingPlanMonthlyCostLimitCents: user.codingPlanMonthlyCostLimitCents ?? 0,
     codingPlanName: user.codingPlanName ?? "",
     codingPlanPersonalApiEnabled: user.codingPlanPersonalApiEnabled ?? false,
+    codingPlanWeeklyCostLimitCents: user.codingPlanWeeklyCostLimitCents ?? 0,
     monthlyCostLimitCents: user.monthlyCostLimitCents ?? 0,
     quotaNextResetAt: user.quotaNextResetAt || new Date(),
     quotaResetAt: user.quotaResetAt || new Date(),

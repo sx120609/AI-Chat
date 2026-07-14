@@ -61,10 +61,12 @@ export async function settlePaidPaymentOrder(
         where: { id: order.userId },
         data: {
           codingPlanExpiresAt: expiresAt,
+          codingPlanDailyCostLimitCents: codingPlan.dailyCostLimitCents,
           codingPlanId: codingPlan.id,
           codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
           codingPlanName: codingPlan.name,
           codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled,
+          codingPlanWeeklyCostLimitCents: codingPlan.weeklyCostLimitCents,
           ...(startsNewPlan
             ? {
                 quotaNextResetAt: nextQuotaResetAt(paidAt),

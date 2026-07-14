@@ -86,7 +86,15 @@ export default async function PaymentResultPage({ searchParams }: PaymentResultP
             <p className="mt-1 text-sm leading-6 ios-muted">
               {paid
                 ? codingPlan
-                  ? `${codingPlan.name} 已开通一个月，每月可用 ${formatCents(codingPlan.monthlyCostLimitCents)} 额度。`
+                  ? `${codingPlan.name} 已开通一个月，每月可用 ${formatCents(codingPlan.monthlyCostLimitCents)} 额度${
+                      codingPlan.dailyCostLimitCents > 0
+                        ? `，每日限 ${formatCents(codingPlan.dailyCostLimitCents)}`
+                        : ""
+                    }${
+                      codingPlan.weeklyCostLimitCents > 0
+                        ? `，每周限 ${formatCents(codingPlan.weeklyCostLimitCents)}`
+                        : ""
+                    }。`
                   : `已为你的账号增加 ${formatCents(creditedBalanceCents)} AI 点数。`
                 : missing
                   ? "请确认订单来自当前登录账号，或返回聊天页重新发起支付。"

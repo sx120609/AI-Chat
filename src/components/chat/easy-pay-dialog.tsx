@@ -35,13 +35,15 @@ export function EasyPayDialog({
   const isCodingPlan = mode === "coding_plan";
   const matchedCodingPlan = paymentSettings.codingPlans.find((plan) => plan.id === codingPlanId);
   const codingPlan = matchedCodingPlan ?? {
+    dailyCostLimitCents: 0,
     description: "",
     enabled: false,
     id: "",
     monthlyCostLimitCents: 0,
     name: "",
     personalApiEnabled: false,
-    priceCents: 0
+    priceCents: 0,
+    weeklyCostLimitCents: 0
   };
   const [amountCents, setAmountCents] = useState(1000);
   const [method, setMethod] = useState<EasyPayMethod>(
@@ -166,6 +168,19 @@ export function EasyPayDialog({
                 <span className="font-semibold text-stone-950">{formatPaymentYuan(codingPlan.priceCents)} / 月</span>
                 <span>月额度 {formatCents(codingPlan.monthlyCostLimitCents)}</span>
               </div>
+              {codingPlan.dailyCostLimitCents > 0 || codingPlan.weeklyCostLimitCents > 0 ? (
+                <p className="mt-2 text-xs ios-muted">
+                  {codingPlan.dailyCostLimitCents > 0
+                    ? `日限 ${formatCents(codingPlan.dailyCostLimitCents)}`
+                    : ""}
+                  {codingPlan.dailyCostLimitCents > 0 && codingPlan.weeklyCostLimitCents > 0
+                    ? " · "
+                    : ""}
+                  {codingPlan.weeklyCostLimitCents > 0
+                    ? `周限 ${formatCents(codingPlan.weeklyCostLimitCents)}`
+                    : ""}
+                </p>
+              ) : null}
               <p className="mt-2 text-xs ios-muted">{codingPlan.description}</p>
               {codingPlan.personalApiEnabled ? (
                 <p className="mt-2 text-xs font-medium text-[color:var(--claude-accent)]">

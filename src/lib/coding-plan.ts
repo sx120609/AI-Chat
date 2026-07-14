@@ -6,6 +6,7 @@ export type PaymentProductType =
   | typeof CODING_PLAN_PRODUCT_TYPE;
 
 export type CodingPlanConfig = {
+  dailyCostLimitCents: number;
   description: string;
   enabled: boolean;
   id: string;
@@ -13,23 +14,32 @@ export type CodingPlanConfig = {
   name: string;
   personalApiEnabled: boolean;
   priceCents: number;
+  weeklyCostLimitCents: number;
 };
 
 export type CodingPlanOrderSnapshot = Pick<
   CodingPlanConfig,
-  "description" | "id" | "monthlyCostLimitCents" | "name" | "personalApiEnabled"
+  | "dailyCostLimitCents"
+  | "description"
+  | "id"
+  | "monthlyCostLimitCents"
+  | "name"
+  | "personalApiEnabled"
+  | "weeklyCostLimitCents"
 >;
 
 export const MAX_CODING_PLANS = 12;
 
 const DEFAULT_CODING_PLAN: CodingPlanConfig = {
+  dailyCostLimitCents: 0,
   description: "面向编码任务的月度额度套餐",
   enabled: false,
   id: "coding-plan",
   monthlyCostLimitCents: 1000,
   name: "Coding Plan",
   personalApiEnabled: true,
-  priceCents: 1990
+  priceCents: 1990,
+  weeklyCostLimitCents: 0
 };
 
 export function defaultCodingPlan(): CodingPlanConfig {
@@ -63,6 +73,7 @@ export function normalizeCodingPlanConfig(
   fallbackId = DEFAULT_CODING_PLAN.id
 ): CodingPlanConfig {
   return {
+    dailyCostLimitCents: boundedInt(value.dailyCostLimitCents, 0, 0, 10_000_000),
     description: boundedText(value.description, DEFAULT_CODING_PLAN.description, 240),
     enabled: Boolean(value.enabled),
     id: normalizePlanId(value.id, fallbackId),
@@ -77,7 +88,8 @@ export function normalizeCodingPlanConfig(
       typeof value.personalApiEnabled === "boolean"
         ? value.personalApiEnabled
         : DEFAULT_CODING_PLAN.personalApiEnabled,
-    priceCents: boundedInt(value.priceCents, DEFAULT_CODING_PLAN.priceCents, 100, 1_000_000)
+    priceCents: boundedInt(value.priceCents, DEFAULT_CODING_PLAN.priceCents, 100, 1_000_000),
+    weeklyCostLimitCents: boundedInt(value.weeklyCostLimitCents, 0, 0, 10_000_000)
   };
 }
 
@@ -129,11 +141,13 @@ export function parseCodingPlans(
 
 export function codingPlanSnapshot(config: CodingPlanConfig): CodingPlanOrderSnapshot {
   return {
+    dailyCostLimitCents: config.dailyCostLimitCents,
     description: config.description,
     id: config.id,
     monthlyCostLimitCents: config.monthlyCostLimitCents,
     name: config.name,
-    personalApiEnabled: config.personalApiEnabled
+    personalApiEnabled: config.personalApiEnabled,
+    weeklyCostLimitCents: config.weeklyCostLimitCents
   };
 }
 
@@ -147,13 +161,15 @@ export function parseCodingPlanOrderSnapshot(metadataJson: string | null | undef
 
     const codingPlan = metadata.codingPlan as Record<string, unknown>;
     const normalized = normalizeCodingPlanConfig({
+      dailyCostLimitCents: codingPlan.dailyCostLimitCents as number | undefined,
       description: codingPlan.description as string | undefined,
       enabled: true,
       id: codingPlan.id as string | undefined,
       monthlyCostLimitCents: codingPlan.monthlyCostLimitCents as number | undefined,
       name: codingPlan.name as string | undefined,
       personalApiEnabled: codingPlan.personalApiEnabled as boolean | undefined,
-      priceCents: 100
+      priceCents: 100,
+      weeklyCostLimitCents: codingPlan.weeklyCostLimitCents as number | undefined
     }, "legacy-coding-plan");
 
     return codingPlanSnapshot(normalized);
@@ -172,8 +188,10 @@ export function serializePaymentProduct(metadataJson: string | null | undefined)
   const codingPlan = parseCodingPlanOrderSnapshot(metadataJson);
 
   return {
+    codingPlanDailyCostLimitCents: codingPlan?.dailyCostLimitCents ?? null,
     codingPlanMonthlyCostLimitCents: codingPlan?.monthlyCostLimitCents ?? null,
     codingPlanName: codingPlan?.name ?? null,
+    codingPlanWeeklyCostLimitCents: codingPlan?.weeklyCostLimitCents ?? null,
     productType: codingPlan ? CODING_PLAN_PRODUCT_TYPE : AI_POINTS_PRODUCT_TYPE
   };
 }

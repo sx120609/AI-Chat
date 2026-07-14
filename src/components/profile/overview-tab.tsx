@@ -212,6 +212,20 @@ export function OverviewTab({
                 <p className="mt-1">
                   月额度 {formatCents(user.codingPlanMonthlyCostLimitCents)} · 到期 {formatShortDateTime(user.codingPlanExpiresAt!)}
                 </p>
+                {user.codingPlanDailyCostLimitCents > 0 || user.codingPlanWeeklyCostLimitCents > 0 ? (
+                  <div className="mt-1 grid gap-1">
+                    {user.codingPlanDailyCostLimitCents > 0 ? (
+                      <p>
+                        今日套餐已用 {formatCents(initialUsage.dailySubscriptionCostUsedCents)} / {formatCents(user.codingPlanDailyCostLimitCents)}
+                      </p>
+                    ) : null}
+                    {user.codingPlanWeeklyCostLimitCents > 0 ? (
+                      <p>
+                        本周套餐已用 {formatCents(initialUsage.weeklySubscriptionCostUsedCents)} / {formatCents(user.codingPlanWeeklyCostLimitCents)}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {paymentSettings.easyPayEnabled && paymentSettings.codingPlans.some((plan) => plan.enabled) ? (
@@ -232,6 +246,12 @@ export function OverviewTab({
                           <span className="block truncate font-semibold">{plan.name}</span>
                           <span className="block truncate text-[11px] ios-muted">
                             月额度 {formatCents(plan.monthlyCostLimitCents)}
+                            {plan.dailyCostLimitCents > 0
+                              ? ` · 日限 ${formatCents(plan.dailyCostLimitCents)}`
+                              : ""}
+                            {plan.weeklyCostLimitCents > 0
+                              ? ` · 周限 ${formatCents(plan.weeklyCostLimitCents)}`
+                              : ""}
                             {plan.personalApiEnabled ? " · 含 API Key" : ""}
                           </span>
                         </span>

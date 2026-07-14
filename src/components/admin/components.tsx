@@ -109,13 +109,15 @@ export const emptySettings: SettingsForm = {
   easyPayWxpayChannelId: "",
   codingPlans: [
     {
+      dailyCostLimitCents: 0,
       description: "面向编码任务的月度额度套餐",
       enabled: false,
       id: "coding-plan",
       monthlyCostLimitCents: 1000,
       name: "Coding Plan",
       personalApiEnabled: true,
-      priceCents: 1990
+      priceCents: 1990,
+      weeklyCostLimitCents: 0
     }
   ]
 };

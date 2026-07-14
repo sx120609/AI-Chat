@@ -11,6 +11,8 @@ export type UsageSummary = {
   monthlyCostLimitCents: number;
   subscriptionCostUsedCents: number;
   subscriptionRemainingCostCents: number;
+  dailySubscriptionCostUsedCents: number;
+  weeklySubscriptionCostUsedCents: number;
   aiPointsBalanceCents: number;
   aiPointsCostUsedCents: number;
 };
@@ -74,27 +76,77 @@ export function nextQuotaResetAt(start = new Date()) {
   return addMonthsClamped(start);
 }
 
-function activeCodingPlanMonthlyCostLimit(
-  user: {
-    codingPlanExpiresAt: Date | null;
-    codingPlanMonthlyCostLimitCents: number;
-  },
+export function startOfUtcDay(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+export function startOfUtcWeek(date = new Date()) {
+  const dayStart = startOfUtcDay(date);
+  const daysSinceMonday = (dayStart.getUTCDay() + 6) % 7;
+
+  dayStart.setUTCDate(dayStart.getUTCDate() - daysSinceMonday);
+  return dayStart;
+}
+
+function latestDate(...dates: Date[]) {
+  return new Date(Math.max(...dates.map((date) => date.getTime())));
+}
+
+type SubscriptionQuotaUser = {
+  codingPlanDailyCostLimitCents: number;
+  codingPlanExpiresAt: Date | null;
+  codingPlanMonthlyCostLimitCents: number;
+  codingPlanWeeklyCostLimitCents: number;
+  monthlyCostLimitCents: number;
+};
+
+function activeCodingPlanCostLimit(
+  user: SubscriptionQuotaUser,
+  field:
+    | "codingPlanDailyCostLimitCents"
+    | "codingPlanMonthlyCostLimitCents"
+    | "codingPlanWeeklyCostLimitCents",
   now = new Date()
 ) {
   return user.codingPlanExpiresAt && user.codingPlanExpiresAt > now
-    ? Math.max(0, user.codingPlanMonthlyCostLimitCents)
+    ? Math.max(0, user[field])
     : 0;
 }
 
+function activeCodingPlanMonthlyCostLimit(user: SubscriptionQuotaUser, now = new Date()) {
+  return activeCodingPlanCostLimit(user, "codingPlanMonthlyCostLimitCents", now);
+}
+
 function effectiveMonthlyCostLimit(
-  user: {
-    codingPlanExpiresAt: Date | null;
-    codingPlanMonthlyCostLimitCents: number;
-    monthlyCostLimitCents: number;
-  },
+  user: SubscriptionQuotaUser,
   now = new Date()
 ) {
   return Math.max(0, user.monthlyCostLimitCents) + activeCodingPlanMonthlyCostLimit(user, now);
+}
+
+function subscriptionRemainingCostLimit(
+  user: SubscriptionQuotaUser,
+  usage: {
+    dailySubscriptionCostUsedCents: number;
+    monthlySubscriptionCostUsedCents: number;
+    weeklySubscriptionCostUsedCents: number;
+  },
+  now = new Date()
+) {
+  const monthlyRemaining = Math.max(
+    0,
+    effectiveMonthlyCostLimit(user, now) - usage.monthlySubscriptionCostUsedCents
+  );
+  const dailyLimit = activeCodingPlanCostLimit(user, "codingPlanDailyCostLimitCents", now);
+  const weeklyLimit = activeCodingPlanCostLimit(user, "codingPlanWeeklyCostLimitCents", now);
+  const dailyRemaining = dailyLimit
+    ? Math.max(0, dailyLimit - usage.dailySubscriptionCostUsedCents)
+    : Number.POSITIVE_INFINITY;
+  const weeklyRemaining = weeklyLimit
+    ? Math.max(0, weeklyLimit - usage.weeklySubscriptionCostUsedCents)
+    : Number.POSITIVE_INFINITY;
+
+  return Math.min(monthlyRemaining, dailyRemaining, weeklyRemaining);
 }
 
 export async function startNextQuotaPeriod(userId: string, start = new Date()) {
@@ -122,8 +174,10 @@ async function normalizeQuotaUser(userId: string) {
     where: { id: userId },
     select: {
       aiPointsBalanceCents: true,
+      codingPlanDailyCostLimitCents: true,
       codingPlanExpiresAt: true,
       codingPlanMonthlyCostLimitCents: true,
+      codingPlanWeeklyCostLimitCents: true,
       monthlyCostLimitCents: true,
       quotaNextResetAt: true,
       quotaResetAt: true,
@@ -159,8 +213,10 @@ async function normalizeQuotaUser(userId: string) {
       },
       select: {
         aiPointsBalanceCents: true,
+        codingPlanDailyCostLimitCents: true,
         codingPlanExpiresAt: true,
         codingPlanMonthlyCostLimitCents: true,
+        codingPlanWeeklyCostLimitCents: true,
         monthlyCostLimitCents: true,
         quotaNextResetAt: true,
         quotaResetAt: true
@@ -183,8 +239,10 @@ async function normalizeQuotaUser(userId: string) {
       },
       select: {
         aiPointsBalanceCents: true,
+        codingPlanDailyCostLimitCents: true,
         codingPlanExpiresAt: true,
         codingPlanMonthlyCostLimitCents: true,
+        codingPlanWeeklyCostLimitCents: true,
         monthlyCostLimitCents: true,
         quotaNextResetAt: true,
         quotaResetAt: true
@@ -208,14 +266,23 @@ export async function getUsageSummary(
   if (options.readCache !== false) {
     const cached = await cacheGetJson<UsageSummary>(cacheKey);
 
-    if (cached && "aiPointsBalanceCents" in cached && "windowEnd" in cached) {
+    if (
+      cached &&
+      "aiPointsBalanceCents" in cached &&
+      "dailySubscriptionCostUsedCents" in cached &&
+      "weeklySubscriptionCostUsedCents" in cached &&
+      "windowEnd" in cached
+    ) {
       return cached;
     }
   }
 
   const user = await normalizeQuotaUser(userId);
   const windowStart = user.quotaResetAt;
-  const [usage, messagesUsed] = await Promise.all([
+  const now = new Date();
+  const dayWindowStart = latestDate(windowStart, startOfUtcDay(now));
+  const weekWindowStart = latestDate(windowStart, startOfUtcWeek(now));
+  const [usage, messagesUsed, dailyUsage, weeklyUsage] = await Promise.all([
     prisma.usageRecord.aggregate({
       where: {
         userId,
@@ -237,15 +304,47 @@ export async function getUsageSummary(
           gte: windowStart
         }
       }
+    }),
+    prisma.usageRecord.aggregate({
+      where: {
+        userId,
+        createdAt: {
+          gte: dayWindowStart
+        }
+      },
+      _sum: {
+        subscriptionCostCents: true
+      }
+    }),
+    prisma.usageRecord.aggregate({
+      where: {
+        userId,
+        createdAt: {
+          gte: weekWindowStart
+        }
+      },
+      _sum: {
+        subscriptionCostCents: true
+      }
     })
   ]);
 
   const tokensUsed = usage._sum.totalTokens ?? 0;
   const costUsedCents = usage._sum.estimatedCostCents ?? 0;
   const subscriptionCostUsedCents = usage._sum.subscriptionCostCents ?? 0;
+  const dailySubscriptionCostUsedCents = dailyUsage._sum.subscriptionCostCents ?? 0;
+  const weeklySubscriptionCostUsedCents = weeklyUsage._sum.subscriptionCostCents ?? 0;
   const aiPointsCostUsedCents = usage._sum.aiPointsCostCents ?? 0;
   const monthlyCostLimitCents = effectiveMonthlyCostLimit(user);
-  const subscriptionRemainingCostCents = Math.max(0, monthlyCostLimitCents - subscriptionCostUsedCents);
+  const subscriptionRemainingCostCents = subscriptionRemainingCostLimit(
+    user,
+    {
+      dailySubscriptionCostUsedCents,
+      monthlySubscriptionCostUsedCents: subscriptionCostUsedCents,
+      weeklySubscriptionCostUsedCents
+    },
+    now
+  );
   const aiPointsBalanceCents = Math.max(0, user.aiPointsBalanceCents);
 
   const summary = {
@@ -258,6 +357,8 @@ export async function getUsageSummary(
     monthlyCostLimitCents,
     subscriptionCostUsedCents,
     subscriptionRemainingCostCents,
+    dailySubscriptionCostUsedCents,
+    weeklySubscriptionCostUsedCents,
     aiPointsBalanceCents,
     aiPointsCostUsedCents
   };
@@ -288,8 +389,10 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
       where: { id: userId },
       select: {
         aiPointsBalanceCents: true,
+        codingPlanDailyCostLimitCents: true,
         codingPlanExpiresAt: true,
         codingPlanMonthlyCostLimitCents: true,
+        codingPlanWeeklyCostLimitCents: true,
         monthlyCostLimitCents: true,
         quotaNextResetAt: true,
         quotaResetAt: true
@@ -305,28 +408,60 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
           },
           select: {
             aiPointsBalanceCents: true,
+            codingPlanDailyCostLimitCents: true,
             codingPlanExpiresAt: true,
             codingPlanMonthlyCostLimitCents: true,
+            codingPlanWeeklyCostLimitCents: true,
             monthlyCostLimitCents: true,
             quotaNextResetAt: true,
             quotaResetAt: true
           }
         })
       : user;
-    const subscriptionUsage = await tx.usageRecord.aggregate({
-      where: {
-        userId,
-        createdAt: {
-          gte: periodUser.quotaResetAt
+    const now = new Date();
+    const [subscriptionUsage, dailyUsage, weeklyUsage] = await Promise.all([
+      tx.usageRecord.aggregate({
+        where: {
+          userId,
+          createdAt: {
+            gte: periodUser.quotaResetAt
+          }
+        },
+        _sum: {
+          subscriptionCostCents: true
         }
+      }),
+      tx.usageRecord.aggregate({
+        where: {
+          userId,
+          createdAt: {
+            gte: latestDate(periodUser.quotaResetAt, startOfUtcDay(now))
+          }
+        },
+        _sum: {
+          subscriptionCostCents: true
+        }
+      }),
+      tx.usageRecord.aggregate({
+        where: {
+          userId,
+          createdAt: {
+            gte: latestDate(periodUser.quotaResetAt, startOfUtcWeek(now))
+          }
+        },
+        _sum: {
+          subscriptionCostCents: true
+        }
+      })
+    ]);
+    const subscriptionRemainingCostCents = subscriptionRemainingCostLimit(
+      periodUser,
+      {
+        dailySubscriptionCostUsedCents: dailyUsage._sum.subscriptionCostCents ?? 0,
+        monthlySubscriptionCostUsedCents: subscriptionUsage._sum.subscriptionCostCents ?? 0,
+        weeklySubscriptionCostUsedCents: weeklyUsage._sum.subscriptionCostCents ?? 0
       },
-      _sum: {
-        subscriptionCostCents: true
-      }
-    });
-    const subscriptionRemainingCostCents = Math.max(
-      0,
-      effectiveMonthlyCostLimit(periodUser) - (subscriptionUsage._sum.subscriptionCostCents ?? 0)
+      now
     );
     const subscriptionCostCents = Math.min(costCents, subscriptionRemainingCostCents);
     const aiPointsCostCents = Math.max(0, costCents - subscriptionCostCents);

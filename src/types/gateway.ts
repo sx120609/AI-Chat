@@ -17,6 +17,7 @@ export type EasyPayAmountTierView = {
 };
 
 export type PublicCodingPlanView = {
+  dailyCostLimitCents: number;
   description: string;
   enabled: boolean;
   id: string;
@@ -24,6 +25,7 @@ export type PublicCodingPlanView = {
   name: string;
   personalApiEnabled: boolean;
   priceCents: number;
+  weeklyCostLimitCents: number;
 };
 
 export type ToolEventView = {
@@ -84,6 +86,8 @@ export type UsageSummary = {
   monthlyCostLimitCents: number;
   subscriptionCostUsedCents: number;
   subscriptionRemainingCostCents: number;
+  dailySubscriptionCostUsedCents: number;
+  weeklySubscriptionCostUsedCents: number;
   aiPointsBalanceCents: number;
   aiPointsCostUsedCents: number;
 };
@@ -100,10 +104,12 @@ export type UserView = {
   aiPointsBalanceCents: number;
   codingPlanActive?: boolean;
   codingPlanExpiresAt?: string | null;
+  codingPlanDailyCostLimitCents: number;
   codingPlanId: string;
   codingPlanMonthlyCostLimitCents: number;
   codingPlanName: string;
   codingPlanPersonalApiEnabled: boolean;
+  codingPlanWeeklyCostLimitCents: number;
   monthlyCostLimitCents: number;
   quotaNextResetAt: string;
   quotaResetAt: string;
@@ -180,8 +186,10 @@ export type PaymentOrderView = {
   subject: string;
   amountCents: number;
   balanceCents: number;
+  codingPlanDailyCostLimitCents?: number | null;
   codingPlanMonthlyCostLimitCents?: number | null;
   codingPlanName?: string | null;
+  codingPlanWeeklyCostLimitCents?: number | null;
   productType?: "AI_POINTS" | "CODING_PLAN";
   paidAt?: string | null;
   createdAt: string;

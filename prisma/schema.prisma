@@ -38,7 +38,9 @@ model User {
   monthlyCostLimitCents Int           @default(0)
   codingPlanId          String        @default("")
   codingPlanName        String        @default("")
+  codingPlanDailyCostLimitCents Int @default(0)
   codingPlanMonthlyCostLimitCents Int @default(0)
+  codingPlanWeeklyCostLimitCents Int @default(0)
   codingPlanExpiresAt   DateTime?
   codingPlanPersonalApiEnabled Boolean @default(false)
   aiPointsBalanceCents  Float         @default(0)

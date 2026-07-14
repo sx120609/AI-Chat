@@ -24,6 +24,9 @@ export type CurrentUser = {
   emailVerified: boolean;
   aiStylePrompt: string;
   aiPointsBalanceCents: number;
+  codingPlanExpiresAt: Date | null;
+  codingPlanMonthlyCostLimitCents: number;
+  codingPlanPersonalApiEnabled: boolean;
   monthlyCostLimitCents: number;
   quotaNextResetAt: Date;
   quotaResetAt: Date;
@@ -37,6 +40,9 @@ type CurrentUserRecord = {
   emailVerified?: boolean | null;
   id: string;
   aiPointsBalanceCents?: number | null;
+  codingPlanExpiresAt?: Date | null;
+  codingPlanMonthlyCostLimitCents?: number | null;
+  codingPlanPersonalApiEnabled?: boolean | null;
   monthlyCostLimitCents?: number | null;
   name: string;
   quotaNextResetAt?: Date | null;
@@ -63,6 +69,9 @@ function normalizeCurrentUserRecord(
     emailVerified: user.emailVerified ?? true,
     aiStylePrompt: user.aiStylePrompt || "",
     aiPointsBalanceCents: user.aiPointsBalanceCents ?? 0,
+    codingPlanExpiresAt: user.codingPlanExpiresAt ?? null,
+    codingPlanMonthlyCostLimitCents: user.codingPlanMonthlyCostLimitCents ?? 0,
+    codingPlanPersonalApiEnabled: user.codingPlanPersonalApiEnabled ?? false,
     monthlyCostLimitCents: user.monthlyCostLimitCents ?? 0,
     quotaNextResetAt: user.quotaNextResetAt || new Date(),
     quotaResetAt: user.quotaResetAt || new Date(),
@@ -303,6 +312,12 @@ export function serializeCurrentUser(user: CurrentUser) {
   return {
     ...user,
     userGroup: normalizeUserGroup(user.userGroup),
+    codingPlanActive: Boolean(
+      user.codingPlanExpiresAt &&
+        user.codingPlanExpiresAt > new Date() &&
+        user.codingPlanMonthlyCostLimitCents > 0
+    ),
+    codingPlanExpiresAt: user.codingPlanExpiresAt?.toISOString() ?? null,
     quotaNextResetAt: user.quotaNextResetAt.toISOString(),
     quotaResetAt: user.quotaResetAt.toISOString()
   };

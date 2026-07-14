@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { coerceInt, jsonError, requireActiveUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { serializePaymentProduct } from "@/lib/coding-plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ function serializeOrder(order: {
   paidAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  metadataJson: string;
 }) {
   return {
     id: order.id,
@@ -34,7 +36,8 @@ function serializeOrder(order: {
     balanceCents: order.balanceCents,
     paidAt: order.paidAt?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),
-    updatedAt: order.updatedAt.toISOString()
+    updatedAt: order.updatedAt.toISOString(),
+    ...serializePaymentProduct(order.metadataJson)
   };
 }
 

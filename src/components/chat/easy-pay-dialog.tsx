@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { CreditCard, ExternalLink, Loader2, X } from "lucide-react";
+import { Code2, CreditCard, ExternalLink, Loader2, X } from "lucide-react";
 import type { PublicPaymentSettingsView, EasyPayMethod } from "@/types/gateway";
 import { formatCents } from "@/lib/format";
 import {
@@ -16,6 +16,7 @@ function formatPaymentYuan(amountCents: number) {
 }
 
 type EasyPayDialogProps = {
+  mode?: "ai_points" | "coding_plan";
   onClose: () => void;
   onOrderCreated?: () => void | Promise<void>;
   open: boolean;
@@ -23,11 +24,14 @@ type EasyPayDialogProps = {
 };
 
 export function EasyPayDialog({
+  mode = "ai_points",
   onClose,
   onOrderCreated,
   open,
   paymentSettings
 }: EasyPayDialogProps) {
+  const isCodingPlan = mode === "coding_plan";
+  const codingPlan = paymentSettings.codingPlan;
   const [amountCents, setAmountCents] = useState(1000);
   const [method, setMethod] = useState<EasyPayMethod>(
     paymentSettings.easyPayMethods[0] ?? "alipay"
@@ -83,8 +87,9 @@ export function EasyPayDialog({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          amountCents,
-          method
+          amountCents: isCodingPlan ? undefined : amountCents,
+          method,
+          productType: isCodingPlan ? "coding_plan" : "ai_points"
         })
       });
     } catch {
@@ -122,11 +127,15 @@ export function EasyPayDialog({
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
-              <CreditCard className="size-4" />
+              {isCodingPlan ? <Code2 className="size-4" /> : <CreditCard className="size-4" />}
             </div>
             <div>
-              <h2 className="text-base font-semibold">充值 AI 点数</h2>
-              <p className="mt-0.5 text-xs ios-muted">支付完成后异步通知到账</p>
+              <h2 className="text-base font-semibold">
+                {isCodingPlan ? codingPlan.name : "充值 AI 点数"}
+              </h2>
+              <p className="mt-0.5 text-xs ios-muted">
+                {isCodingPlan ? "支付后开通或顺延一个月，不自动续费" : "支付完成后异步通知到账"}
+              </p>
             </div>
           </div>
           <button
@@ -139,48 +148,65 @@ export function EasyPayDialog({
           </button>
         </div>
         <div className="grid gap-3">
-          <div>
-            <p className="mb-2 text-xs font-medium ios-muted">付款金额</p>
-            <div className="grid grid-cols-3 gap-2">
-              {paymentTiers.map((tier) => (
-                <button
-                  className={`app-action-button flex min-h-12 flex-col items-center justify-center rounded-lg border text-sm font-semibold ${
-                    amountCents === tier.amountCents
-                      ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
-                      : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
-                  }`}
-                  key={tier.amountCents}
-                  onClick={() => setAmountCents(tier.amountCents)}
-                  type="button"
-                >
-                  <span>{formatPaymentYuan(tier.amountCents)}</span>
-                  <span className="mt-0.5 text-[11px] font-medium ios-muted">
-                    到账 {formatCents(tier.balanceCents)}
-                  </span>
-                </button>
-              ))}
+          {isCodingPlan ? (
+            <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-3 text-sm text-stone-700">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-semibold text-stone-950">{formatPaymentYuan(codingPlan.priceCents)} / 月</span>
+                <span>月额度 {formatCents(codingPlan.monthlyCostLimitCents)}</span>
+              </div>
+              <p className="mt-2 text-xs ios-muted">{codingPlan.description}</p>
+              {codingPlan.personalApiEnabled ? (
+                <p className="mt-2 text-xs font-medium text-[color:var(--claude-accent)]">
+                  套餐有效期内可创建并使用个人 API Key。
+                </p>
+              ) : null}
             </div>
-          </div>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium ios-muted">自定义付款金额</span>
-            <input
-              className="ios-input w-full"
-              min={1}
-              onChange={(event) => {
-                const value = Number(event.target.value);
+          ) : (
+            <>
+              <div>
+                <p className="mb-2 text-xs font-medium ios-muted">付款金额</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {paymentTiers.map((tier) => (
+                    <button
+                      className={`app-action-button flex min-h-12 flex-col items-center justify-center rounded-lg border text-sm font-semibold ${
+                        amountCents === tier.amountCents
+                          ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                          : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                      }`}
+                      key={tier.amountCents}
+                      onClick={() => setAmountCents(tier.amountCents)}
+                      type="button"
+                    >
+                      <span>{formatPaymentYuan(tier.amountCents)}</span>
+                      <span className="mt-0.5 text-[11px] font-medium ios-muted">
+                        到账 {formatCents(tier.balanceCents)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium ios-muted">自定义付款金额</span>
+                <input
+                  className="ios-input w-full"
+                  min={1}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
 
-                if (Number.isFinite(value)) {
-                  setAmountCents(Math.max(100, Math.round(value * 100)));
-                }
-              }}
-              step={0.01}
-              type="number"
-              value={amountCents / 100}
-            />
-          </label>
-          <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-2 text-sm text-stone-700">
-            支付 {formatPaymentYuan(amountCents)}，到账 {formatCents(balanceCents)} AI 点数
-          </div>
+                    if (Number.isFinite(value)) {
+                      setAmountCents(Math.max(100, Math.round(value * 100)));
+                    }
+                  }}
+                  step={0.01}
+                  type="number"
+                  value={amountCents / 100}
+                />
+              </label>
+              <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-2 text-sm text-stone-700">
+                支付 {formatPaymentYuan(amountCents)}，到账 {formatCents(balanceCents)} AI 点数
+              </div>
+            </>
+          )}
           <div>
             <p className="mb-2 text-xs font-medium ios-muted">支付方式</p>
             <div className="grid grid-cols-2 gap-2">
@@ -207,12 +233,16 @@ export function EasyPayDialog({
           ) : null}
           <button
             className="ios-button-primary app-action-button flex h-11 items-center justify-center gap-2 px-4 disabled:opacity-60"
-            disabled={loading || !paymentSettings.easyPayEnabled}
+            disabled={loading || !paymentSettings.easyPayEnabled || (isCodingPlan && !codingPlan.enabled)}
             onClick={startPayment}
             type="button"
           >
             {loading ? <Loader2 className="size-4 animate-spin" /> : <ExternalLink className="size-4" />}
-            {paymentSettings.easyPayDisplayMode === "popup" ? "打开支付窗口" : "去支付"}
+            {paymentSettings.easyPayDisplayMode === "popup"
+              ? "打开支付窗口"
+              : isCodingPlan
+                ? "订阅套餐"
+                : "去支付"}
           </button>
         </div>
       </section>

@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!canUsePersonalApi(currentUser)) {
-    return jsonError("仅 VIP 用户组可创建个人 API。", 403);
+    return jsonError("仅 VIP 用户组或有效的 Coding Plan 可创建个人 API。", 403);
   }
 
   let body: CreateApiKeyBody;

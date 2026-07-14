@@ -5,6 +5,7 @@ import {
   normalizeRegistrationCostLimitCents
 } from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
+import { normalizeCodingPlanConfig } from "@/lib/coding-plan";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
 import {
   DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
@@ -100,6 +101,12 @@ type SettingsBody = {
   easyPayApiBaseUrl?: string;
   easyPayAlipayChannelId?: string;
   easyPayWxpayChannelId?: string;
+  codingPlanEnabled?: boolean;
+  codingPlanName?: string;
+  codingPlanDescription?: string;
+  codingPlanPriceCents?: number;
+  codingPlanMonthlyCostLimitCents?: number;
+  codingPlanPersonalApiEnabled?: boolean;
 };
 
 function maskKey(key: string | null | undefined) {
@@ -160,6 +167,12 @@ function serializeSettings(settings: {
   easyPayApiBaseUrl: string;
   easyPayAlipayChannelId: string;
   easyPayWxpayChannelId: string;
+  codingPlanEnabled: boolean;
+  codingPlanName: string;
+  codingPlanDescription: string;
+  codingPlanPriceCents: number;
+  codingPlanMonthlyCostLimitCents: number;
+  codingPlanPersonalApiEnabled: boolean;
   updatedAt: Date;
 }) {
   const chatModelMap = parseModelMap(settings.chatModelMapJson);
@@ -170,6 +183,14 @@ function serializeSettings(settings: {
   const easyPayBalanceCentsPerYuan = normalizeEasyPayBalanceCentsPerYuan(
     settings.easyPayBalanceCentsPerYuan
   );
+  const codingPlan = normalizeCodingPlanConfig({
+    description: settings.codingPlanDescription,
+    enabled: settings.codingPlanEnabled,
+    monthlyCostLimitCents: settings.codingPlanMonthlyCostLimitCents,
+    name: settings.codingPlanName,
+    personalApiEnabled: settings.codingPlanPersonalApiEnabled,
+    priceCents: settings.codingPlanPriceCents
+  });
 
   return {
     siteName: normalizeSiteName(settings.siteName),
@@ -231,6 +252,12 @@ function serializeSettings(settings: {
     easyPayApiBaseUrl: settings.easyPayApiBaseUrl || "",
     easyPayAlipayChannelId: settings.easyPayAlipayChannelId || "",
     easyPayWxpayChannelId: settings.easyPayWxpayChannelId || "",
+    codingPlanEnabled: codingPlan.enabled,
+    codingPlanName: codingPlan.name,
+    codingPlanDescription: codingPlan.description,
+    codingPlanPriceCents: codingPlan.priceCents,
+    codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
+    codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled,
     easyPayNotifyPath: EASYPAY_NOTIFY_PATH,
     easyPayReturnPath: EASYPAY_RETURN_PATH,
     updatedAt: settings.updatedAt.toISOString()
@@ -422,7 +449,15 @@ export async function GET(request: NextRequest) {
       easyPayKey: process.env.EASYPAY_KEY || null,
       easyPayApiBaseUrl: process.env.EASYPAY_API_BASE_URL || "",
       easyPayAlipayChannelId: process.env.EASYPAY_ALIPAY_CHANNEL_ID || "",
-      easyPayWxpayChannelId: process.env.EASYPAY_WXPAY_CHANNEL_ID || ""
+      easyPayWxpayChannelId: process.env.EASYPAY_WXPAY_CHANNEL_ID || "",
+      codingPlanEnabled: process.env.CODING_PLAN_ENABLED === "true",
+      codingPlanName: process.env.CODING_PLAN_NAME || "Coding Plan",
+      codingPlanDescription:
+        process.env.CODING_PLAN_DESCRIPTION || "面向编码任务的月度额度套餐",
+      codingPlanPriceCents: Number(process.env.CODING_PLAN_PRICE_CENTS) || 1990,
+      codingPlanMonthlyCostLimitCents:
+        Number(process.env.CODING_PLAN_MONTHLY_COST_LIMIT_CENTS) || 1000,
+      codingPlanPersonalApiEnabled: process.env.CODING_PLAN_PERSONAL_API_ENABLED !== "false"
     }
   });
 
@@ -518,6 +553,14 @@ export async function PATCH(request: NextRequest) {
   }
 
   let easyPaySettings: ReturnType<typeof normalizeEasyPaySettings>;
+  const codingPlan = normalizeCodingPlanConfig({
+    description: body.codingPlanDescription,
+    enabled: body.codingPlanEnabled,
+    monthlyCostLimitCents: body.codingPlanMonthlyCostLimitCents,
+    name: body.codingPlanName,
+    personalApiEnabled: body.codingPlanPersonalApiEnabled,
+    priceCents: body.codingPlanPriceCents
+  });
 
   try {
     easyPaySettings = normalizeEasyPaySettings({
@@ -589,6 +632,12 @@ export async function PATCH(request: NextRequest) {
     easyPayApiBaseUrl: string;
     easyPayAlipayChannelId: string;
     easyPayWxpayChannelId: string;
+    codingPlanEnabled: boolean;
+    codingPlanName: string;
+    codingPlanDescription: string;
+    codingPlanPriceCents: number;
+    codingPlanMonthlyCostLimitCents: number;
+    codingPlanPersonalApiEnabled: boolean;
   } = {
     siteName: normalizeSiteName(body.siteName),
     siteUrl,
@@ -636,7 +685,13 @@ export async function PATCH(request: NextRequest) {
     easyPayKey: easyPaySettings.easyPayKey,
     easyPayApiBaseUrl: easyPaySettings.easyPayApiBaseUrl,
     easyPayAlipayChannelId: easyPaySettings.easyPayAlipayChannelId,
-    easyPayWxpayChannelId: easyPaySettings.easyPayWxpayChannelId
+    easyPayWxpayChannelId: easyPaySettings.easyPayWxpayChannelId,
+    codingPlanEnabled: codingPlan.enabled,
+    codingPlanName: codingPlan.name,
+    codingPlanDescription: codingPlan.description,
+    codingPlanPriceCents: codingPlan.priceCents,
+    codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
+    codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled
   };
   data.enabledChatModelsJson = JSON.stringify(
     normalizeEnabledModelIds(

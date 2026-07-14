@@ -143,6 +143,8 @@ export async function authenticateUserApiKey(authorization: string | null) {
           emailVerified: true,
           aiStylePrompt: true,
           aiPointsBalanceCents: true,
+          codingPlanExpiresAt: true,
+          codingPlanPersonalApiEnabled: true,
           monthlyCostLimitCents: true,
           quotaNextResetAt: true,
           quotaResetAt: true

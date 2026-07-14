@@ -3,6 +3,7 @@ import type { Prisma } from "../../../../../generated/prisma/client";
 import { getUserFromRequest } from "@/lib/auth";
 import { coerceInt, jsonError, requireAdmin } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { serializePaymentProduct } from "@/lib/coding-plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +52,7 @@ function serializeOrder(order: {
   paidAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  metadataJson: string;
   userId: string;
   user: {
     email: string;
@@ -72,7 +74,8 @@ function serializeOrder(order: {
     updatedAt: order.updatedAt.toISOString(),
     userId: order.userId,
     userEmail: order.user.email,
-    userName: order.user.name
+    userName: order.user.name,
+    ...serializePaymentProduct(order.metadataJson)
   };
 }
 

@@ -74,6 +74,29 @@ export function nextQuotaResetAt(start = new Date()) {
   return addMonthsClamped(start);
 }
 
+function activeCodingPlanMonthlyCostLimit(
+  user: {
+    codingPlanExpiresAt: Date | null;
+    codingPlanMonthlyCostLimitCents: number;
+  },
+  now = new Date()
+) {
+  return user.codingPlanExpiresAt && user.codingPlanExpiresAt > now
+    ? Math.max(0, user.codingPlanMonthlyCostLimitCents)
+    : 0;
+}
+
+function effectiveMonthlyCostLimit(
+  user: {
+    codingPlanExpiresAt: Date | null;
+    codingPlanMonthlyCostLimitCents: number;
+    monthlyCostLimitCents: number;
+  },
+  now = new Date()
+) {
+  return Math.max(0, user.monthlyCostLimitCents) + activeCodingPlanMonthlyCostLimit(user, now);
+}
+
 export async function startNextQuotaPeriod(userId: string, start = new Date()) {
   const periodStart = start;
   const periodEnd = nextQuotaResetAt(periodStart);
@@ -99,6 +122,8 @@ async function normalizeQuotaUser(userId: string) {
     where: { id: userId },
     select: {
       aiPointsBalanceCents: true,
+      codingPlanExpiresAt: true,
+      codingPlanMonthlyCostLimitCents: true,
       monthlyCostLimitCents: true,
       quotaNextResetAt: true,
       quotaResetAt: true,
@@ -134,6 +159,8 @@ async function normalizeQuotaUser(userId: string) {
       },
       select: {
         aiPointsBalanceCents: true,
+        codingPlanExpiresAt: true,
+        codingPlanMonthlyCostLimitCents: true,
         monthlyCostLimitCents: true,
         quotaNextResetAt: true,
         quotaResetAt: true
@@ -156,6 +183,8 @@ async function normalizeQuotaUser(userId: string) {
       },
       select: {
         aiPointsBalanceCents: true,
+        codingPlanExpiresAt: true,
+        codingPlanMonthlyCostLimitCents: true,
         monthlyCostLimitCents: true,
         quotaNextResetAt: true,
         quotaResetAt: true
@@ -215,10 +244,8 @@ export async function getUsageSummary(
   const costUsedCents = usage._sum.estimatedCostCents ?? 0;
   const subscriptionCostUsedCents = usage._sum.subscriptionCostCents ?? 0;
   const aiPointsCostUsedCents = usage._sum.aiPointsCostCents ?? 0;
-  const subscriptionRemainingCostCents = Math.max(
-    0,
-    user.monthlyCostLimitCents - subscriptionCostUsedCents
-  );
+  const monthlyCostLimitCents = effectiveMonthlyCostLimit(user);
+  const subscriptionRemainingCostCents = Math.max(0, monthlyCostLimitCents - subscriptionCostUsedCents);
   const aiPointsBalanceCents = Math.max(0, user.aiPointsBalanceCents);
 
   const summary = {
@@ -228,7 +255,7 @@ export async function getUsageSummary(
     messagesUsed,
     costUsedCents,
     remainingCostCents: subscriptionRemainingCostCents + aiPointsBalanceCents,
-    monthlyCostLimitCents: user.monthlyCostLimitCents,
+    monthlyCostLimitCents,
     subscriptionCostUsedCents,
     subscriptionRemainingCostCents,
     aiPointsBalanceCents,
@@ -261,6 +288,8 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
       where: { id: userId },
       select: {
         aiPointsBalanceCents: true,
+        codingPlanExpiresAt: true,
+        codingPlanMonthlyCostLimitCents: true,
         monthlyCostLimitCents: true,
         quotaNextResetAt: true,
         quotaResetAt: true
@@ -276,6 +305,8 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
           },
           select: {
             aiPointsBalanceCents: true,
+            codingPlanExpiresAt: true,
+            codingPlanMonthlyCostLimitCents: true,
             monthlyCostLimitCents: true,
             quotaNextResetAt: true,
             quotaResetAt: true
@@ -295,7 +326,7 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
     });
     const subscriptionRemainingCostCents = Math.max(
       0,
-      periodUser.monthlyCostLimitCents - (subscriptionUsage._sum.subscriptionCostCents ?? 0)
+      effectiveMonthlyCostLimit(periodUser) - (subscriptionUsage._sum.subscriptionCostCents ?? 0)
     );
     const subscriptionCostCents = Math.min(costCents, subscriptionRemainingCostCents);
     const aiPointsCostCents = Math.max(0, costCents - subscriptionCostCents);

@@ -1,4 +1,5 @@
 import {
+  Code2,
   CreditCard,
   Loader2,
   Plus,
@@ -151,6 +152,14 @@ function paymentStatusMeta(status: string) {
     label: status || "-",
     tone: "bg-slate-100 text-slate-600"
   };
+}
+
+function paymentBenefitLabel(order: PaymentOrderView) {
+  if (order.productType === "CODING_PLAN") {
+    return `月额度 ${formatCents(order.codingPlanMonthlyCostLimitCents ?? 0)}`;
+  }
+
+  return `${formatCents(order.balanceCents)} AI 点数`;
 }
 
 export function PaymentTab({
@@ -478,6 +487,88 @@ export function PaymentTab({
         </div>
       </div>
 
+      <section className="ios-panel overflow-hidden" data-testid="admin-coding-plan-settings">
+        <div className="flex items-start gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
+          <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
+            <Code2 className="size-4" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold">Coding Plan</h2>
+            <p className="mt-1 text-xs ios-muted">
+              固定售价的月度编码套餐。每次支付开通或顺延一个自然月，不会自动续费。
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 p-4 lg:grid-cols-6">
+          <label className="admin-check-row lg:col-span-2">
+            <input
+              checked={settingsForm.codingPlanEnabled}
+              className="size-4 accent-[color:var(--claude-accent)]"
+              onChange={(event) => handleUpdate({ codingPlanEnabled: event.target.checked })}
+              type="checkbox"
+            />
+            对用户开放购买
+          </label>
+          <label className="admin-check-row lg:col-span-2">
+            <input
+              checked={settingsForm.codingPlanPersonalApiEnabled}
+              className="size-4 accent-[color:var(--claude-accent)]"
+              onChange={(event) =>
+                handleUpdate({ codingPlanPersonalApiEnabled: event.target.checked })
+              }
+              type="checkbox"
+            />
+            套餐期内开放个人 API Key
+          </label>
+          <p className="self-center text-xs ios-muted lg:col-span-2">
+            关闭后，套餐仍提供月额度，但不额外开放 API Key。
+          </p>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">套餐名称</span>
+            <input
+              className="ios-input w-full"
+              maxLength={80}
+              onChange={(event) => handleUpdate({ codingPlanName: event.target.value })}
+              value={settingsForm.codingPlanName}
+            />
+          </label>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">售价（人民币）</span>
+            <CentsDraftInput
+              className="ios-input w-full"
+              minCents={100}
+              onChange={(codingPlanPriceCents) => handleUpdate({ codingPlanPriceCents })}
+              value={settingsForm.codingPlanPriceCents}
+            />
+          </label>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">每月额度（美元）</span>
+            <CentsDraftInput
+              className="ios-input w-full"
+              minCents={1}
+              onChange={(codingPlanMonthlyCostLimitCents) =>
+                handleUpdate({ codingPlanMonthlyCostLimitCents })
+              }
+              value={settingsForm.codingPlanMonthlyCostLimitCents}
+            />
+          </label>
+          <label className="block lg:col-span-6">
+            <span className="mb-1 block text-xs font-medium ios-muted">用户说明</span>
+            <textarea
+              className="ios-input min-h-20 w-full resize-y"
+              maxLength={240}
+              onChange={(event) => handleUpdate({ codingPlanDescription: event.target.value })}
+              value={settingsForm.codingPlanDescription}
+            />
+          </label>
+          <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2 text-sm text-stone-700 lg:col-span-6">
+            当前出售：{settingsForm.codingPlanName || "Coding Plan"} · ¥
+            {(settingsForm.codingPlanPriceCents / 100).toFixed(2)} / 月 · 月额度 {formatCents(settingsForm.codingPlanMonthlyCostLimitCents)}
+            {settingsForm.codingPlanPersonalApiEnabled ? " · 含个人 API Key" : ""}
+          </div>
+        </div>
+      </section>
+
       <section className="ios-panel overflow-hidden" data-testid="admin-payment-orders">
         <div className="flex flex-col gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
@@ -485,7 +576,7 @@ export function PaymentTab({
               <ReceiptText className="size-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">充值订单</h2>
+              <h2 className="text-base font-semibold">支付订单</h2>
               <p className="mt-1 text-xs ios-muted">
                 显示最近 {orders.length} 条 · 已到账 {summary.paidOrders} 笔
               </p>
@@ -541,7 +632,7 @@ export function PaymentTab({
                     <th className="px-4 py-3 font-semibold">订单</th>
                     <th className="px-4 py-3 font-semibold">用户</th>
                     <th className="px-4 py-3 font-semibold">支付</th>
-                    <th className="px-4 py-3 font-semibold">到账</th>
+                    <th className="px-4 py-3 font-semibold">权益</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
                     <th className="px-4 py-3 font-semibold">时间</th>
                     <th className="px-4 py-3 text-right font-semibold">操作</th>
@@ -555,6 +646,7 @@ export function PaymentTab({
                       <tr className="border-t border-[color:var(--ios-separator)]" key={order.id}>
                         <td className="px-4 py-3">
                           <p className="font-semibold text-stone-900">{order.outTradeNo}</p>
+                          <p className="mt-1 text-xs ios-muted">{order.subject}</p>
                           <p className="mt-1 text-xs ios-muted">{order.providerTradeNo || "未返回渠道流水号"}</p>
                         </td>
                         <td className="px-4 py-3">
@@ -565,7 +657,7 @@ export function PaymentTab({
                           <p className="font-semibold">{formatPaymentYuan(order.amountCents)}</p>
                           <p className="mt-1 text-xs ios-muted">{paymentMethodLabel(order.method)}</p>
                         </td>
-                        <td className="px-4 py-3 font-semibold">{formatCents(order.balanceCents)}</td>
+                        <td className="px-4 py-3 font-semibold">{paymentBenefitLabel(order)}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>
                             {status.label}
@@ -624,6 +716,7 @@ export function PaymentTab({
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-stone-900">{order.outTradeNo}</p>
+                        <p className="mt-1 truncate text-xs ios-muted">{order.subject}</p>
                         <p className="mt-1 truncate text-xs ios-muted">{order.userName} · {order.userEmail}</p>
                       </div>
                       <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>
@@ -636,8 +729,8 @@ export function PaymentTab({
                         <p className="mt-1 font-semibold">{formatPaymentYuan(order.amountCents)}</p>
                       </div>
                       <div className="rounded-lg bg-white/65 px-3 py-2">
-                        <p className="text-xs ios-muted">到账</p>
-                        <p className="mt-1 font-semibold">{formatCents(order.balanceCents)}</p>
+                        <p className="text-xs ios-muted">权益</p>
+                        <p className="mt-1 font-semibold">{paymentBenefitLabel(order)}</p>
                       </div>
                     </div>
                     <p className="mt-2 text-xs ios-muted">

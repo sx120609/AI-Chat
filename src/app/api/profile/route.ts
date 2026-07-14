@@ -71,6 +71,9 @@ export async function PATCH(request: NextRequest) {
       emailVerified: true,
       aiStylePrompt: true,
       aiPointsBalanceCents: true,
+      codingPlanExpiresAt: true,
+      codingPlanMonthlyCostLimitCents: true,
+      codingPlanPersonalApiEnabled: true,
       monthlyCostLimitCents: true,
       quotaNextResetAt: true,
       quotaResetAt: true

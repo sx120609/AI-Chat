@@ -36,6 +36,9 @@ model User {
   monthlyTokenLimit     Int           @default(200000)
   monthlyMessageLimit   Int           @default(500)
   monthlyCostLimitCents Int           @default(0)
+  codingPlanMonthlyCostLimitCents Int @default(0)
+  codingPlanExpiresAt   DateTime?
+  codingPlanPersonalApiEnabled Boolean @default(false)
   aiPointsBalanceCents  Float         @default(0)
   quotaResetAt          DateTime      @default(now())
   quotaNextResetAt      DateTime      @default(now())
@@ -373,5 +376,11 @@ model AiSettings {
   easyPayApiBaseUrl   String  @default("")
   easyPayAlipayChannelId String @default("")
   easyPayWxpayChannelId String @default("")
+  codingPlanEnabled Boolean @default(false)
+  codingPlanName String @default("Coding Plan")
+  codingPlanDescription String @default("面向编码任务的月度额度套餐")
+  codingPlanPriceCents Int @default(1990)
+  codingPlanMonthlyCostLimitCents Int @default(1000)
+  codingPlanPersonalApiEnabled Boolean @default(true)
   updatedAt             DateTime @updatedAt
 }

@@ -770,7 +770,7 @@ export function ApiTab({
               如何使用
             </button>
             <span className="hidden rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-stone-600 sm:inline-flex">
-              {canCreateApiKey ? "VIP 可用" : "需 VIP"}
+              {canCreateApiKey ? "已可用" : "需 VIP 或 Coding Plan"}
             </span>
           </div>
         </div>

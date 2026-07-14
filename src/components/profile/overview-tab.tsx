@@ -3,6 +3,7 @@ import {
   BadgeDollarSign,
   CheckCircle2,
   Clock3,
+  Code2,
   CreditCard,
   Loader2,
   Mail,
@@ -29,6 +30,7 @@ type OverviewTabProps = {
   initialUsage: UsageSummary;
   loadingPayments: boolean;
   onRecharge: () => void;
+  onSubscribeCodingPlan: () => void;
   onRefreshPayments: () => void;
   savingProfile: boolean;
   onSaveProfile: (event: FormEvent<HTMLFormElement>) => void;
@@ -98,6 +100,14 @@ function paymentStatusMeta(status: string) {
   };
 }
 
+function paymentBenefitLabel(order: PaymentOrderView) {
+  if (order.productType === "CODING_PLAN") {
+    return `月额度 ${formatCents(order.codingPlanMonthlyCostLimitCents ?? 0)}`;
+  }
+
+  return `${formatCents(order.balanceCents)} AI 点数`;
+}
+
 export function OverviewTab({
   user,
   name,
@@ -105,6 +115,7 @@ export function OverviewTab({
   initialUsage,
   loadingPayments,
   onRecharge,
+  onSubscribeCodingPlan,
   onRefreshPayments,
   savingProfile,
   onSaveProfile,
@@ -113,6 +124,7 @@ export function OverviewTab({
   paymentSummary
 }: OverviewTabProps) {
   const percent = usagePercent(initialUsage);
+  const codingPlanActive = Boolean(user.codingPlanActive);
 
   return (
     <div className="grid gap-4">
@@ -191,6 +203,28 @@ export function OverviewTab({
                 下次刷新 {formatShortDateTime(initialUsage.windowEnd)}
               </p>
             </div>
+            {codingPlanActive ? (
+              <div className="mt-3 rounded-lg border border-[color:var(--app-border)] bg-white/65 px-3 py-2 text-xs text-stone-700">
+                <div className="flex items-center gap-1.5 font-semibold text-[color:var(--claude-accent)]">
+                  <Code2 className="size-3.5" />
+                  Coding Plan 已生效
+                </div>
+                <p className="mt-1">
+                  月额度 {formatCents(user.codingPlanMonthlyCostLimitCents)} · 到期 {formatShortDateTime(user.codingPlanExpiresAt!)}
+                </p>
+              </div>
+            ) : null}
+            {paymentSettings.easyPayEnabled && paymentSettings.codingPlan.enabled ? (
+              <button
+                className="ios-button-secondary app-action-button mt-3 flex h-10 w-full items-center justify-center gap-2 px-4 text-sm"
+                data-testid="profile-coding-plan-button"
+                onClick={onSubscribeCodingPlan}
+                type="button"
+              >
+                <Code2 className="size-4" />
+                {codingPlanActive ? "续订" : "订阅"} {paymentSettings.codingPlan.name} · {formatPaymentYuan(paymentSettings.codingPlan.priceCents)}/月
+              </button>
+            ) : null}
             {paymentSettings.easyPayEnabled ? (
               <button
                 className="ios-button-primary app-action-button mt-4 flex h-10 w-full items-center justify-center gap-2 px-4 text-sm"
@@ -213,7 +247,7 @@ export function OverviewTab({
               <ReceiptText className="size-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">充值记录</h2>
+              <h2 className="text-base font-semibold">支付记录</h2>
               <p className="mt-1 text-xs ios-muted">
                 已到账 {paymentSummary.paidOrders} 笔 · 累计到账 {formatCents(paymentSummary.paidBalanceCents)}
               </p>
@@ -228,7 +262,7 @@ export function OverviewTab({
                 type="button"
               >
                 <CreditCard className="size-4" />
-                充值
+                充值点数
               </button>
             ) : null}
             <button
@@ -273,7 +307,7 @@ export function OverviewTab({
                   <tr>
                     <th className="px-4 py-3 font-semibold">订单</th>
                     <th className="px-4 py-3 font-semibold">支付</th>
-                    <th className="px-4 py-3 font-semibold">到账</th>
+                    <th className="px-4 py-3 font-semibold">权益</th>
                     <th className="px-4 py-3 font-semibold">状态</th>
                     <th className="px-4 py-3 font-semibold">时间</th>
                   </tr>
@@ -286,13 +320,13 @@ export function OverviewTab({
                       <tr className="border-t border-[color:var(--ios-separator)]" key={order.id}>
                         <td className="px-4 py-3">
                           <p className="font-semibold text-stone-900">{order.outTradeNo}</p>
-                          <p className="mt-1 text-xs ios-muted">{order.providerTradeNo || "未返回渠道流水号"}</p>
+                          <p className="mt-1 text-xs ios-muted">{order.subject}</p>
                         </td>
                         <td className="px-4 py-3">
                           <p className="font-semibold">{formatPaymentYuan(order.amountCents)}</p>
                           <p className="mt-1 text-xs ios-muted">{paymentMethodLabel(order.method)}</p>
                         </td>
-                        <td className="px-4 py-3 font-semibold">{formatCents(order.balanceCents)}</td>
+                        <td className="px-4 py-3 font-semibold">{paymentBenefitLabel(order)}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>
                             {status.label}
@@ -317,7 +351,7 @@ export function OverviewTab({
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-stone-900">{order.outTradeNo}</p>
-                        <p className="mt-1 text-xs ios-muted">{paymentMethodLabel(order.method)}</p>
+                        <p className="mt-1 truncate text-xs ios-muted">{order.subject}</p>
                       </div>
                       <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>
                         {status.label}
@@ -329,8 +363,8 @@ export function OverviewTab({
                         <p className="mt-1 font-semibold">{formatPaymentYuan(order.amountCents)}</p>
                       </div>
                       <div className="rounded-lg bg-white/65 px-3 py-2">
-                        <p className="text-xs ios-muted">到账</p>
-                        <p className="mt-1 font-semibold">{formatCents(order.balanceCents)}</p>
+                        <p className="text-xs ios-muted">权益</p>
+                        <p className="mt-1 font-semibold">{paymentBenefitLabel(order)}</p>
                       </div>
                     </div>
                     <p className="mt-2 text-xs ios-muted">

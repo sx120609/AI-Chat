@@ -109,7 +109,10 @@ export function ProfileCenter({
   const [fileProjectFilter, setFileProjectFilter] = useState("");
   const [newMemoryContent, setNewMemoryContent] = useState("");
   const [newMemoryProjectId, setNewMemoryProjectId] = useState("");
-  const [canCreateApiKey, setCanCreateApiKey] = useState(user.userGroup === "VIP");
+  const [canCreateApiKey, setCanCreateApiKey] = useState(
+    user.userGroup === "VIP" ||
+      (user.codingPlanPersonalApiEnabled && Boolean(user.codingPlanActive))
+  );
   const [origin, setOrigin] = useState("");
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
   const [deleteArchivedConversationTarget, setDeleteArchivedConversationTarget] =
@@ -123,6 +126,7 @@ export function ProfileCenter({
   const [apiGuideOpen, setApiGuideOpen] = useState(false);
   const [apiGuideKeyId, setApiGuideKeyId] = useState<string | null>(null);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [codingPlanDialogOpen, setCodingPlanDialogOpen] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(true);
@@ -1215,6 +1219,7 @@ export function ProfileCenter({
                 initialUsage={usage}
                 loadingPayments={loadingPayments}
                 onRecharge={() => setPaymentDialogOpen(true)}
+                onSubscribeCodingPlan={() => setCodingPlanDialogOpen(true)}
                 onRefreshPayments={refreshPaymentsAndUsage}
                 savingProfile={savingProfile}
                 onSaveProfile={saveProfile}
@@ -1431,6 +1436,16 @@ export function ProfileCenter({
         }}
         onOrderCreated={refreshPaymentsAndUsage}
         open={paymentDialogOpen}
+        paymentSettings={paymentSettings}
+      />
+      <EasyPayDialog
+        mode="coding_plan"
+        onClose={() => {
+          setCodingPlanDialogOpen(false);
+          void refreshPaymentsAndUsage();
+        }}
+        onOrderCreated={refreshPaymentsAndUsage}
+        open={codingPlanDialogOpen}
         paymentSettings={paymentSettings}
       />
     </main>

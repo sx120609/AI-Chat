@@ -887,7 +887,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
   const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
 
   if (!authenticated) {
-    return jsonError("无效的 API Key，或当前账号不是 VIP 用户组。", 401);
+    return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
   }
 
   let body: Record<string, unknown>;
@@ -1107,7 +1107,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
   const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
 
   if (!authenticated) {
-    return jsonError("无效的 API Key，或当前账号不是 VIP 用户组。", 401);
+    return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
   }
 
   let body: Record<string, unknown>;
@@ -1328,7 +1328,7 @@ export async function handleUserImageGenerationsRequest(request: NextRequest) {
   const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
 
   if (!authenticated) {
-    return jsonError("无效的 API Key，或当前账号不是 VIP 用户组。", 401);
+    return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
   }
 
   let body: Record<string, unknown>;
@@ -1427,7 +1427,7 @@ export async function handleUserModelsRequest(request: NextRequest) {
   const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
 
   if (!authenticated) {
-    return jsonError("无效的 API Key，或当前账号不是 VIP 用户组。", 401);
+    return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
   }
 
   const settings = await getAiRuntimeSettings();

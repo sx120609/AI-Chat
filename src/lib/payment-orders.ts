@@ -1,7 +1,12 @@
 import type { PaymentOrder } from "../../generated/prisma/client";
 import { cacheDelete } from "@/lib/cache";
+import {
+  CODING_PLAN_PRODUCT_TYPE,
+  parseCodingPlanOrderSnapshot,
+  paymentProductType
+} from "@/lib/coding-plan";
 import { prisma } from "@/lib/prisma";
-import { usageCacheKey } from "@/lib/quota";
+import { nextQuotaResetAt, usageCacheKey } from "@/lib/quota";
 
 export async function settlePaidPaymentOrder(
   order: PaymentOrder,
@@ -10,9 +15,12 @@ export async function settlePaidPaymentOrder(
     providerTradeNo?: string | null;
   }
 ) {
+  const codingPlan = parseCodingPlanOrderSnapshot(order.metadataJson);
+
   if (order.status === "PAID") {
     return {
-      balanceCents: order.balanceCents > 0 ? order.balanceCents : order.amountCents,
+      balanceCents: codingPlan ? 0 : order.balanceCents > 0 ? order.balanceCents : order.amountCents,
+      productType: paymentProductType(order.metadataJson),
       settled: false
     };
   }
@@ -37,14 +45,43 @@ export async function settlePaidPaymentOrder(
       return false;
     }
 
-    await tx.user.update({
-      where: { id: order.userId },
-      data: {
-        aiPointsBalanceCents: {
-          increment: balanceCents
+    if (codingPlan) {
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: order.userId },
+        select: {
+          codingPlanExpiresAt: true
         }
-      }
-    });
+      });
+      const existingExpiry = user.codingPlanExpiresAt;
+      const base = existingExpiry && existingExpiry > paidAt ? existingExpiry : paidAt;
+      const expiresAt = nextQuotaResetAt(base);
+      const startsNewPlan = !existingExpiry || existingExpiry <= paidAt;
+
+      await tx.user.update({
+        where: { id: order.userId },
+        data: {
+          codingPlanExpiresAt: expiresAt,
+          codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
+          codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled,
+          ...(startsNewPlan
+            ? {
+                quotaNextResetAt: nextQuotaResetAt(paidAt),
+                quotaResetAt: paidAt,
+                quotaSystemMigratedAt: paidAt
+              }
+            : {})
+        }
+      });
+    } else {
+      await tx.user.update({
+        where: { id: order.userId },
+        data: {
+          aiPointsBalanceCents: {
+            increment: balanceCents
+          }
+        }
+      });
+    }
 
     return true;
   });
@@ -54,7 +91,8 @@ export async function settlePaidPaymentOrder(
   }
 
   return {
-    balanceCents,
+    balanceCents: codingPlan ? 0 : balanceCents,
+    productType: codingPlan ? CODING_PLAN_PRODUCT_TYPE : paymentProductType(order.metadataJson),
     settled
   };
 }

@@ -83,6 +83,12 @@ export type SettingsForm = {
   easyPayApiBaseUrl: string;
   easyPayAlipayChannelId: string;
   easyPayWxpayChannelId: string;
+  codingPlanEnabled: boolean;
+  codingPlanName: string;
+  codingPlanDescription: string;
+  codingPlanPriceCents: number;
+  codingPlanMonthlyCostLimitCents: number;
+  codingPlanPersonalApiEnabled: boolean;
 };
 
 export type AdminTab = "access" | "models" | "prompts" | "tools" | "mail" | "payment" | "users" | "usage";

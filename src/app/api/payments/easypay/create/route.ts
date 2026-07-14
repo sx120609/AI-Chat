@@ -9,6 +9,11 @@ import {
   normalizeEasyPaySettings
 } from "@/lib/easypay";
 import type { EasyPayMethod } from "@/lib/easypay";
+import {
+  CODING_PLAN_PRODUCT_TYPE,
+  codingPlanSnapshot,
+  normalizeCodingPlanConfig
+} from "@/lib/coding-plan";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { normalizeSiteName, normalizeSiteUrl } from "@/lib/site-settings";
@@ -18,6 +23,7 @@ export const runtime = "nodejs";
 type CreatePaymentBody = {
   amountCents?: number;
   method?: string;
+  productType?: string;
 };
 
 function normalizeAmountCents(value: unknown) {
@@ -60,11 +66,9 @@ export async function POST(request: NextRequest) {
     return jsonError(readError instanceof Error ? readError.message : "创建支付订单失败。", 400);
   }
 
-  let amountCents: number;
   let method: EasyPayMethod;
 
   try {
-    amountCents = normalizeAmountCents(body.amountCents);
     method = normalizeEasyPayMethod(body.method);
   } catch (validationError) {
     return jsonError(
@@ -86,15 +90,52 @@ export async function POST(request: NextRequest) {
     return jsonError("当前支付方式未启用。", 400);
   }
 
+  if (body.productType && body.productType !== "ai_points" && body.productType !== "coding_plan") {
+    return jsonError("支付商品无效。", 400);
+  }
+
+  const productType = body.productType === "coding_plan" ? CODING_PLAN_PRODUCT_TYPE : "AI_POINTS";
+  const codingPlan = normalizeCodingPlanConfig({
+    description: settings?.codingPlanDescription,
+    enabled: settings?.codingPlanEnabled,
+    monthlyCostLimitCents: settings?.codingPlanMonthlyCostLimitCents,
+    name: settings?.codingPlanName,
+    personalApiEnabled: settings?.codingPlanPersonalApiEnabled,
+    priceCents: settings?.codingPlanPriceCents
+  });
+  let amountCents: number;
+
+  try {
+    amountCents =
+      productType === CODING_PLAN_PRODUCT_TYPE
+        ? codingPlan.priceCents
+        : normalizeAmountCents(body.amountCents);
+  } catch (validationError) {
+    return jsonError(
+      validationError instanceof Error ? validationError.message : "支付参数无效。",
+      400
+    );
+  }
+
+  if (productType === CODING_PLAN_PRODUCT_TYPE && !codingPlan.enabled) {
+    return jsonError("Coding Plan 暂未开放购买。", 403);
+  }
+
   const siteName = normalizeSiteName(settings?.siteName);
   const siteUrl = normalizeSiteUrl(settings?.siteUrl);
   const outTradeNo = createEasyPayOutTradeNo();
-  const balanceCents = calculateEasyPayTieredBalanceCents(
-    amountCents,
-    easyPaySettings.easyPayBalanceCentsPerYuan,
-    easyPaySettings.easyPayAmountTiers
-  );
-  const subject = `${siteName} AI 点数充值`;
+  const balanceCents =
+    productType === CODING_PLAN_PRODUCT_TYPE
+      ? 0
+      : calculateEasyPayTieredBalanceCents(
+          amountCents,
+          easyPaySettings.easyPayBalanceCentsPerYuan,
+          easyPaySettings.easyPayAmountTiers
+        );
+  const subject =
+    productType === CODING_PLAN_PRODUCT_TYPE
+      ? `${siteName} ${codingPlan.name} 月度订阅`
+      : `${siteName} AI 点数充值`;
   const order = await prisma.paymentOrder.create({
     data: {
       userId: currentUser.id,
@@ -103,11 +144,20 @@ export async function POST(request: NextRequest) {
       subject,
       amountCents,
       balanceCents,
-      metadataJson: JSON.stringify({
-        balanceCentsPerYuan: easyPaySettings.easyPayBalanceCentsPerYuan,
-        amountTiers: easyPaySettings.easyPayAmountTiers,
-        displayMode: easyPaySettings.easyPayDisplayMode
-      })
+      metadataJson: JSON.stringify(
+        productType === CODING_PLAN_PRODUCT_TYPE
+          ? {
+              codingPlan: codingPlanSnapshot(codingPlan),
+              displayMode: easyPaySettings.easyPayDisplayMode,
+              productType
+            }
+          : {
+              balanceCentsPerYuan: easyPaySettings.easyPayBalanceCentsPerYuan,
+              amountTiers: easyPaySettings.easyPayAmountTiers,
+              displayMode: easyPaySettings.easyPayDisplayMode,
+              productType
+            }
+      )
     }
   });
   const paymentUrl = buildEasyPaySubmitUrl({
@@ -123,6 +173,7 @@ export async function POST(request: NextRequest) {
       balanceCents: order.balanceCents,
       method: order.method,
       outTradeNo: order.outTradeNo,
+      productType,
       status: order.status
     },
     paymentUrl

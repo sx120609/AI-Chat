@@ -16,6 +16,15 @@ export type EasyPayAmountTierView = {
   balanceCents: number;
 };
 
+export type PublicCodingPlanView = {
+  description: string;
+  enabled: boolean;
+  monthlyCostLimitCents: number;
+  name: string;
+  personalApiEnabled: boolean;
+  priceCents: number;
+};
+
 export type ToolEventView = {
   detail?: string;
   finishedAt?: number;
@@ -88,6 +97,10 @@ export type UserView = {
   emailVerified: boolean;
   aiStylePrompt: string;
   aiPointsBalanceCents: number;
+  codingPlanActive?: boolean;
+  codingPlanExpiresAt?: string | null;
+  codingPlanMonthlyCostLimitCents: number;
+  codingPlanPersonalApiEnabled: boolean;
   monthlyCostLimitCents: number;
   quotaNextResetAt: string;
   quotaResetAt: string;
@@ -151,6 +164,7 @@ export type PublicPaymentSettingsView = {
   easyPayMethods: EasyPayMethod[];
   easyPayBalanceCentsPerYuan: number;
   easyPayAmountTiers: EasyPayAmountTierView[];
+  codingPlan: PublicCodingPlanView;
 };
 
 export type PaymentOrderView = {
@@ -163,6 +177,9 @@ export type PaymentOrderView = {
   subject: string;
   amountCents: number;
   balanceCents: number;
+  codingPlanMonthlyCostLimitCents?: number | null;
+  codingPlanName?: string | null;
+  productType?: "AI_POINTS" | "CODING_PLAN";
   paidAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -391,6 +408,12 @@ export type AiSettingsView = {
   easyPayApiBaseUrl: string;
   easyPayAlipayChannelId: string;
   easyPayWxpayChannelId: string;
+  codingPlanEnabled: boolean;
+  codingPlanName: string;
+  codingPlanDescription: string;
+  codingPlanPriceCents: number;
+  codingPlanMonthlyCostLimitCents: number;
+  codingPlanPersonalApiEnabled: boolean;
   easyPayNotifyPath: string;
   easyPayReturnPath: string;
   updatedAt: string;

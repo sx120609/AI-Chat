@@ -106,7 +106,13 @@ export const emptySettings: SettingsForm = {
   clearEasyPayKey: false,
   easyPayApiBaseUrl: "",
   easyPayAlipayChannelId: "",
-  easyPayWxpayChannelId: ""
+  easyPayWxpayChannelId: "",
+  codingPlanEnabled: false,
+  codingPlanName: "Coding Plan",
+  codingPlanDescription: "面向编码任务的月度额度套餐",
+  codingPlanPriceCents: 1990,
+  codingPlanMonthlyCostLimitCents: 1000,
+  codingPlanPersonalApiEnabled: true
 };
 
 export const adminTabs: Array<{

@@ -12,7 +12,8 @@ import type { EasyPayMethod } from "@/lib/easypay";
 import {
   CODING_PLAN_PRODUCT_TYPE,
   codingPlanSnapshot,
-  normalizeCodingPlanConfig
+  normalizeCodingPlanConfig,
+  parseCodingPlans
 } from "@/lib/coding-plan";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
@@ -24,6 +25,7 @@ type CreatePaymentBody = {
   amountCents?: number;
   method?: string;
   productType?: string;
+  codingPlanId?: string;
 };
 
 function normalizeAmountCents(value: unknown) {
@@ -95,7 +97,7 @@ export async function POST(request: NextRequest) {
   }
 
   const productType = body.productType === "coding_plan" ? CODING_PLAN_PRODUCT_TYPE : "AI_POINTS";
-  const codingPlan = normalizeCodingPlanConfig({
+  const legacyCodingPlan = normalizeCodingPlanConfig({
     description: settings?.codingPlanDescription,
     enabled: settings?.codingPlanEnabled,
     monthlyCostLimitCents: settings?.codingPlanMonthlyCostLimitCents,
@@ -103,12 +105,14 @@ export async function POST(request: NextRequest) {
     personalApiEnabled: settings?.codingPlanPersonalApiEnabled,
     priceCents: settings?.codingPlanPriceCents
   });
+  const codingPlans = parseCodingPlans(settings?.codingPlansJson, [legacyCodingPlan]);
+  const codingPlan = codingPlans.find((plan) => plan.id === body.codingPlanId) ?? null;
   let amountCents: number;
 
   try {
     amountCents =
       productType === CODING_PLAN_PRODUCT_TYPE
-        ? codingPlan.priceCents
+        ? codingPlan?.priceCents ?? 0
         : normalizeAmountCents(body.amountCents);
   } catch (validationError) {
     return jsonError(
@@ -117,9 +121,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (productType === CODING_PLAN_PRODUCT_TYPE && !codingPlan.enabled) {
-    return jsonError("Coding Plan 暂未开放购买。", 403);
+  if (productType === CODING_PLAN_PRODUCT_TYPE && (!codingPlan || !codingPlan.enabled)) {
+    return jsonError("所选 Coding Plan 不存在或暂未开放购买。", 403);
   }
+
+  const selectedCodingPlan = codingPlan ?? legacyCodingPlan;
 
   const siteName = normalizeSiteName(settings?.siteName);
   const siteUrl = normalizeSiteUrl(settings?.siteUrl);
@@ -134,7 +140,7 @@ export async function POST(request: NextRequest) {
         );
   const subject =
     productType === CODING_PLAN_PRODUCT_TYPE
-      ? `${siteName} ${codingPlan.name} 月度订阅`
+      ? `${siteName} ${selectedCodingPlan.name} 月度订阅`
       : `${siteName} AI 点数充值`;
   const order = await prisma.paymentOrder.create({
     data: {
@@ -147,7 +153,7 @@ export async function POST(request: NextRequest) {
       metadataJson: JSON.stringify(
         productType === CODING_PLAN_PRODUCT_TYPE
           ? {
-              codingPlan: codingPlanSnapshot(codingPlan),
+              codingPlan: codingPlanSnapshot(selectedCodingPlan),
               displayMode: easyPaySettings.easyPayDisplayMode,
               productType
             }

@@ -107,12 +107,17 @@ export const emptySettings: SettingsForm = {
   easyPayApiBaseUrl: "",
   easyPayAlipayChannelId: "",
   easyPayWxpayChannelId: "",
-  codingPlanEnabled: false,
-  codingPlanName: "Coding Plan",
-  codingPlanDescription: "面向编码任务的月度额度套餐",
-  codingPlanPriceCents: 1990,
-  codingPlanMonthlyCostLimitCents: 1000,
-  codingPlanPersonalApiEnabled: true
+  codingPlans: [
+    {
+      description: "面向编码任务的月度额度套餐",
+      enabled: false,
+      id: "coding-plan",
+      monthlyCostLimitCents: 1000,
+      name: "Coding Plan",
+      personalApiEnabled: true,
+      priceCents: 1990
+    }
+  ]
 };
 
 export const adminTabs: Array<{

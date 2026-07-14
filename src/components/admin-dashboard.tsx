@@ -253,12 +253,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       easyPayApiBaseUrl: nextSettings.easyPayApiBaseUrl,
       easyPayAlipayChannelId: nextSettings.easyPayAlipayChannelId,
       easyPayWxpayChannelId: nextSettings.easyPayWxpayChannelId,
-      codingPlanEnabled: nextSettings.codingPlanEnabled,
-      codingPlanName: nextSettings.codingPlanName,
-      codingPlanDescription: nextSettings.codingPlanDescription,
-      codingPlanPriceCents: nextSettings.codingPlanPriceCents,
-      codingPlanMonthlyCostLimitCents: nextSettings.codingPlanMonthlyCostLimitCents,
-      codingPlanPersonalApiEnabled: nextSettings.codingPlanPersonalApiEnabled
+      codingPlans: nextSettings.codingPlans
     });
   }, [setSettingsForm]);
 

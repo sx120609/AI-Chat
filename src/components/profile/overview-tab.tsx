@@ -30,7 +30,7 @@ type OverviewTabProps = {
   initialUsage: UsageSummary;
   loadingPayments: boolean;
   onRecharge: () => void;
-  onSubscribeCodingPlan: () => void;
+  onSubscribeCodingPlan: (planId: string) => void;
   onRefreshPayments: () => void;
   savingProfile: boolean;
   onSaveProfile: (event: FormEvent<HTMLFormElement>) => void;
@@ -207,23 +207,41 @@ export function OverviewTab({
               <div className="mt-3 rounded-lg border border-[color:var(--app-border)] bg-white/65 px-3 py-2 text-xs text-stone-700">
                 <div className="flex items-center gap-1.5 font-semibold text-[color:var(--claude-accent)]">
                   <Code2 className="size-3.5" />
-                  Coding Plan 已生效
+                  {user.codingPlanName || "Coding Plan"} 已生效
                 </div>
                 <p className="mt-1">
                   月额度 {formatCents(user.codingPlanMonthlyCostLimitCents)} · 到期 {formatShortDateTime(user.codingPlanExpiresAt!)}
                 </p>
               </div>
             ) : null}
-            {paymentSettings.easyPayEnabled && paymentSettings.codingPlan.enabled ? (
-              <button
-                className="ios-button-secondary app-action-button mt-3 flex h-10 w-full items-center justify-center gap-2 px-4 text-sm"
-                data-testid="profile-coding-plan-button"
-                onClick={onSubscribeCodingPlan}
-                type="button"
-              >
-                <Code2 className="size-4" />
-                {codingPlanActive ? "续订" : "订阅"} {paymentSettings.codingPlan.name} · {formatPaymentYuan(paymentSettings.codingPlan.priceCents)}/月
-              </button>
+            {paymentSettings.easyPayEnabled && paymentSettings.codingPlans.some((plan) => plan.enabled) ? (
+              <div className="mt-3 grid gap-2">
+                {paymentSettings.codingPlans
+                  .filter((plan) => plan.enabled)
+                  .map((plan) => (
+                    <button
+                      className="ios-button-secondary app-action-button flex min-h-10 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm"
+                      data-testid={`profile-coding-plan-${plan.id}`}
+                      key={plan.id}
+                      onClick={() => onSubscribeCodingPlan(plan.id)}
+                      type="button"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Code2 className="size-4 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{plan.name}</span>
+                          <span className="block truncate text-[11px] ios-muted">
+                            月额度 {formatCents(plan.monthlyCostLimitCents)}
+                            {plan.personalApiEnabled ? " · 含 API Key" : ""}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-semibold">
+                        {formatPaymentYuan(plan.priceCents)}/月
+                      </span>
+                    </button>
+                  ))}
+              </div>
             ) : null}
             {paymentSettings.easyPayEnabled ? (
               <button

@@ -3,6 +3,7 @@ import type {
   AdminUsageRecordView,
   AdminUsageSummaryView,
   ChatModelDisplayConfig,
+  PublicCodingPlanView,
   EasyPayAmountTierView,
   EasyPayDisplayMode,
   EasyPayMethod,
@@ -83,12 +84,7 @@ export type SettingsForm = {
   easyPayApiBaseUrl: string;
   easyPayAlipayChannelId: string;
   easyPayWxpayChannelId: string;
-  codingPlanEnabled: boolean;
-  codingPlanName: string;
-  codingPlanDescription: string;
-  codingPlanPriceCents: number;
-  codingPlanMonthlyCostLimitCents: number;
-  codingPlanPersonalApiEnabled: boolean;
+  codingPlans: PublicCodingPlanView[];
 };
 
 export type AdminTab = "access" | "models" | "prompts" | "tools" | "mail" | "payment" | "users" | "usage";

@@ -127,6 +127,7 @@ export function ProfileCenter({
   const [apiGuideKeyId, setApiGuideKeyId] = useState<string | null>(null);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [codingPlanDialogOpen, setCodingPlanDialogOpen] = useState(false);
+  const [selectedCodingPlanId, setSelectedCodingPlanId] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loadingKeys, setLoadingKeys] = useState(true);
@@ -1219,7 +1220,10 @@ export function ProfileCenter({
                 initialUsage={usage}
                 loadingPayments={loadingPayments}
                 onRecharge={() => setPaymentDialogOpen(true)}
-                onSubscribeCodingPlan={() => setCodingPlanDialogOpen(true)}
+                onSubscribeCodingPlan={(planId) => {
+                  setSelectedCodingPlanId(planId);
+                  setCodingPlanDialogOpen(true);
+                }}
                 onRefreshPayments={refreshPaymentsAndUsage}
                 savingProfile={savingProfile}
                 onSaveProfile={saveProfile}
@@ -1440,8 +1444,10 @@ export function ProfileCenter({
       />
       <EasyPayDialog
         mode="coding_plan"
+        codingPlanId={selectedCodingPlanId}
         onClose={() => {
           setCodingPlanDialogOpen(false);
+          setSelectedCodingPlanId(null);
           void refreshPaymentsAndUsage();
         }}
         onOrderCreated={refreshPaymentsAndUsage}

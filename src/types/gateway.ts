@@ -19,6 +19,7 @@ export type EasyPayAmountTierView = {
 export type PublicCodingPlanView = {
   description: string;
   enabled: boolean;
+  id: string;
   monthlyCostLimitCents: number;
   name: string;
   personalApiEnabled: boolean;
@@ -99,7 +100,9 @@ export type UserView = {
   aiPointsBalanceCents: number;
   codingPlanActive?: boolean;
   codingPlanExpiresAt?: string | null;
+  codingPlanId: string;
   codingPlanMonthlyCostLimitCents: number;
+  codingPlanName: string;
   codingPlanPersonalApiEnabled: boolean;
   monthlyCostLimitCents: number;
   quotaNextResetAt: string;
@@ -164,7 +167,7 @@ export type PublicPaymentSettingsView = {
   easyPayMethods: EasyPayMethod[];
   easyPayBalanceCentsPerYuan: number;
   easyPayAmountTiers: EasyPayAmountTierView[];
-  codingPlan: PublicCodingPlanView;
+  codingPlans: PublicCodingPlanView[];
 };
 
 export type PaymentOrderView = {
@@ -408,12 +411,7 @@ export type AiSettingsView = {
   easyPayApiBaseUrl: string;
   easyPayAlipayChannelId: string;
   easyPayWxpayChannelId: string;
-  codingPlanEnabled: boolean;
-  codingPlanName: string;
-  codingPlanDescription: string;
-  codingPlanPriceCents: number;
-  codingPlanMonthlyCostLimitCents: number;
-  codingPlanPersonalApiEnabled: boolean;
+  codingPlans: PublicCodingPlanView[];
   easyPayNotifyPath: string;
   easyPayReturnPath: string;
   updatedAt: string;

@@ -8,6 +8,7 @@ export type PaymentProductType =
 export type CodingPlanConfig = {
   description: string;
   enabled: boolean;
+  id: string;
   monthlyCostLimitCents: number;
   name: string;
   personalApiEnabled: boolean;
@@ -16,17 +17,24 @@ export type CodingPlanConfig = {
 
 export type CodingPlanOrderSnapshot = Pick<
   CodingPlanConfig,
-  "description" | "monthlyCostLimitCents" | "name" | "personalApiEnabled"
+  "description" | "id" | "monthlyCostLimitCents" | "name" | "personalApiEnabled"
 >;
+
+export const MAX_CODING_PLANS = 12;
 
 const DEFAULT_CODING_PLAN: CodingPlanConfig = {
   description: "面向编码任务的月度额度套餐",
   enabled: false,
+  id: "coding-plan",
   monthlyCostLimitCents: 1000,
   name: "Coding Plan",
   personalApiEnabled: true,
   priceCents: 1990
 };
+
+export function defaultCodingPlan(): CodingPlanConfig {
+  return { ...DEFAULT_CODING_PLAN };
+}
 
 function boundedInt(value: unknown, fallback: number, min: number, max: number) {
   const numberValue = typeof value === "number" ? value : Number(value);
@@ -44,10 +52,20 @@ function boundedText(value: unknown, fallback: string, maxLength: number) {
   return text ? text.slice(0, maxLength) : fallback;
 }
 
-export function normalizeCodingPlanConfig(value: Partial<CodingPlanConfig>): CodingPlanConfig {
+function normalizePlanId(value: unknown, fallback: string) {
+  const id = typeof value === "string" ? value.trim().toLowerCase() : "";
+
+  return /^[a-z0-9][a-z0-9_-]{0,39}$/.test(id) ? id : fallback;
+}
+
+export function normalizeCodingPlanConfig(
+  value: Partial<CodingPlanConfig>,
+  fallbackId = DEFAULT_CODING_PLAN.id
+): CodingPlanConfig {
   return {
     description: boundedText(value.description, DEFAULT_CODING_PLAN.description, 240),
     enabled: Boolean(value.enabled),
+    id: normalizePlanId(value.id, fallbackId),
     monthlyCostLimitCents: boundedInt(
       value.monthlyCostLimitCents,
       DEFAULT_CODING_PLAN.monthlyCostLimitCents,
@@ -63,9 +81,56 @@ export function normalizeCodingPlanConfig(value: Partial<CodingPlanConfig>): Cod
   };
 }
 
+export function normalizeCodingPlans(value: unknown, fallback: CodingPlanConfig[] = [defaultCodingPlan()]) {
+  if (!Array.isArray(value)) {
+    return fallback.map((plan, index) =>
+      normalizeCodingPlanConfig(plan, `coding-plan-${index + 1}`)
+    );
+  }
+
+  const usedIds = new Set<string>();
+  const plans: CodingPlanConfig[] = [];
+
+  for (const [index, item] of value.slice(0, MAX_CODING_PLANS).entries()) {
+    const candidate = item && typeof item === "object" ? (item as Partial<CodingPlanConfig>) : {};
+    let fallbackId = `coding-plan-${index + 1}`;
+
+    while (usedIds.has(fallbackId)) {
+      fallbackId = `${fallbackId}-x`;
+    }
+
+    const normalized = normalizeCodingPlanConfig(candidate, fallbackId);
+
+    if (usedIds.has(normalized.id)) {
+      continue;
+    }
+
+    usedIds.add(normalized.id);
+    plans.push(normalized);
+  }
+
+  return plans;
+}
+
+export function parseCodingPlans(
+  value: string | null | undefined,
+  fallback: CodingPlanConfig[] = [defaultCodingPlan()]
+) {
+  if (!value?.trim()) {
+    return normalizeCodingPlans(fallback, fallback);
+  }
+
+  try {
+    return normalizeCodingPlans(JSON.parse(value), fallback);
+  } catch {
+    return normalizeCodingPlans(fallback, fallback);
+  }
+}
+
 export function codingPlanSnapshot(config: CodingPlanConfig): CodingPlanOrderSnapshot {
   return {
     description: config.description,
+    id: config.id,
     monthlyCostLimitCents: config.monthlyCostLimitCents,
     name: config.name,
     personalApiEnabled: config.personalApiEnabled
@@ -84,11 +149,12 @@ export function parseCodingPlanOrderSnapshot(metadataJson: string | null | undef
     const normalized = normalizeCodingPlanConfig({
       description: codingPlan.description as string | undefined,
       enabled: true,
+      id: codingPlan.id as string | undefined,
       monthlyCostLimitCents: codingPlan.monthlyCostLimitCents as number | undefined,
       name: codingPlan.name as string | undefined,
       personalApiEnabled: codingPlan.personalApiEnabled as boolean | undefined,
       priceCents: 100
-    });
+    }, "legacy-coding-plan");
 
     return codingPlanSnapshot(normalized);
   } catch {

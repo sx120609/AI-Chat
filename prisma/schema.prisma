@@ -36,6 +36,8 @@ model User {
   monthlyTokenLimit     Int           @default(200000)
   monthlyMessageLimit   Int           @default(500)
   monthlyCostLimitCents Int           @default(0)
+  codingPlanId          String        @default("")
+  codingPlanName        String        @default("")
   codingPlanMonthlyCostLimitCents Int @default(0)
   codingPlanExpiresAt   DateTime?
   codingPlanPersonalApiEnabled Boolean @default(false)
@@ -382,5 +384,6 @@ model AiSettings {
   codingPlanPriceCents Int @default(1990)
   codingPlanMonthlyCostLimitCents Int @default(1000)
   codingPlanPersonalApiEnabled Boolean @default(true)
+  codingPlansJson String @default("")
   updatedAt             DateTime @updatedAt
 }

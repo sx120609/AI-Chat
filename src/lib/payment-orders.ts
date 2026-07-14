@@ -61,7 +61,9 @@ export async function settlePaidPaymentOrder(
         where: { id: order.userId },
         data: {
           codingPlanExpiresAt: expiresAt,
+          codingPlanId: codingPlan.id,
           codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
+          codingPlanName: codingPlan.name,
           codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled,
           ...(startsNewPlan
             ? {

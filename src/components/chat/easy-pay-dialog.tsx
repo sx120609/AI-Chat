@@ -16,6 +16,7 @@ function formatPaymentYuan(amountCents: number) {
 }
 
 type EasyPayDialogProps = {
+  codingPlanId?: string | null;
   mode?: "ai_points" | "coding_plan";
   onClose: () => void;
   onOrderCreated?: () => void | Promise<void>;
@@ -24,6 +25,7 @@ type EasyPayDialogProps = {
 };
 
 export function EasyPayDialog({
+  codingPlanId,
   mode = "ai_points",
   onClose,
   onOrderCreated,
@@ -31,7 +33,16 @@ export function EasyPayDialog({
   paymentSettings
 }: EasyPayDialogProps) {
   const isCodingPlan = mode === "coding_plan";
-  const codingPlan = paymentSettings.codingPlan;
+  const matchedCodingPlan = paymentSettings.codingPlans.find((plan) => plan.id === codingPlanId);
+  const codingPlan = matchedCodingPlan ?? {
+    description: "",
+    enabled: false,
+    id: "",
+    monthlyCostLimitCents: 0,
+    name: "",
+    personalApiEnabled: false,
+    priceCents: 0
+  };
   const [amountCents, setAmountCents] = useState(1000);
   const [method, setMethod] = useState<EasyPayMethod>(
     paymentSettings.easyPayMethods[0] ?? "alipay"
@@ -63,7 +74,7 @@ export function EasyPayDialog({
     }
   }, [method, paymentSettings.easyPayMethods]);
 
-  if (!mounted || !open) {
+  if (!mounted || !open || (isCodingPlan && !matchedCodingPlan)) {
     return null;
   }
 
@@ -88,6 +99,7 @@ export function EasyPayDialog({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           amountCents: isCodingPlan ? undefined : amountCents,
+          codingPlanId: isCodingPlan ? codingPlan.id : undefined,
           method,
           productType: isCodingPlan ? "coding_plan" : "ai_points"
         })
@@ -118,7 +130,7 @@ export function EasyPayDialog({
       return;
     }
 
-    window.location.href = payload.paymentUrl;
+    window.location.assign(payload.paymentUrl);
   }
 
   return createPortal(

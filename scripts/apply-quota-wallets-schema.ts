@@ -14,6 +14,8 @@ const statements = [
   'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "quotaNextResetAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP',
   'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "quotaSystemMigratedAt" TIMESTAMP(3)',
   'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "codingPlanMonthlyCostLimitCents" INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "codingPlanId" TEXT NOT NULL DEFAULT \'\'',
+  'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "codingPlanName" TEXT NOT NULL DEFAULT \'\'',
   'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "codingPlanExpiresAt" TIMESTAMP(3)',
   'ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "codingPlanPersonalApiEnabled" BOOLEAN NOT NULL DEFAULT FALSE',
   'ALTER TABLE "User" ALTER COLUMN "monthlyCostLimitCents" SET DEFAULT 0',
@@ -28,7 +30,8 @@ const statements = [
   'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanDescription" TEXT NOT NULL DEFAULT \'面向编码任务的月度额度套餐\'',
   'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanPriceCents" INTEGER NOT NULL DEFAULT 1990',
   'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanMonthlyCostLimitCents" INTEGER NOT NULL DEFAULT 1000',
-  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanPersonalApiEnabled" BOOLEAN NOT NULL DEFAULT TRUE'
+  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanPersonalApiEnabled" BOOLEAN NOT NULL DEFAULT TRUE',
+  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlansJson" TEXT NOT NULL DEFAULT \'\''
 ];
 
 async function main() {

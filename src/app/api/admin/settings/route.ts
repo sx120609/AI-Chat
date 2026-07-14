@@ -5,7 +5,12 @@ import {
   normalizeRegistrationCostLimitCents
 } from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
-import { normalizeCodingPlanConfig } from "@/lib/coding-plan";
+import {
+  normalizeCodingPlanConfig,
+  normalizeCodingPlans,
+  parseCodingPlans,
+  type CodingPlanConfig
+} from "@/lib/coding-plan";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
 import {
   DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
@@ -107,6 +112,7 @@ type SettingsBody = {
   codingPlanPriceCents?: number;
   codingPlanMonthlyCostLimitCents?: number;
   codingPlanPersonalApiEnabled?: boolean;
+  codingPlans?: Array<Partial<CodingPlanConfig>>;
 };
 
 function maskKey(key: string | null | undefined) {
@@ -173,6 +179,7 @@ function serializeSettings(settings: {
   codingPlanPriceCents: number;
   codingPlanMonthlyCostLimitCents: number;
   codingPlanPersonalApiEnabled: boolean;
+  codingPlansJson: string;
   updatedAt: Date;
 }) {
   const chatModelMap = parseModelMap(settings.chatModelMapJson);
@@ -183,7 +190,7 @@ function serializeSettings(settings: {
   const easyPayBalanceCentsPerYuan = normalizeEasyPayBalanceCentsPerYuan(
     settings.easyPayBalanceCentsPerYuan
   );
-  const codingPlan = normalizeCodingPlanConfig({
+  const legacyCodingPlan = normalizeCodingPlanConfig({
     description: settings.codingPlanDescription,
     enabled: settings.codingPlanEnabled,
     monthlyCostLimitCents: settings.codingPlanMonthlyCostLimitCents,
@@ -191,6 +198,7 @@ function serializeSettings(settings: {
     personalApiEnabled: settings.codingPlanPersonalApiEnabled,
     priceCents: settings.codingPlanPriceCents
   });
+  const codingPlans = parseCodingPlans(settings.codingPlansJson, [legacyCodingPlan]);
 
   return {
     siteName: normalizeSiteName(settings.siteName),
@@ -252,12 +260,7 @@ function serializeSettings(settings: {
     easyPayApiBaseUrl: settings.easyPayApiBaseUrl || "",
     easyPayAlipayChannelId: settings.easyPayAlipayChannelId || "",
     easyPayWxpayChannelId: settings.easyPayWxpayChannelId || "",
-    codingPlanEnabled: codingPlan.enabled,
-    codingPlanName: codingPlan.name,
-    codingPlanDescription: codingPlan.description,
-    codingPlanPriceCents: codingPlan.priceCents,
-    codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
-    codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled,
+    codingPlans,
     easyPayNotifyPath: EASYPAY_NOTIFY_PATH,
     easyPayReturnPath: EASYPAY_RETURN_PATH,
     updatedAt: settings.updatedAt.toISOString()
@@ -457,7 +460,8 @@ export async function GET(request: NextRequest) {
       codingPlanPriceCents: Number(process.env.CODING_PLAN_PRICE_CENTS) || 1990,
       codingPlanMonthlyCostLimitCents:
         Number(process.env.CODING_PLAN_MONTHLY_COST_LIMIT_CENTS) || 1000,
-      codingPlanPersonalApiEnabled: process.env.CODING_PLAN_PERSONAL_API_ENABLED !== "false"
+      codingPlanPersonalApiEnabled: process.env.CODING_PLAN_PERSONAL_API_ENABLED !== "false",
+      codingPlansJson: process.env.CODING_PLANS_JSON || ""
     }
   });
 
@@ -553,14 +557,19 @@ export async function PATCH(request: NextRequest) {
   }
 
   let easyPaySettings: ReturnType<typeof normalizeEasyPaySettings>;
-  const codingPlan = normalizeCodingPlanConfig({
-    description: body.codingPlanDescription,
-    enabled: body.codingPlanEnabled,
-    monthlyCostLimitCents: body.codingPlanMonthlyCostLimitCents,
-    name: body.codingPlanName,
-    personalApiEnabled: body.codingPlanPersonalApiEnabled,
-    priceCents: body.codingPlanPriceCents
+  const legacyCodingPlan = normalizeCodingPlanConfig({
+    description: existingSettings?.codingPlanDescription ?? body.codingPlanDescription,
+    enabled: existingSettings?.codingPlanEnabled ?? body.codingPlanEnabled,
+    monthlyCostLimitCents:
+      existingSettings?.codingPlanMonthlyCostLimitCents ?? body.codingPlanMonthlyCostLimitCents,
+    name: existingSettings?.codingPlanName ?? body.codingPlanName,
+    personalApiEnabled:
+      existingSettings?.codingPlanPersonalApiEnabled ?? body.codingPlanPersonalApiEnabled,
+    priceCents: existingSettings?.codingPlanPriceCents ?? body.codingPlanPriceCents
   });
+  const codingPlans = Array.isArray(body.codingPlans)
+    ? normalizeCodingPlans(body.codingPlans, [legacyCodingPlan])
+    : parseCodingPlans(existingSettings?.codingPlansJson, [legacyCodingPlan]);
 
   try {
     easyPaySettings = normalizeEasyPaySettings({
@@ -638,6 +647,7 @@ export async function PATCH(request: NextRequest) {
     codingPlanPriceCents: number;
     codingPlanMonthlyCostLimitCents: number;
     codingPlanPersonalApiEnabled: boolean;
+    codingPlansJson: string;
   } = {
     siteName: normalizeSiteName(body.siteName),
     siteUrl,
@@ -686,12 +696,13 @@ export async function PATCH(request: NextRequest) {
     easyPayApiBaseUrl: easyPaySettings.easyPayApiBaseUrl,
     easyPayAlipayChannelId: easyPaySettings.easyPayAlipayChannelId,
     easyPayWxpayChannelId: easyPaySettings.easyPayWxpayChannelId,
-    codingPlanEnabled: codingPlan.enabled,
-    codingPlanName: codingPlan.name,
-    codingPlanDescription: codingPlan.description,
-    codingPlanPriceCents: codingPlan.priceCents,
-    codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
-    codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled
+    codingPlanEnabled: legacyCodingPlan.enabled,
+    codingPlanName: legacyCodingPlan.name,
+    codingPlanDescription: legacyCodingPlan.description,
+    codingPlanPriceCents: legacyCodingPlan.priceCents,
+    codingPlanMonthlyCostLimitCents: legacyCodingPlan.monthlyCostLimitCents,
+    codingPlanPersonalApiEnabled: legacyCodingPlan.personalApiEnabled,
+    codingPlansJson: JSON.stringify(codingPlans)
   };
   data.enabledChatModelsJson = JSON.stringify(
     normalizeEnabledModelIds(

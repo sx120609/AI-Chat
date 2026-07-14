@@ -488,84 +488,181 @@ export function PaymentTab({
       </div>
 
       <section className="ios-panel overflow-hidden" data-testid="admin-coding-plan-settings">
-        <div className="flex items-start gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
-          <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
-            <Code2 className="size-4" />
+        <div className="flex items-start justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4">
+          <div className="flex items-start gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
+              <Code2 className="size-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">Coding Plans</h2>
+              <p className="mt-1 text-xs ios-muted">
+                可配置多个固定售价的月度编码套餐；每次支付开通或顺延一个自然月，不自动续费。
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-semibold">Coding Plan</h2>
-            <p className="mt-1 text-xs ios-muted">
-              固定售价的月度编码套餐。每次支付开通或顺延一个自然月，不会自动续费。
-            </p>
-          </div>
+          <button
+            className="ios-button-secondary app-action-button flex h-9 shrink-0 items-center justify-center gap-1.5 px-3 text-sm"
+            disabled={settingsForm.codingPlans.length >= 12}
+            onClick={() =>
+              setSettingsForm((current) => ({
+                ...current,
+                codingPlans: [
+                  ...current.codingPlans,
+                  {
+                    description: "面向编码任务的月度额度套餐",
+                    enabled: false,
+                    id: `coding-plan-${Date.now().toString(36)}`,
+                    monthlyCostLimitCents: 1000,
+                    name: "新 Coding Plan",
+                    personalApiEnabled: true,
+                    priceCents: 1990
+                  }
+                ]
+              }))
+            }
+            type="button"
+          >
+            <Plus className="size-4" />
+            新增套餐
+          </button>
         </div>
-        <div className="grid gap-3 p-4 lg:grid-cols-6">
-          <label className="admin-check-row lg:col-span-2">
-            <input
-              checked={settingsForm.codingPlanEnabled}
-              className="size-4 accent-[color:var(--claude-accent)]"
-              onChange={(event) => handleUpdate({ codingPlanEnabled: event.target.checked })}
-              type="checkbox"
-            />
-            对用户开放购买
-          </label>
-          <label className="admin-check-row lg:col-span-2">
-            <input
-              checked={settingsForm.codingPlanPersonalApiEnabled}
-              className="size-4 accent-[color:var(--claude-accent)]"
-              onChange={(event) =>
-                handleUpdate({ codingPlanPersonalApiEnabled: event.target.checked })
-              }
-              type="checkbox"
-            />
-            套餐期内开放个人 API Key
-          </label>
-          <p className="self-center text-xs ios-muted lg:col-span-2">
-            关闭后，套餐仍提供月额度，但不额外开放 API Key。
-          </p>
-          <label className="block lg:col-span-2">
-            <span className="mb-1 block text-xs font-medium ios-muted">套餐名称</span>
-            <input
-              className="ios-input w-full"
-              maxLength={80}
-              onChange={(event) => handleUpdate({ codingPlanName: event.target.value })}
-              value={settingsForm.codingPlanName}
-            />
-          </label>
-          <label className="block lg:col-span-2">
-            <span className="mb-1 block text-xs font-medium ios-muted">售价（人民币）</span>
-            <CentsDraftInput
-              className="ios-input w-full"
-              minCents={100}
-              onChange={(codingPlanPriceCents) => handleUpdate({ codingPlanPriceCents })}
-              value={settingsForm.codingPlanPriceCents}
-            />
-          </label>
-          <label className="block lg:col-span-2">
-            <span className="mb-1 block text-xs font-medium ios-muted">每月额度（美元）</span>
-            <CentsDraftInput
-              className="ios-input w-full"
-              minCents={1}
-              onChange={(codingPlanMonthlyCostLimitCents) =>
-                handleUpdate({ codingPlanMonthlyCostLimitCents })
-              }
-              value={settingsForm.codingPlanMonthlyCostLimitCents}
-            />
-          </label>
-          <label className="block lg:col-span-6">
-            <span className="mb-1 block text-xs font-medium ios-muted">用户说明</span>
-            <textarea
-              className="ios-input min-h-20 w-full resize-y"
-              maxLength={240}
-              onChange={(event) => handleUpdate({ codingPlanDescription: event.target.value })}
-              value={settingsForm.codingPlanDescription}
-            />
-          </label>
-          <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2 text-sm text-stone-700 lg:col-span-6">
-            当前出售：{settingsForm.codingPlanName || "Coding Plan"} · ¥
-            {(settingsForm.codingPlanPriceCents / 100).toFixed(2)} / 月 · 月额度 {formatCents(settingsForm.codingPlanMonthlyCostLimitCents)}
-            {settingsForm.codingPlanPersonalApiEnabled ? " · 含个人 API Key" : ""}
-          </div>
+        <div className="grid gap-3 p-4">
+          {settingsForm.codingPlans.map((plan, index) => (
+            <div
+              className="grid gap-3 rounded-xl border border-[color:var(--ios-separator)] bg-white/55 p-3 lg:grid-cols-6"
+              key={plan.id}
+            >
+              <div className="flex items-center justify-between gap-3 lg:col-span-6">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-stone-950">{plan.name || "未命名套餐"}</p>
+                  <p className="mt-0.5 text-xs ios-muted">套餐 ID：{plan.id}</p>
+                </div>
+                <button
+                  className="ios-icon-button app-action-button shrink-0 text-red-600 hover:bg-red-50"
+                  onClick={() =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.filter((_, planIndex) => planIndex !== index)
+                    }))
+                  }
+                  title="删除套餐"
+                  type="button"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+              <label className="admin-check-row lg:col-span-2">
+                <input
+                  checked={plan.enabled}
+                  className="size-4 accent-[color:var(--claude-accent)]"
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, enabled: event.target.checked } : item
+                      )
+                    }))
+                  }
+                  type="checkbox"
+                />
+                对用户开放购买
+              </label>
+              <label className="admin-check-row lg:col-span-2">
+                <input
+                  checked={plan.personalApiEnabled}
+                  className="size-4 accent-[color:var(--claude-accent)]"
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index
+                          ? { ...item, personalApiEnabled: event.target.checked }
+                          : item
+                      )
+                    }))
+                  }
+                  type="checkbox"
+                />
+                套餐期内开放个人 API Key
+              </label>
+              <p className="self-center text-xs ios-muted lg:col-span-2">
+                关闭 API 权益后，套餐仍提供月额度。
+              </p>
+              <label className="block lg:col-span-2">
+                <span className="mb-1 block text-xs font-medium ios-muted">套餐名称</span>
+                <input
+                  className="ios-input w-full"
+                  maxLength={80}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, name: event.target.value } : item
+                      )
+                    }))
+                  }
+                  value={plan.name}
+                />
+              </label>
+              <label className="block lg:col-span-2">
+                <span className="mb-1 block text-xs font-medium ios-muted">售价（人民币）</span>
+                <CentsDraftInput
+                  className="ios-input w-full"
+                  minCents={100}
+                  onChange={(priceCents) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, priceCents } : item
+                      )
+                    }))
+                  }
+                  value={plan.priceCents}
+                />
+              </label>
+              <label className="block lg:col-span-2">
+                <span className="mb-1 block text-xs font-medium ios-muted">每月额度（美元）</span>
+                <CentsDraftInput
+                  className="ios-input w-full"
+                  minCents={1}
+                  onChange={(monthlyCostLimitCents) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, monthlyCostLimitCents } : item
+                      )
+                    }))
+                  }
+                  value={plan.monthlyCostLimitCents}
+                />
+              </label>
+              <label className="block lg:col-span-6">
+                <span className="mb-1 block text-xs font-medium ios-muted">用户说明</span>
+                <textarea
+                  className="ios-input min-h-20 w-full resize-y"
+                  maxLength={240}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, description: event.target.value } : item
+                      )
+                    }))
+                  }
+                  value={plan.description}
+                />
+              </label>
+              <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2 text-sm text-stone-700 lg:col-span-6">
+                {plan.enabled ? "上架" : "未上架"} · ¥{(plan.priceCents / 100).toFixed(2)} / 月 · 月额度 {formatCents(plan.monthlyCostLimitCents)}
+                {plan.personalApiEnabled ? " · 含个人 API Key" : ""}
+              </div>
+            </div>
+          ))}
+          {settingsForm.codingPlans.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-[color:var(--app-border)] bg-white/45 px-4 py-8 text-center text-sm ios-muted">
+              暂无 Coding Plan。点击“新增套餐”后再保存即可上架。
+            </div>
+          ) : null}
         </div>
       </section>
 

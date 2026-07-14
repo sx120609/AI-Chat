@@ -25,7 +25,9 @@ export type CurrentUser = {
   aiStylePrompt: string;
   aiPointsBalanceCents: number;
   codingPlanExpiresAt: Date | null;
+  codingPlanId: string;
   codingPlanMonthlyCostLimitCents: number;
+  codingPlanName: string;
   codingPlanPersonalApiEnabled: boolean;
   monthlyCostLimitCents: number;
   quotaNextResetAt: Date;
@@ -41,7 +43,9 @@ type CurrentUserRecord = {
   id: string;
   aiPointsBalanceCents?: number | null;
   codingPlanExpiresAt?: Date | null;
+  codingPlanId?: string | null;
   codingPlanMonthlyCostLimitCents?: number | null;
+  codingPlanName?: string | null;
   codingPlanPersonalApiEnabled?: boolean | null;
   monthlyCostLimitCents?: number | null;
   name: string;
@@ -70,7 +74,9 @@ function normalizeCurrentUserRecord(
     aiStylePrompt: user.aiStylePrompt || "",
     aiPointsBalanceCents: user.aiPointsBalanceCents ?? 0,
     codingPlanExpiresAt: user.codingPlanExpiresAt ?? null,
+    codingPlanId: user.codingPlanId ?? "",
     codingPlanMonthlyCostLimitCents: user.codingPlanMonthlyCostLimitCents ?? 0,
+    codingPlanName: user.codingPlanName ?? "",
     codingPlanPersonalApiEnabled: user.codingPlanPersonalApiEnabled ?? false,
     monthlyCostLimitCents: user.monthlyCostLimitCents ?? 0,
     quotaNextResetAt: user.quotaNextResetAt || new Date(),

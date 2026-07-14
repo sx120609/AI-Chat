@@ -159,7 +159,7 @@ export function EasyPayDialog({
 
   return createPortal(
     <div className="fixed inset-0 z-[90] grid place-items-center bg-stone-950/28 px-4 backdrop-blur-sm">
-      <section className="app-reveal w-full max-w-md overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-4 text-stone-950 shadow-[0_24px_90px_rgba(18,42,35,0.28)]">
+      <section className="app-reveal max-h-[calc(100vh-3rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-5 text-stone-950 shadow-[0_24px_90px_rgba(18,42,35,0.28)]">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
@@ -184,7 +184,7 @@ export function EasyPayDialog({
         <div className="grid gap-3">
           <div>
             <p className="mb-2 text-xs font-medium ios-muted">购买内容</p>
-            <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
+            <div className="grid max-h-80 gap-2 overflow-y-auto pr-1">
               <button
                 className={`app-action-button flex min-h-12 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
                   !isCodingPlan

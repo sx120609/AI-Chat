@@ -18,6 +18,16 @@ export async function settlePaidPaymentOrder(
   const codingPlan = parseCodingPlanOrderSnapshot(order.metadataJson);
 
   if (order.status === "PAID") {
+    await prisma.user.updateMany({
+      where: {
+        id: order.userId,
+        userGroup: { not: "VIP" }
+      },
+      data: {
+        userGroup: "VIP"
+      }
+    });
+
     return {
       balanceCents: codingPlan ? 0 : order.balanceCents > 0 ? order.balanceCents : order.amountCents,
       productType: paymentProductType(order.metadataJson),
@@ -60,6 +70,7 @@ export async function settlePaidPaymentOrder(
       await tx.user.update({
         where: { id: order.userId },
         data: {
+          userGroup: "VIP",
           codingPlanExpiresAt: expiresAt,
           codingPlanDailyCostLimitCents: codingPlan.dailyCostLimitCents,
           codingPlanId: codingPlan.id,
@@ -80,6 +91,7 @@ export async function settlePaidPaymentOrder(
       await tx.user.update({
         where: { id: order.userId },
         data: {
+          userGroup: "VIP",
           aiPointsBalanceCents: {
             increment: balanceCents
           }

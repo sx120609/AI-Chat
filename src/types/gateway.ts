@@ -147,6 +147,9 @@ export type UserApiKeyView = {
   apiKey?: string | null;
   canReveal: boolean;
   active: boolean;
+  usageCostLimitCents: number;
+  usageCostRemainingCents: number | null;
+  usageCostUsedCents: number;
   lastUsedAt?: string | null;
   createdAt: string;
 };

@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server";
-import { authenticateUserApiKey } from "@/lib/user-api-keys";
+import {
+  assertUserApiKeyUsageAvailable,
+  authenticateUserApiKey,
+  UserApiKeyUsageLimitError
+} from "@/lib/user-api-keys";
 import { jsonError } from "@/lib/http";
 import {
   DEFAULT_IMAGE_SIZE,
@@ -932,9 +936,14 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 
   try {
     await assertQuotaAvailable(authenticated.user.id, expectedCostCents);
+    await assertUserApiKeyUsageAvailable(authenticated.apiKey, expectedCostCents);
   } catch (error) {
     if (error instanceof QuotaError) {
       return jsonError(error.message, error.status, { usage: error.summary });
+    }
+
+    if (error instanceof UserApiKeyUsageLimitError) {
+      return jsonError(error.message, error.status, { apiKeyUsage: error.summary });
     }
 
     throw error;
@@ -1157,9 +1166,14 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
   try {
     await assertQuotaAvailable(authenticated.user.id, expectedCostCents);
+    await assertUserApiKeyUsageAvailable(authenticated.apiKey, expectedCostCents);
   } catch (error) {
     if (error instanceof QuotaError) {
       return jsonError(error.message, error.status, { usage: error.summary });
+    }
+
+    if (error instanceof UserApiKeyUsageLimitError) {
+      return jsonError(error.message, error.status, { apiKeyUsage: error.summary });
     }
 
     throw error;
@@ -1371,9 +1385,14 @@ export async function handleUserImageGenerationsRequest(request: NextRequest) {
 
   try {
     await assertQuotaAvailable(authenticated.user.id, estimatedCostCents);
+    await assertUserApiKeyUsageAvailable(authenticated.apiKey, estimatedCostCents);
   } catch (error) {
     if (error instanceof QuotaError) {
       return jsonError(error.message, error.status, { usage: error.summary });
+    }
+
+    if (error instanceof UserApiKeyUsageLimitError) {
+      return jsonError(error.message, error.status, { apiKeyUsage: error.summary });
     }
 
     throw error;

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
-import { serializeUserApiKey } from "@/lib/user-api-keys";
+import { getUserApiKeyUsageSummary, serializeUserApiKey } from "@/lib/user-api-keys";
 
 export const runtime = "nodejs";
 
@@ -13,7 +13,16 @@ type RouteContext = {
 type UpdateApiKeyBody = {
   active?: boolean;
   name?: string;
+  usageCostLimitCents?: number;
 };
+
+function normalizeUsageCostLimit(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number(value);
+
+  return Number.isFinite(parsed)
+    ? Math.min(100_000_000, Math.max(0, Math.round(parsed)))
+    : 0;
+}
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const currentUser = await getUserFromRequest(request);
@@ -36,7 +45,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return jsonError(readError instanceof Error ? readError.message : "更新 API Key 失败。", 400);
   }
 
-  const data: { active?: boolean; name?: string } = {};
+  const data: { active?: boolean; name?: string; usageCostLimitCents?: number } = {};
 
   if (typeof body.active === "boolean") {
     data.active = body.active;
@@ -44,6 +53,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   if (typeof body.name === "string" && body.name.trim()) {
     data.name = body.name.trim();
+  }
+
+  if (body.usageCostLimitCents !== undefined) {
+    data.usageCostLimitCents = normalizeUsageCostLimit(body.usageCostLimitCents);
   }
 
   if (Object.keys(data).length === 0) {
@@ -63,7 +76,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     data
   });
 
-  return NextResponse.json({ key: serializeUserApiKey(key) });
+  return NextResponse.json({
+    key: serializeUserApiKey(key, await getUserApiKeyUsageSummary(key))
+  });
 }
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {

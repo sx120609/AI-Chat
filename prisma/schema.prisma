@@ -107,6 +107,7 @@ model UserApiKey {
   keyEncrypted String?
   keyPrefix   String
   active      Boolean   @default(true)
+  usageCostLimitCents Int @default(0)
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

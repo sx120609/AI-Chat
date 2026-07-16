@@ -76,6 +76,67 @@ export function generateUserApiKey() {
   return `${USER_API_KEY_PREFIX}${randomBytes(24).toString("base64url")}`;
 }
 
+type UserApiKeyUsageInput = {
+  keyPrefix: string;
+  usageCostLimitCents: number;
+  userId: string;
+};
+
+export type UserApiKeyUsageSummary = {
+  limitCents: number;
+  remainingCents: number | null;
+  usedCents: number;
+};
+
+export class UserApiKeyUsageLimitError extends Error {
+  status = 429;
+
+  constructor(message: string, public summary: UserApiKeyUsageSummary) {
+    super(message);
+  }
+}
+
+function userApiUsagePrefix(keyPrefix: string) {
+  return `user_api:${keyPrefix}:`;
+}
+
+export async function getUserApiKeyUsageSummary(
+  key: UserApiKeyUsageInput
+): Promise<UserApiKeyUsageSummary> {
+  const usage = await prisma.usageRecord.aggregate({
+    where: {
+      userId: key.userId,
+      usageSource: {
+        startsWith: userApiUsagePrefix(key.keyPrefix)
+      }
+    },
+    _sum: {
+      estimatedCostCents: true
+    }
+  });
+  const usedCents = Math.max(0, usage._sum.estimatedCostCents ?? 0);
+  const limitCents = Math.max(0, Math.round(key.usageCostLimitCents ?? 0));
+
+  return {
+    limitCents,
+    remainingCents: limitCents ? Math.max(0, limitCents - usedCents) : null,
+    usedCents
+  };
+}
+
+export async function assertUserApiKeyUsageAvailable(
+  key: UserApiKeyUsageInput,
+  expectedCostCents: number
+) {
+  const summary = await getUserApiKeyUsageSummary(key);
+
+  if (summary.limitCents && expectedCostCents > (summary.remainingCents ?? 0)) {
+    throw new UserApiKeyUsageLimitError("该 API Key 的累计用量已达到上限。", summary);
+  }
+
+  return summary;
+}
+
 export function serializeUserApiKey(key: {
   id: string;
   name: string;
@@ -84,8 +145,11 @@ export function serializeUserApiKey(key: {
   active: boolean;
   lastUsedAt: Date | null;
   createdAt: Date;
-}) {
+  usageCostLimitCents: number;
+}, usage?: UserApiKeyUsageSummary) {
   const apiKey = decryptApiKey(key.keyEncrypted);
+  const limitCents = Math.max(0, key.usageCostLimitCents);
+  const usedCents = usage?.usedCents ?? 0;
 
   return {
     id: key.id,
@@ -94,17 +158,21 @@ export function serializeUserApiKey(key: {
     apiKey,
     canReveal: Boolean(apiKey),
     active: key.active,
+    usageCostLimitCents: limitCents,
+    usageCostRemainingCents: limitCents ? Math.max(0, limitCents - usedCents) : null,
+    usageCostUsedCents: usedCents,
     lastUsedAt: key.lastUsedAt?.toISOString() ?? null,
     createdAt: key.createdAt.toISOString()
   };
 }
 
-export async function createUserApiKey(userId: string, name: string) {
+export async function createUserApiKey(userId: string, name: string, usageCostLimitCents = 0) {
   const rawKey = generateUserApiKey();
   const key = await prisma.userApiKey.create({
     data: {
       userId,
       name: name.trim() || "个人 API Key",
+      usageCostLimitCents: Math.min(100_000_000, Math.max(0, Math.round(usageCostLimitCents))),
       keyHash: hashApiKey(rawKey),
       keyEncrypted: encryptApiKey(rawKey),
       keyPrefix: rawKey.slice(0, 18)

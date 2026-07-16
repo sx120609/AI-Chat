@@ -26,13 +26,15 @@ type ApiTabProps = {
   siteSettings: SiteSettingsView;
   canCreateApiKey: boolean;
   apiKeyName: string;
+  apiKeyUsageCostLimitCents: number;
   setApiKeyName: (name: string) => void;
+  setApiKeyUsageCostLimitCents: (value: number) => void;
   onCreateApiKey: (event: FormEvent<HTMLFormElement>) => void;
   loadingKeys: boolean;
   apiKeys: UserApiKeyView[];
   onUpdateApiKey: (
     key: UserApiKeyView,
-    patch: Partial<Pick<UserApiKeyView, "active" | "name">>
+    patch: Partial<Pick<UserApiKeyView, "active" | "name" | "usageCostLimitCents">>
   ) => void;
   onCopyApiKey: (key: UserApiKeyView) => void;
   onSetDeleteKeyId: (id: string | null) => void;
@@ -736,7 +738,9 @@ export function ApiTab({
   siteSettings,
   canCreateApiKey,
   apiKeyName,
+  apiKeyUsageCostLimitCents,
   setApiKeyName,
+  setApiKeyUsageCostLimitCents,
   onCreateApiKey,
   loadingKeys,
   apiKeys,
@@ -878,7 +882,7 @@ export function ApiTab({
             </div>
           </div>
 
-          <form className="grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={onCreateApiKey}>
+          <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto]" onSubmit={onCreateApiKey}>
             <input
               className="ios-input"
               disabled={!canCreateApiKey}
@@ -886,6 +890,25 @@ export function ApiTab({
               placeholder="Key 名称"
               value={apiKeyName}
             />
+            <label className="relative block">
+              <span className="sr-only">累计额度上限（美元）</span>
+              <input
+                className="ios-input w-full"
+                disabled={!canCreateApiKey}
+                min={0}
+                onChange={(event) => {
+                  const yuan = Number(event.target.value);
+
+                  if (Number.isFinite(yuan)) {
+                    setApiKeyUsageCostLimitCents(Math.max(0, Math.round(yuan * 100)));
+                  }
+                }}
+                placeholder="累计上限（0 不限）"
+                step={0.01}
+                type="number"
+                value={apiKeyUsageCostLimitCents / 100}
+              />
+            </label>
             <button
               className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-4 disabled:opacity-60"
               disabled={!canCreateApiKey || creatingKey}
@@ -930,6 +953,38 @@ export function ApiTab({
                       {key.keyPrefix}... · 创建 {new Date(key.createdAt).toLocaleString()}
                       {key.lastUsedAt ? ` · 最近使用 ${new Date(key.lastUsedAt).toLocaleString()}` : ""}
                     </p>
+                    <div className="mt-2 grid gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/60 p-2 sm:grid-cols-[minmax(0,11rem)_1fr] sm:items-end">
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] font-medium ios-muted">累计 API 额度上限（美元，0 为不限）</span>
+                        <input
+                          className="ios-input h-8 w-full text-sm"
+                          defaultValue={key.usageCostLimitCents / 100}
+                          min={0}
+                          onBlur={(event) => {
+                            const yuan = Number(event.target.value);
+
+                            if (!Number.isFinite(yuan)) {
+                              event.target.value = String(key.usageCostLimitCents / 100);
+                              return;
+                            }
+
+                            const usageCostLimitCents = Math.max(0, Math.round(yuan * 100));
+
+                            if (usageCostLimitCents !== key.usageCostLimitCents) {
+                              onUpdateApiKey(key, { usageCostLimitCents });
+                            }
+                          }}
+                          step={0.01}
+                          type="number"
+                        />
+                      </label>
+                      <p className="pb-1 text-xs ios-muted">
+                        累计已用 {formatCents(key.usageCostUsedCents)}
+                        {key.usageCostLimitCents > 0
+                          ? ` / ${formatCents(key.usageCostLimitCents)}，剩余 ${formatCents(key.usageCostRemainingCents ?? 0)}`
+                          : " · 不限"}
+                      </p>
+                    </div>
                     <div className="mt-2 flex items-center gap-2 rounded-lg border border-[color:var(--ios-separator)] bg-white/80 px-2 py-1.5">
                       <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-xs leading-7">
                         {key.apiKey || "旧 Key 无法查看明文，请重新创建后复制"}

@@ -95,6 +95,7 @@ export function ProfileCenter({
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [apiKeyName, setApiKeyName] = useState("个人 API Key");
+  const [apiKeyUsageCostLimitCents, setApiKeyUsageCostLimitCents] = useState(0);
   const [apiKeys, setApiKeys] = useState<UserApiKeyView[]>([]);
   const [memories, setMemories] = useState<UserMemoryView[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<ArchivedConversationView[]>([]);
@@ -663,7 +664,10 @@ export function ProfileCenter({
     const response = await fetch("/api/profile/api-keys", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: apiKeyName })
+      body: JSON.stringify({
+        name: apiKeyName,
+        usageCostLimitCents: apiKeyUsageCostLimitCents
+      })
     });
     const payload = (await response.json().catch(() => null)) as
       | { apiKey?: string; error?: string; key?: UserApiKeyView }
@@ -673,13 +677,17 @@ export function ProfileCenter({
       setError(payload?.error || "创建 API Key 失败。");
     } else {
       setApiKeys((current) => [payload.key as UserApiKeyView, ...current]);
+      setApiKeyUsageCostLimitCents(0);
       setNotice("API Key 已创建。");
     }
 
     setCreatingKey(false);
   }
 
-  async function updateApiKey(key: UserApiKeyView, patch: Partial<Pick<UserApiKeyView, "active" | "name">>) {
+  async function updateApiKey(
+    key: UserApiKeyView,
+    patch: Partial<Pick<UserApiKeyView, "active" | "name" | "usageCostLimitCents">>
+  ) {
     setSavingKeyId(key.id);
     setNotice("");
     setError("");
@@ -1337,7 +1345,9 @@ export function ProfileCenter({
                 siteSettings={siteSettings}
                 canCreateApiKey={canCreateApiKey}
                 apiKeyName={apiKeyName}
+                apiKeyUsageCostLimitCents={apiKeyUsageCostLimitCents}
                 setApiKeyName={setApiKeyName}
+                setApiKeyUsageCostLimitCents={setApiKeyUsageCostLimitCents}
                 onCreateApiKey={createApiKey}
                 loadingKeys={loadingKeys}
                 apiKeys={apiKeys}

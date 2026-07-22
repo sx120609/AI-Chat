@@ -158,8 +158,8 @@ export function EasyPayDialog({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] grid place-items-center bg-stone-950/28 px-4 backdrop-blur-sm">
-      <section className="app-reveal max-h-[calc(100vh-3rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-5 text-stone-950 shadow-[0_24px_90px_rgba(18,42,35,0.28)]">
+    <div className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-stone-950/28 px-4 py-[calc(1rem+var(--app-safe-area-top,0px))] backdrop-blur-sm sm:p-6">
+      <section className="app-reveal min-w-0 max-h-[calc(100dvh-2rem)] w-full max-w-[min(36rem,calc(100vw-2rem))] overflow-x-hidden overflow-y-auto rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-4 text-stone-950 shadow-[0_24px_90px_rgba(18,42,35,0.28)] sm:p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="grid size-9 place-items-center rounded-lg bg-stone-100 text-[color:var(--claude-accent)]">
@@ -181,12 +181,12 @@ export function EasyPayDialog({
             <X className="size-4" />
           </button>
         </div>
-        <div className="grid gap-3">
+        <div className="grid min-w-0 gap-3">
           <div>
             <p className="mb-2 text-xs font-medium ios-muted">购买内容</p>
-            <div className="grid max-h-80 gap-2 overflow-y-auto pr-1">
+            <div className="grid min-w-0 max-h-80 gap-2 overflow-y-auto pr-1">
               <button
-                className={`app-action-button flex min-h-12 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
+                className={`app-action-button flex min-h-12 min-w-0 w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
                   !isCodingPlan
                     ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
                     : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
@@ -209,7 +209,7 @@ export function EasyPayDialog({
               </button>
               {availableCodingPlans.map((plan) => (
                 <button
-                  className={`app-action-button flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
+                  className={`app-action-button flex min-h-14 min-w-0 w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left ${
                     isCodingPlan && plan.id === codingPlan.id
                       ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
                       : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
@@ -272,10 +272,10 @@ export function EasyPayDialog({
             <>
               <div>
                 <p className="mb-2 text-xs font-medium ios-muted">付款金额</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
                   {paymentTiers.map((tier) => (
                     <button
-                      className={`app-action-button flex min-h-12 flex-col items-center justify-center rounded-lg border text-sm font-semibold ${
+                      className={`app-action-button flex min-h-12 min-w-0 flex-col items-center justify-center rounded-lg border px-2 text-sm font-semibold ${
                         amountCents === tier.amountCents
                           ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
                           : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
@@ -295,7 +295,7 @@ export function EasyPayDialog({
               <label className="block">
                 <span className="mb-1 block text-xs font-medium ios-muted">自定义付款金额</span>
                 <input
-                  className="ios-input w-full"
+                  className="ios-input min-w-0 w-full"
                   min={1}
                   onChange={(event) => {
                     const value = Number(event.target.value);
@@ -309,14 +309,14 @@ export function EasyPayDialog({
                   value={amountCents / 100}
                 />
               </label>
-              <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-2 text-sm text-stone-700">
+              <div className="break-words rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-2 text-sm text-stone-700">
                 支付 {formatPaymentYuan(amountCents)}，到账 {formatCents(balanceCents)} AI 点数
               </div>
             </>
           )}
           <div>
             <p className="mb-2 text-xs font-medium ios-muted">支付方式</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(8rem,1fr))] gap-2">
               {paymentSettings.easyPayMethods.map((item) => (
                 <button
                   className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${

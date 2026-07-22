@@ -429,7 +429,7 @@ export function Header({
         className={`mx-auto max-w-5xl ${desktopSidebarOpen ? "" : "lg:pl-10"}`}
         ref={headerControlsRef}
       >
-        <div className="grid grid-cols-[2.5rem_auto_minmax(0,1fr)_2.5rem] items-center gap-3 lg:flex lg:items-center lg:justify-between">
+        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 lg:flex lg:items-center lg:justify-between">
           <button
             aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
             className={`${chatHeaderIconButtonClass} lg:hidden`}
@@ -439,17 +439,6 @@ export function Header({
           >
             <Menu className="size-5" />
           </button>
-
-          {activeModel ? (
-            <div className="min-w-[5.35rem] justify-self-start lg:hidden">
-              <ContextBadge
-                compact
-                contextStats={lastContextStats}
-                model={activeModel}
-                contextWindowTokens={activeModel.contextWindowTokens}
-              />
-            </div>
-          ) : null}
 
           <div className="hidden min-w-0 flex-1 lg:block">
             <div className="flex min-w-0 items-center gap-1.5">

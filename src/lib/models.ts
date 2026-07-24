@@ -4,6 +4,11 @@ export type ModelSource = "default" | "upstream";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export type ReasoningParamMode = "disabled" | "chat" | "responses";
 
+export type CodexReasoningLevel = {
+  description: string;
+  effort: ReasoningEffort;
+};
+
 export type ChatModelConfig = {
   id: ChatModelId;
   label: string;
@@ -20,7 +25,7 @@ export type ChatModelConfig = {
 };
 
 type ReasoningModelLike =
-  | Pick<ChatModelConfig, "id" | "label" | "upstreamId">
+  | Pick<ChatModelConfig, "id" | "label" | "upstreamId" | "supportsReasoning">
   | string
   | null
   | undefined;
@@ -637,6 +642,40 @@ export function supportsMaxReasoning(model: ReasoningModelLike) {
       : `${model?.id || ""} ${model?.label || ""} ${model?.upstreamId || ""}`;
 
   return signature.toLowerCase().includes("gpt-5.6");
+}
+
+export function getCodexReasoningLevels(model: ReasoningModelLike): CodexReasoningLevel[] {
+  if (typeof model !== "string" && !model?.supportsReasoning) {
+    return [];
+  }
+
+  const levels: CodexReasoningLevel[] = [
+    { effort: "low", description: "Fast responses with lighter reasoning" },
+    { effort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+    { effort: "high", description: "Greater reasoning depth for complex problems" },
+    { effort: "xhigh", description: "Extra high reasoning depth for complex problems" }
+  ];
+
+  if (supportsMaxReasoning(model)) {
+    levels.push({ effort: "max", description: "Maximum reasoning depth for the hardest problems" });
+  }
+
+  return levels;
+}
+
+export function getCodexDefaultReasoningLevel(model: ReasoningModelLike): ReasoningEffort | null {
+  const levels = getCodexReasoningLevels(model);
+
+  if (levels.length === 0) {
+    return null;
+  }
+
+  const signature =
+    typeof model === "string"
+      ? model
+      : `${model?.id || ""} ${model?.label || ""} ${model?.upstreamId || ""}`;
+
+  return signature.toLowerCase().includes("terra") ? "medium" : "low";
 }
 
 export function normalizeReasoningEffortForModel(value: unknown, model: ReasoningModelLike) {

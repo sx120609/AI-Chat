@@ -9,6 +9,8 @@ import {
   DEFAULT_IMAGE_SIZE,
   DEFAULT_IMAGE_UPSTREAM_MODEL,
   estimateChatCostForModel,
+  getCodexDefaultReasoningLevel,
+  getCodexReasoningLevels,
   estimateImageCostCents,
   getEnabledApiModels,
   IMAGE_MODEL,
@@ -739,16 +741,20 @@ function chatCompletionResponse({
 }
 
 function serializeModel(model: ChatModelConfig) {
+  const supportedReasoningLevels = getCodexReasoningLevels(model);
+
   return {
     // OpenAI-compatible clients use the public model id to select local model
     // metadata. Expose the real upstream slug so clients such as Codex can
     // recognize GPT-5.6 and enable its shell/apply-patch tool protocol.
     id: model.upstreamId || model.id,
+    slug: model.upstreamId || model.id,
     object: "model",
     created: 0,
     owned_by: "team-ai-gateway",
     gateway_id: model.id,
     label: model.label,
+    display_name: model.label,
     upstream_id: model.upstreamId,
     context_window_tokens: model.contextWindowTokens,
     max_context_window_tokens: model.maxContextWindowTokens,
@@ -756,7 +762,11 @@ function serializeModel(model: ChatModelConfig) {
     input_cents_per_million_tokens: model.inputCentsPerMillionTokens,
     cached_input_cents_per_million_tokens: model.cachedInputCentsPerMillionTokens,
     output_cents_per_million_tokens: model.outputCentsPerMillionTokens,
-    supports_reasoning: model.supportsReasoning
+    supports_reasoning: model.supportsReasoning,
+    default_reasoning_level: getCodexDefaultReasoningLevel(model),
+    supported_reasoning_levels: supportedReasoningLevels,
+    supported_in_api: true,
+    visibility: "list"
   };
 }
 

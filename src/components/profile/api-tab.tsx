@@ -9,13 +9,15 @@ import {
   Trash2,
   X,
   Download,
-  Terminal
+  Terminal,
+  RefreshCw
 } from "lucide-react";
 import { formatCents, formatNumber } from "@/lib/format";
 import { IMAGE_MODEL } from "@/lib/models";
 import type { ChatModelView, SiteSettingsView, UserApiKeyView } from "@/types/gateway";
 import { apiGuideTools, apiGuideOsOptions } from "./components";
 import type { ApiGuideTool, ApiGuideOs } from "./types";
+import { CCSwitchDialog } from "./cc-switch-dialog";
 
 const LOWIQ_API_KEY_ENV = "LOWIQ_API_KEY";
 
@@ -756,6 +758,8 @@ export function ApiTab({
   onCopyText,
   onDownloadTextFile
 }: ApiTabProps) {
+  const [ccSwitchKey, setCcSwitchKey] = useState<UserApiKeyView | null>(null);
+
   return (
     <>
       <section className="ios-panel motion-lift overflow-hidden">
@@ -1004,6 +1008,16 @@ export function ApiTab({
                     <button
                       className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
                       disabled={!key.apiKey}
+                      onClick={() => setCcSwitchKey(key)}
+                      title={key.apiKey ? "导入到 CC Switch" : "旧 Key 无法查看明文，请重新创建"}
+                      type="button"
+                    >
+                      <RefreshCw className="size-4" />
+                      CC Switch
+                    </button>
+                    <button
+                      className="ios-button-secondary app-action-button flex h-9 items-center gap-2 px-3 text-sm disabled:opacity-60"
+                      disabled={!key.apiKey}
                       onClick={() => onOpenApiGuide(key)}
                       type="button"
                     >
@@ -1046,6 +1060,14 @@ export function ApiTab({
         origin={origin}
         siteName={siteSettings.siteName}
       />
+      {ccSwitchKey ? (
+        <CCSwitchDialog
+          apiKey={ccSwitchKey}
+          models={apiModels}
+          onClose={() => setCcSwitchKey(null)}
+          serverAddress={siteSettings.siteUrl || origin}
+        />
+      ) : null}
     </>
   );
 }

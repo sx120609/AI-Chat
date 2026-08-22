@@ -250,7 +250,7 @@ https://your-site.example/api/v1/models
 https://your-site.example/v1/models
 ```
 
-调用时使用个人中心生成的 Key。个人中心会展示当前启用的模型 ID；这些模型也可通过 `/models` 查询。Key 会加密保存，创建后可在个人中心重复复制；旧版本创建的 Key 会在下次成功调用 API 后自动回填加密明文。个人 API 选项卡内置“如何使用”教程，可直接复制 Codex CLI、OpenCode、Claude Code Router / switch 类工具的配置，并可下载配置文件或复制一键安装/导入命令。
+调用时使用个人中心生成的 Key。个人中心会展示当前启用的模型 ID；这些模型也可通过 `/models` 查询。Key 会加密保存，创建后可在个人中心重复复制；旧版本创建的 Key 会在下次成功调用 API 后自动回填加密明文。个人 API 选项卡内置“如何使用”教程，可直接复制 Codex CLI、OpenCode、Claude Code Router / switch 类工具的配置，并可下载配置文件或复制一键安装/导入命令。每个可查看明文的 Key 还提供“CC Switch”入口，可选择 Claude、Codex 或 Gemini 及对应模型，通过 `ccswitch://v1/import` 深链一键导入 Provider；Codex 会自动使用站点的 `/v1` Responses API 地址。
 
 API 模型列表按上游模型 ID 去重，不暴露网页聊天里的上下文分档模型，例如不会把同一个 `gpt-5.5` 再单独列成 `GPT-5.5-1M`。API 请求本身不做网页聊天的上下文裁剪，按上游模型原生能力处理。
 

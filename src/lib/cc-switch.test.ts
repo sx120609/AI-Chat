@@ -25,6 +25,17 @@ test("builds a Codex provider deep link with the OpenAI v1 endpoint", () => {
   assert.equal(params.get("model"), "gpt-5.6-sol");
   assert.equal(params.get("homepage"), "https://chat.example.com");
   assert.equal(params.get("enabled"), "true");
+  assert.equal(params.get("configFormat"), "json");
+  assert.equal(params.get("icon"), "openai");
+
+  const importedConfig = JSON.parse(
+    Buffer.from(params.get("config") || "", "base64").toString("utf8")
+  ) as { auth: { OPENAI_API_KEY: string }; config: string };
+
+  assert.equal(importedConfig.auth.OPENAI_API_KEY, "sk-user-secret");
+  assert.match(importedConfig.config, /\[model_providers\.custom\]/);
+  assert.match(importedConfig.config, /requires_openai_auth = true/);
+  assert.match(importedConfig.config, /supports_standalone_web_search = true/);
 });
 
 test("includes Claude model aliases and omits empty values", () => {

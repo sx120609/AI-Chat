@@ -177,6 +177,13 @@ export function CCSwitchDialog({ apiKey, models: availableModels, onClose, serve
               </label>
             ))}
 
+            {app === "codex" ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                导入内容已包含 Codex 0.149.0+ 所需的 <code>requires_openai_auth = true</code>
+                和完整鉴权配置。导入或切换后请完全退出并重启 Codex。
+              </div>
+            ) : null}
+
             <div className="rounded-xl border border-[color:var(--ios-separator)] bg-white/55 p-3 text-xs text-stone-600">
               <div className="flex items-center gap-2 font-semibold text-stone-800">
                 <KeyRound className="size-3.5 text-[color:var(--claude-accent)]" />

@@ -1,3 +1,5 @@
+import { buildCodexConfig } from "@/lib/codex-config";
+
 export type CCSwitchApp = "claude" | "codex" | "gemini";
 
 export type CCSwitchModelSelection = {
@@ -28,6 +30,17 @@ function normalizeServerAddress(value: string) {
   return url.toString().replace(/\/+$/, "");
 }
 
+function encodeBase64Utf8(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary);
+}
+
 export function buildCCSwitchImportUrl({
   app,
   apiKey,
@@ -44,6 +57,26 @@ export function buildCCSwitchImportUrl({
   params.set("name", name.trim());
   params.set("endpoint", endpoint);
   params.set("apiKey", apiKey.trim());
+
+  if (app === "codex") {
+    params.set("configFormat", "json");
+    params.set(
+      "config",
+      encodeBase64Utf8(
+        JSON.stringify({
+          auth: { OPENAI_API_KEY: apiKey.trim() },
+          config: buildCodexConfig({
+            baseUrl: endpoint,
+            envKey: null,
+            model: models.model,
+            providerId: "custom",
+            siteName: name
+          })
+        })
+      )
+    );
+    params.set("icon", "openai");
+  }
 
   for (const [key, value] of Object.entries(models)) {
     const normalizedValue = value?.trim();

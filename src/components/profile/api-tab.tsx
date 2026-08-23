@@ -14,12 +14,15 @@ import {
 } from "lucide-react";
 import { formatCents, formatNumber } from "@/lib/format";
 import { IMAGE_MODEL } from "@/lib/models";
+import {
+  buildCodexAuthRepairCommand,
+  buildCodexConfig,
+  LOWIQ_API_KEY_ENV
+} from "@/lib/codex-config";
 import type { ChatModelView, SiteSettingsView, UserApiKeyView } from "@/types/gateway";
 import { apiGuideTools, apiGuideOsOptions } from "./components";
 import type { ApiGuideTool, ApiGuideOs } from "./types";
 import { CCSwitchDialog } from "./cc-switch-dialog";
-
-const LOWIQ_API_KEY_ENV = "LOWIQ_API_KEY";
 
 type ApiTabProps = {
   origin: string;
@@ -93,38 +96,6 @@ function powerShellDoubleQuote(value: string) {
   return `"${value.replace(/`/g, "``").replace(/"/g, '`"')}"`;
 }
 
-function buildCodexConfig({
-  baseUrl,
-  envKey = LOWIQ_API_KEY_ENV,
-  model,
-  siteName
-}: {
-  baseUrl: string;
-  envKey?: string;
-  model: string;
-  siteName: string;
-}) {
-  return [
-    'model_provider = "lowiq"',
-    `model = "${model}"`,
-    `review_model = "${model}"`,
-    'model_reasoning_effort = "high"',
-    'disable_response_storage = true',
-    'network_access = "enabled"',
-    'windows_wsl_setup_acknowledged = true',
-    "",
-    "[model_providers.lowiq]",
-    `name = "${siteName || "AI Gateway"}"`,
-    `base_url = "${baseUrl}"`,
-    'wire_api = "responses"',
-    `env_key = "${envKey}"`,
-    `env_key_instructions = "Set ${envKey} to your ${siteName || "AI Gateway"} API key"`,
-    "",
-    "[features]",
-    "goals = true"
-  ].join("\n");
-}
-
 function buildCodexInstallCommand({
   apiKey,
   config,
@@ -144,9 +115,11 @@ function buildCodexInstallCommand({
     return [
       '$codexDir = Join-Path $env:USERPROFILE ".codex"',
       "New-Item -ItemType Directory -Force -Path $codexDir | Out-Null",
+      '$configPath = Join-Path $codexDir "config.toml"',
+      'if (Test-Path -LiteralPath $configPath) { Copy-Item -LiteralPath $configPath -Destination "$configPath.bak-$((Get-Date).ToString(\'yyyyMMddHHmmss\'))" -Force }',
       `$config = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${encodedConfig}"))`,
       '$utf8 = [Text.UTF8Encoding]::new($false)',
-      '[IO.File]::WriteAllText((Join-Path $codexDir "config.toml"), $config, $utf8)',
+      '[IO.File]::WriteAllText($configPath, $config, $utf8)',
       `[Environment]::SetEnvironmentVariable(${powerShellDoubleQuote(LOWIQ_API_KEY_ENV)}, ${powerShellDoubleQuote(apiKey)}, "User")`,
       `$env:${LOWIQ_API_KEY_ENV} = ${powerShellDoubleQuote(apiKey)}`
     ].join("; ");
@@ -154,11 +127,13 @@ function buildCodexInstallCommand({
 
   return [
     "python3 - <<'PY'",
-    "import base64, pathlib",
+    "import base64, datetime, pathlib, shutil",
     `config = base64.b64decode(${JSON.stringify(encodedConfig)}).decode()`,
     'home = pathlib.Path.home() / ".codex"',
     "home.mkdir(parents=True, exist_ok=True)",
-    '(home / "config.toml").write_text(config, encoding="utf-8")',
+    'path = home / "config.toml"',
+    'if path.exists(): shutil.copy2(path, path.with_name(path.name + ".bak-" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")))',
+    'path.write_text(config, encoding="utf-8")',
     "PY",
     `export ${LOWIQ_API_KEY_ENV}=${shellSingleQuote(apiKey)}`
   ].join("\n");
@@ -477,6 +452,10 @@ function ApiGuideDialog({
       }),
     [codexConfig, keyValue, os]
   );
+  const codexAuthRepairCommand = useMemo(
+    () => buildCodexAuthRepairCommand({ baseUrl, os }),
+    [baseUrl, os]
+  );
   const openCodeConfig = useMemo(
     () => buildOpenCodeConfig({ baseUrl, models, siteName }),
     [baseUrl, models, siteName]
@@ -594,6 +573,14 @@ function ApiGuideDialog({
           <div className="mt-4 grid gap-4">
             {tool === "codex" ? (
               <>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <p className="font-semibold">Codex 0.149.0+ 鉴权兼容</p>
+                  <p className="mt-1 leading-5">
+                    新配置已显式写入 <code>requires_openai_auth = true</code>，并使用正式的
+                    <code className="ml-1">web_search = &quot;live&quot;</code>。如果升级后出现
+                    <code className="mx-1">API_KEY_REQUIRED</code> 或 401，可运行下方修复命令；命令只修改当前站点的 Provider，并先备份原配置。
+                  </p>
+                </div>
                 <ApiCodeBlock
                   label={os === "windows" ? "%USERPROFILE%\\.codex\\config.toml" : "~/.codex/config.toml"}
                   onCopy={onCopy}
@@ -606,6 +593,11 @@ function ApiGuideDialog({
                     value={codexInstallCommand}
                   />
                 ) : null}
+                <ApiCodeBlock
+                  label={os === "windows" ? "PowerShell 401 修复命令" : "Shell 401 修复命令"}
+                  onCopy={(value) => onCopy(value, "Codex 401 修复命令已复制。")}
+                  value={codexAuthRepairCommand}
+                />
                 <ApiCodeBlock
                   label={os === "windows" ? "PowerShell 环境变量" : "Shell 环境变量"}
                   onCopy={(value) => onCopy(value, `${LOWIQ_API_KEY_ENV} 设置命令已复制。`)}

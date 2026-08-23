@@ -59,6 +59,10 @@ export type SettingsForm = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  billingMultiplier: number;
+  billingMultiplierStartsAt: string;
+  billingMultiplierEndsAt: string;
+  userApiConcurrencyLimit: number;
   registrationEnabled: boolean;
   registrationRequireEmailVerification: boolean;
   registrationDefaultCostLimitCents: number;

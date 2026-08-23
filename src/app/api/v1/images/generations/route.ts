@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
-import { handleUserImageGenerationsRequest } from "@/lib/user-responses-api";
+import { handleUserImageGenerationsRequest, withUserApiConcurrency } from "@/lib/user-responses-api";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  return handleUserImageGenerationsRequest(request);
+  return withUserApiConcurrency(request, () => handleUserImageGenerationsRequest(request));
 }

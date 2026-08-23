@@ -43,6 +43,30 @@ function formatPaymentYuan(amountCents: number) {
   return `¥${(amountCents / 100).toFixed(2)}`;
 }
 
+function dateTimeLocalValue(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function dateTimeIsoValue(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
 function formatCentsInputValue(value: number) {
   if (!Number.isFinite(value)) {
     return "";
@@ -175,12 +199,22 @@ export function PaymentTab({
   summary,
   syncingOrderId
 }: PaymentTabProps) {
+  const [billingPreviewNow] = useState(() => Date.now());
   const handleUpdate = (patch: Partial<SettingsForm>) => {
     setSettingsForm((current) => ({ ...current, ...patch }));
   };
   const paymentTiers = editablePaymentTiers(settingsForm);
   const highestPaymentTierAmount = Math.max(0, ...paymentTiers.map((tier) => tier.amountCents));
   const canAddPaymentTier = highestPaymentTierAmount < 100000;
+  const billingStartsAt = settingsForm.billingMultiplierStartsAt
+    ? new Date(settingsForm.billingMultiplierStartsAt).getTime()
+    : null;
+  const billingEndsAt = settingsForm.billingMultiplierEndsAt
+    ? new Date(settingsForm.billingMultiplierEndsAt).getTime()
+    : null;
+  const billingMultiplierActive =
+    (billingStartsAt === null || billingStartsAt <= billingPreviewNow) &&
+    (billingEndsAt === null || billingEndsAt > billingPreviewNow);
   const updatePaymentTier = (
     index: number,
     patch: Partial<{ amountCents: number; balanceCents: number }>
@@ -240,6 +274,60 @@ export function PaymentTab({
 
   return (
     <div className="grid gap-4 lg:col-span-6">
+      <section className="ios-panel overflow-hidden" data-testid="admin-billing-multiplier">
+        <div className="border-b border-[color:var(--ios-separator)] px-4 py-4">
+          <h2 className="text-base font-semibold">余额扣减动态倍率</h2>
+          <p className="mt-1 text-xs ios-muted">
+            只调整用户额度和点数实扣；Token、请求数与上游真实成本始终按实际消耗统计。
+          </p>
+        </div>
+        <div className="grid gap-3 p-4 md:grid-cols-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">扣减倍率</span>
+            <input
+              className="ios-input w-full"
+              max={100}
+              min={0}
+              onChange={(event) =>
+                handleUpdate({
+                  billingMultiplier: Math.min(100, Math.max(0, Number(event.target.value) || 0))
+                })
+              }
+              step={0.01}
+              type="number"
+              value={settingsForm.billingMultiplier}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">开始时间（留空立即）</span>
+            <input
+              className="ios-input w-full"
+              onChange={(event) =>
+                handleUpdate({ billingMultiplierStartsAt: dateTimeIsoValue(event.target.value) })
+              }
+              type="datetime-local"
+              value={dateTimeLocalValue(settingsForm.billingMultiplierStartsAt)}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">结束时间（留空长期）</span>
+            <input
+              className="ios-input w-full"
+              onChange={(event) =>
+                handleUpdate({ billingMultiplierEndsAt: dateTimeIsoValue(event.target.value) })
+              }
+              type="datetime-local"
+              value={dateTimeLocalValue(settingsForm.billingMultiplierEndsAt)}
+            />
+          </label>
+          <div className="admin-note md:col-span-3">
+            当前表单：{billingMultiplierActive ? `${settingsForm.billingMultiplier} 倍生效` : "活动时间外，按 1 倍扣减"}
+            {settingsForm.billingMultiplier === 0 && billingMultiplierActive
+              ? "；用户限时免费，后台真实用量仍正常记录。"
+              : "。"}
+          </div>
+        </div>
+      </section>
       <div className="ios-list">
         <div className="ios-cell px-3 py-2">
           <p className="text-xs font-semibold ios-muted">

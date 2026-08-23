@@ -93,6 +93,7 @@ export type AiRuntimeSettings = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  userApiConcurrencyLimit: number;
 };
 
 const CHAT_HEADERS_TIMEOUT_MS = 60_000;
@@ -153,10 +154,21 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
       process.env.CODE_INTERPRETER_PIP_INDEX_URL ||
       "https://pypi.org/simple",
     webSearchEnabled: settings?.webSearchEnabled ?? process.env.WEB_SEARCH_ENABLED === "true",
-    webSearchProvider: "duckduckgo",
+    webSearchProvider: "sub2api",
     webSearchMaxResults: Math.min(
       8,
       Math.max(1, settings?.webSearchMaxResults || Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5)
+    ),
+    userApiConcurrencyLimit: Math.min(
+      1_000,
+      Math.max(
+        0,
+        Math.round(
+          settings?.userApiConcurrencyLimit ||
+            Number(process.env.USER_API_CONCURRENCY_LIMIT) ||
+            0
+        )
+      )
     )
   };
 
@@ -557,21 +569,26 @@ function messagesToResponseInput(messages: UpstreamMessage[]) {
   }));
 }
 
-function responseBodyVariants(options: {
+export function responseBodyVariants(options: {
   messages: UpstreamMessage[];
   model: ChatModelConfig;
   reasoningEffort: ReasoningEffort;
   settings: AiRuntimeSettings;
   stream: boolean;
+  webSearch?: boolean;
 }) {
   const baseBody: Record<string, unknown> = {
     model: options.model.upstreamId,
     input: messagesToResponseInput(options.messages),
-    stream: options.stream
+    stream: options.stream,
+    ...(options.webSearch ? { tools: [{ type: "web_search" }] } : {})
   };
   const fullBody: Record<string, unknown> = {
     ...baseBody,
-    store: false
+    store: false,
+    ...(options.webSearch
+      ? { include: ["web_search_call.action.sources"] }
+      : {})
   };
 
   if (options.model.supportsReasoning && options.settings.reasoningParamMode !== "disabled") {
@@ -583,19 +600,40 @@ function responseBodyVariants(options: {
   if (fullBody.reasoning) {
     variants.push({
       ...baseBody,
+      store: false,
+      ...(options.webSearch
+        ? { include: ["web_search_call.action.sources"] }
+        : {})
+    });
+  }
+
+  if (options.webSearch) {
+    variants.push({
+      ...baseBody,
       store: false
     });
   }
 
   variants.push(baseBody);
 
-  return variants;
+  const seen = new Set<string>();
+
+  return variants.filter((variant) => {
+    const key = JSON.stringify(variant);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 // Sub2API / One API 等网关的旧版本可能不认识 Responses 的 store、reasoning 或 input_file，
 // 遇到这类报错时逐步降级，保留可用的文本上下文 fallback。
 function looksLikeUnsupportedParamError(message: string) {
-  return /store|reasoning|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|unsupported\s+file|file\s+type|supported\s+format|messages.*content.*file|too\s+large|entity\s+too\s+large|payload|request\s+body|combined\s+limit|under\s+50\s*mb|timeout|timed\s*out|no\s+response|connection|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数|请求体过大|文件过大|没有响应|无法连接|连接/i.test(
+  return /store|reasoning|include|input_file|\bfile_data\b|\bfile_id\b|\bfile_url\b|unsupported\s+file|file\s+type|supported\s+format|messages.*content.*file|too\s+large|entity\s+too\s+large|payload|request\s+body|combined\s+limit|under\s+50\s*mb|timeout|timed\s*out|no\s+response|connection|unknown|unrecognized|unexpected|not\s+(?:permitted|supported|allowed)|invalid[\s_]*(?:param|argument|field|request|file)|额外|不支持|无效参数|请求体过大|文件过大|没有响应|无法连接|连接/i.test(
     message
   );
 }
@@ -620,6 +658,7 @@ export async function createResponseStream(
     fallbackMessages?: FallbackMessages;
     reasoningEffort?: ReasoningEffort;
     signal?: AbortSignal;
+    webSearch?: boolean;
   }
 ) {
   const selectedModel = getChatModel(model, settings.chatModels);
@@ -643,12 +682,13 @@ export async function createResponseStream(
     model: selectedModel,
     reasoningEffort,
     settings: upstreamSettings,
-    stream: true
+    stream: true,
+    webSearch: options?.webSearch
   });
 
   let lastUnsupportedParamError = "";
 
-  for (const candidate of bodyCandidates) {
+  for (const [candidateIndex, candidate] of bodyCandidates.entries()) {
     let response: Response;
 
     try {
@@ -660,7 +700,9 @@ export async function createResponseStream(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
-      if (!options?.fallbackMessages || !looksLikeRetryableFallbackError(message)) {
+      const canTryNextCandidate = candidateIndex < bodyCandidates.length - 1;
+
+      if ((!canTryNextCandidate && !options?.fallbackMessages) || !looksLikeRetryableFallbackError(message)) {
         throw error;
       }
 
@@ -674,7 +716,9 @@ export async function createResponseStream(
 
     const message = await upstreamErrorMessage(response);
 
-    if (!options?.fallbackMessages || !looksLikeRetryableFallbackError(message)) {
+    const canTryNextCandidate = candidateIndex < bodyCandidates.length - 1;
+
+    if ((!canTryNextCandidate && !options?.fallbackMessages) || !looksLikeRetryableFallbackError(message)) {
       throw new Error(message);
     }
 
@@ -689,7 +733,8 @@ export async function createResponseStream(
       model: selectedModel,
       reasoningEffort,
       settings: upstreamSettings,
-      stream: true
+      stream: true,
+      webSearch: options?.webSearch
     })) {
       const response = await fetchWithHeadersTimeout(
         url,

@@ -187,7 +187,7 @@ CODE_INTERPRETER_PACKAGE_INSTALL_TIMEOUT_MS="120000"
 CODE_INTERPRETER_DOCKER_MEMORY="768m"
 CODE_INTERPRETER_DOCKER_CPUS="1"
 WEB_SEARCH_ENABLED="false"
-WEB_SEARCH_PROVIDER="duckduckgo"
+WEB_SEARCH_PROVIDER="sub2api"
 WEB_SEARCH_MAX_RESULTS="5"
 REGISTRATION_ENABLED="false"
 REGISTRATION_REQUIRE_EMAIL_VERIFICATION="false"
@@ -221,11 +221,11 @@ EASYPAY_WXPAY_CHANNEL_ID=""
 
 ```bash
 WEB_SEARCH_ENABLED="false"
-WEB_SEARCH_PROVIDER="duckduckgo"
+WEB_SEARCH_PROVIDER="sub2api"
 WEB_SEARCH_MAX_RESULTS="5"
 ```
 
-搜索由服务端请求 DuckDuckGo 结果，前端用户浏览器不会直接访问搜索引擎。管理员开启后，后端会先用 AI 规划搜索词，再对最新/今天/实时/新闻/价格/版本等问题自动搜索；用户也可以点亮聊天输入框的联网按钮，强制下一条消息搜索。来源会作为卡片保存到助手消息中。天气类问题会优先补充服务端实时天气来源，提高“今天/当前天气”这类回答的稳定性。
+管理员开启后，后端会先规划是否需要联网；需要时直接在发给 Sub2API 的 Responses 请求中启用原生 `web_search` 工具，不再由本站抓取 DuckDuckGo 或天气站。Sub2API 返回的搜索来源会从流式事件中提取，并作为来源卡片随助手消息保存。用户也可以点亮聊天输入框的联网按钮，强制下一条消息启用上游搜索。
 
 ## 注册与邮件
 
@@ -239,13 +239,21 @@ SMTP 支持 465 这类隐式 SSL/TLS，也支持 587 这类 STARTTLS。`SMTP_SEC
 
 管理员可在“用户”选项卡把账号设置为 `VIP` 用户组；任意一笔在线充值或套餐订单到账后，用户也会自动升级为 `VIP`。VIP 或有效的 Coding Plan（且套餐配置了个人 API 权益）都可以在个人中心创建个人 API Key。个人 API 使用同一个账号额度与用量统计，不会单独分配额度；同时每个 Key 可单独设置累计 API 额度上限，填 `0` 表示不限，该限制不会影响网页聊天或其他 Key。
 
-兼容 Responses API、Chat Completions 与模型列表的入口：
+个人 API 在只有 GPT 上游模型的情况下提供多协议转换，支持 OpenAI Responses / Chat Completions、Anthropic Messages 与 Gemini 原生 `generateContent`：
 
 ```text
 https://your-site.example/api/v1/responses
 https://your-site.example/v1/responses
 https://your-site.example/api/v1/chat/completions
 https://your-site.example/v1/chat/completions
+https://your-site.example/api/v1/messages
+https://your-site.example/v1/messages
+https://your-site.example/v1/messages/count_tokens
+https://your-site.example/v1/alpha/search
+https://your-site.example/v1beta/models
+https://your-site.example/v1beta/models/gpt-5.6-sol:generateContent
+https://your-site.example/v1beta/models/gpt-5.6-sol:streamGenerateContent
+https://your-site.example/v1beta/models/gpt-5.6-sol:countTokens
 https://your-site.example/api/v1/models
 https://your-site.example/v1/models
 ```
@@ -273,7 +281,19 @@ curl https://your-site.example/v1/models \
   -H "Authorization: Bearer sk-user-..."
 ```
 
-个人 API 不注入网页聊天或身份覆盖提示词，完整保留 Codex、OpenCode 等调用方传入的 `instructions`、输入项和工具协议。兼容重试也不会删除 `tools` / `tool_choice`；如果上游不支持代理工具，请求会明确失败，而不会静默退化成无法读取文件的普通对话。Chat Completions 会保留调用方消息；若额外传入非标准 `instructions`，会将其作为首条 system 消息转给上游。
+个人 API 不注入网页聊天或身份覆盖提示词，完整保留 Codex、OpenCode 等调用方传入的 `instructions`、输入项和工具协议。兼容重试也不会删除 `tools` / `tool_choice`；如果上游不支持代理工具，请求会明确失败，而不会静默退化成无法读取文件的普通对话。Anthropic 与 Gemini 请求会在本站转换为 GPT Chat Completions，包括文本、图片、函数工具调用和流式事件；请求中的 Claude/Gemini 模型名若不对应已启用 GPT，会稳定使用后台启用的首个 GPT 模型。
+
+## 余额扣减动态倍率
+
+管理员可在“支付”选项卡设置余额扣减倍率和可选的开始、结束时间。倍率只作用于用户月额度与 AI 点数的实扣，后台 Token、请求数和 `estimatedCostCents` 仍记录上游真实消耗；每条用量还会记录当次 `billingMultiplier` 与 `billedCostCents`。将活动时间窗内倍率设为 `0` 即可实现限时免费，时间窗外自动恢复 `1` 倍。环境变量初始化项为：
+
+```bash
+BILLING_MULTIPLIER="1"
+BILLING_MULTIPLIER_STARTS_AT=""
+BILLING_MULTIPLIER_ENDS_AT=""
+```
+
+后台“API 接入”还可设置单用户个人 API 最大并发数，按用户跨多个个人 Key 统一计数；`0` 表示不限。Responses、Chat Completions、图片、Anthropic Messages、Gemini 生成和独立搜索都会占用并发槽，流式连接结束或取消后自动释放。生产环境优先通过 Redis 原子租约跨进程计数，Redis 暂时不可用时降级为当前进程内限制。环境变量初始化项为 `USER_API_CONCURRENCY_LIMIT="0"`。
 
 ## 易支付充值
 

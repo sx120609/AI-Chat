@@ -398,7 +398,10 @@ export function UsageTab({
                       <UsageTokenBreakdown record={record} />
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 font-semibold text-emerald-700">
-                      {formatCents(record.estimatedCostCents)}
+                      <p>{formatCents(record.estimatedCostCents)} 实际</p>
+                      <p className="text-[11px] font-medium text-slate-500">
+                        {formatCents(record.billedCostCents)} 实扣 · {record.billingMultiplier}×
+                      </p>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                       <p className="font-medium">{formatDuration(record.durationMs ?? null)}</p>
@@ -436,7 +439,10 @@ export function UsageTab({
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <UsageMiniBlock label="端点" value={record.endpoint || "-"} />
-                  <UsageMiniBlock label="费用" value={formatCents(record.estimatedCostCents)} />
+                  <UsageMiniBlock
+                    label="费用"
+                    value={`${formatCents(record.estimatedCostCents)} 实际 / ${formatCents(record.billedCostCents)} 实扣`}
+                  />
                   <UsageMiniBlock label="首 token" value={formatDuration(record.firstTokenLatencyMs ?? null)} />
                   <UsageMiniBlock label="耗时" value={formatDuration(record.durationMs ?? null)} />
                   <div className="col-span-2 rounded-lg bg-white/60 px-3 py-2">

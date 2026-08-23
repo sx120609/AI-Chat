@@ -27,6 +27,23 @@ import {
 } from "@/lib/quota";
 import { estimateTokens } from "@/lib/tokens";
 import {
+  anthropicRequestToChat,
+  anthropicResponseFromChat,
+  anthropicStreamEventsFromChat,
+  createAnthropicStreamState,
+  createGeminiStreamState,
+  geminiRequestToChat,
+  geminiResponseFromChat,
+  geminiStreamChunkFromChat
+} from "@/lib/protocol-compat";
+import {
+  acquireUserApiConcurrency,
+  normalizeUserApiConcurrencyLimit,
+  releaseUserApiConcurrency,
+  renewUserApiConcurrency,
+  USER_API_CONCURRENCY_LEASE_TTL_SECONDS
+} from "@/lib/user-api-concurrency";
+import {
   assertUpstreamConfigured,
   generateImage,
   getAiRuntimeSettings,
@@ -36,6 +53,11 @@ import {
 } from "@/lib/upstream";
 
 const decoder = new TextDecoder();
+const encoder = new TextEncoder();
+const personalApiAuthCache = new WeakMap<
+  NextRequest,
+  ReturnType<typeof authenticateUserApiKey>
+>();
 
 type UpstreamResponsesResult =
   | {
@@ -456,8 +478,124 @@ function responseBodyFallbackCandidates(body: Record<string, unknown>) {
   return uniqueBodyCandidates([body, stripped, withoutParallel]);
 }
 
+function findCompatibleModel(modelId: unknown, catalog: ChatModelConfig[]) {
+  return findEnabledModel(modelId, catalog) ?? getEnabledApiModels(catalog)[0] ?? null;
+}
+
+async function authenticatePersonalApiRequest(request: NextRequest) {
+  const cached = personalApiAuthCache.get(request);
+
+  if (cached) {
+    return cached;
+  }
+
+  const authorization = request.headers.get("authorization");
+  const headerKey =
+    request.headers.get("x-api-key") || request.headers.get("x-goog-api-key");
+  const queryKey = request.nextUrl.searchParams.get("key");
+  const fallbackKey = headerKey || queryKey;
+
+  const authentication = authenticateUserApiKey(
+    authorization || (fallbackKey ? `Bearer ${fallbackKey.trim()}` : null)
+  );
+  personalApiAuthCache.set(request, authentication);
+  return authentication;
+}
+
+export async function withUserApiConcurrency(
+  request: NextRequest,
+  handler: () => Promise<Response>
+) {
+  const authenticated = await authenticatePersonalApiRequest(request);
+
+  if (!authenticated) {
+    return handler();
+  }
+
+  const settings = await getAiRuntimeSettings();
+  const limit = normalizeUserApiConcurrencyLimit(settings.userApiConcurrencyLimit);
+
+  if (limit === 0) {
+    return handler();
+  }
+
+  const lease = await acquireUserApiConcurrency(authenticated.user.id, limit);
+
+  if (!lease) {
+    return Response.json(
+      {
+        error: {
+          code: "user_api_concurrency_limit_exceeded",
+          message: `个人 API 并发数已达到上限（${limit}）。`
+        }
+      },
+      {
+        status: 429,
+        headers: { "retry-after": "1" }
+      }
+    );
+  }
+
+  let response: Response;
+
+  try {
+    response = await handler();
+  } catch (error) {
+    await releaseUserApiConcurrency(lease);
+    throw error;
+  }
+
+  if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) {
+    await releaseUserApiConcurrency(lease);
+    return response;
+  }
+
+  const reader = response.body.getReader();
+  let released = false;
+  const release = async () => {
+    if (released) {
+      return;
+    }
+
+    released = true;
+    clearInterval(renewTimer);
+    await releaseUserApiConcurrency(lease);
+  };
+  const renewTimer = setInterval(() => {
+    void renewUserApiConcurrency(lease);
+  }, Math.max(30, Math.floor(USER_API_CONCURRENCY_LEASE_TTL_SECONDS / 3)) * 1000);
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          await release();
+          controller.close();
+          return;
+        }
+
+        controller.enqueue(value);
+      } catch (error) {
+        await release();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined);
+      await release();
+    }
+  });
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  });
+}
+
 function chatCompletionBodyFallbackCandidates(body: Record<string, unknown>) {
-  const stripped = withoutKeys(body, ["metadata", "reasoning", "store", "user"]);
+  const stripped = withoutKeys(body, ["metadata", "reasoning", "store", "stream_options", "user"]);
   const withoutParallel = withoutKeys(stripped, ["parallel_tool_calls"]);
 
   return uniqueBodyCandidates([body, stripped, withoutParallel]);
@@ -848,6 +986,20 @@ function passthroughHeaders(response: Response) {
     headers.set("x-accel-buffering", "no");
   }
 
+  for (const [name, value] of response.headers.entries()) {
+    const normalized = name.toLowerCase();
+
+    if (
+      normalized === "retry-after" ||
+      normalized === "request-id" ||
+      normalized === "x-request-id" ||
+      normalized.startsWith("x-ratelimit-") ||
+      normalized.startsWith("anthropic-ratelimit-")
+    ) {
+      headers.set(name, value);
+    }
+  }
+
   return headers;
 }
 
@@ -898,7 +1050,7 @@ function mockChatCompletionBody(
 
 export async function handleUserResponsesRequest(request: NextRequest) {
   const requestStartedAt = Date.now();
-  const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
+  const authenticated = await authenticatePersonalApiRequest(request);
 
   if (!authenticated) {
     return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
@@ -1123,7 +1275,7 @@ export async function handleUserResponsesRequest(request: NextRequest) {
 
 export async function handleUserChatCompletionsRequest(request: NextRequest) {
   const requestStartedAt = Date.now();
-  const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
+  const authenticated = await authenticatePersonalApiRequest(request);
 
   if (!authenticated) {
     return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
@@ -1349,7 +1501,7 @@ export async function handleUserChatCompletionsRequest(request: NextRequest) {
 
 export async function handleUserImageGenerationsRequest(request: NextRequest) {
   const requestStartedAt = Date.now();
-  const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
+  const authenticated = await authenticatePersonalApiRequest(request);
 
   if (!authenticated) {
     return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
@@ -1453,7 +1605,7 @@ export async function handleUserImageGenerationsRequest(request: NextRequest) {
 }
 
 export async function handleUserModelsRequest(request: NextRequest) {
-  const authenticated = await authenticateUserApiKey(request.headers.get("authorization"));
+  const authenticated = await authenticatePersonalApiRequest(request);
 
   if (!authenticated) {
     return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
@@ -1467,5 +1619,674 @@ export async function handleUserModelsRequest(request: NextRequest) {
       ...getEnabledApiModels(settings.chatModels).map(serializeModel),
       serializeImageModel(settings)
     ]
+  });
+}
+
+function protocolAuthError(protocol: "anthropic" | "gemini") {
+  if (protocol === "anthropic") {
+    return Response.json(
+      {
+        type: "error",
+        error: {
+          type: "authentication_error",
+          message: "无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。"
+        }
+      },
+      { status: 401 }
+    );
+  }
+
+  return Response.json(
+    {
+      error: {
+        code: 401,
+        message: "无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。",
+        status: "UNAUTHENTICATED"
+      }
+    },
+    { status: 401 }
+  );
+}
+
+async function readProtocolJson(request: NextRequest) {
+  try {
+    return jsonObject(await request.json());
+  } catch {
+    return null;
+  }
+}
+
+async function protocolQuotaError(
+  userId: string,
+  apiKey: Parameters<typeof assertUserApiKeyUsageAvailable>[0],
+  expectedCostCents: number
+) {
+  try {
+    await assertQuotaAvailable(userId, expectedCostCents);
+    await assertUserApiKeyUsageAvailable(apiKey, expectedCostCents);
+    return null;
+  } catch (error) {
+    if (error instanceof QuotaError) {
+      return jsonError(error.message, error.status, { usage: error.summary });
+    }
+
+    if (error instanceof UserApiKeyUsageLimitError) {
+      return jsonError(error.message, error.status, { apiKeyUsage: error.summary });
+    }
+
+    throw error;
+  }
+}
+
+function ssePayloads(block: string) {
+  return block
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .filter((data) => data && data !== "[DONE]")
+    .flatMap((data) => {
+      try {
+        return [JSON.parse(data) as unknown];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function mockChatStreamPayloads(
+  model: ChatModelConfig,
+  promptTokensEstimate: number,
+  text = "Mock response from personal API."
+) {
+  return [
+    {
+      id: `chatcmpl_mock_${Date.now()}`,
+      choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }],
+      model: model.upstreamId
+    },
+    {
+      id: `chatcmpl_mock_${Date.now()}`,
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      usage: {
+        prompt_tokens: promptTokensEstimate,
+        completion_tokens: estimateTokens(text),
+        total_tokens: promptTokensEstimate + estimateTokens(text)
+      }
+    }
+  ];
+}
+
+export async function handleUserAnthropicCountTokensRequest(request: NextRequest) {
+  const authenticated = await authenticatePersonalApiRequest(request);
+
+  if (!authenticated) {
+    return protocolAuthError("anthropic");
+  }
+
+  const body = await readProtocolJson(request);
+
+  if (!body) {
+    return jsonError("请求体必须是有效 JSON 对象。", 400);
+  }
+
+  const settings = await getAiRuntimeSettings();
+  const model = findCompatibleModel(body.model, settings.chatModels);
+
+  if (!model) {
+    return jsonError("后台没有启用可用于协议兼容的 GPT 模型。", 400);
+  }
+
+  return Response.json({
+    input_tokens: promptEstimateFromBody(
+      anthropicRequestToChat(body, model.upstreamId || model.id)
+    )
+  });
+}
+
+export async function handleUserAnthropicMessagesRequest(request: NextRequest) {
+  const requestStartedAt = Date.now();
+  const authenticated = await authenticatePersonalApiRequest(request);
+
+  if (!authenticated) {
+    return protocolAuthError("anthropic");
+  }
+
+  const body = await readProtocolJson(request);
+
+  if (!body || !Array.isArray(body.messages)) {
+    return jsonError("Messages 请求必须包含 messages 数组。", 400);
+  }
+
+  const settings = await getAiRuntimeSettings();
+  const model = findCompatibleModel(body.model, settings.chatModels);
+
+  if (!model) {
+    return jsonError("后台没有启用可用于协议兼容的 GPT 模型。", 400);
+  }
+
+  const requestedModel = typeof body.model === "string" ? body.model : model.id;
+  const upstreamBody = anthropicRequestToChat(body, model.upstreamId || model.id);
+  const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
+  const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
+  const quotaError = await protocolQuotaError(
+    authenticated.user.id,
+    authenticated.apiKey,
+    expectedCostCents
+  );
+
+  if (quotaError) {
+    return quotaError;
+  }
+
+  const auditBase: UsageAuditMetadata = {
+    billingMode: "按量",
+    endpoint: "/v1/messages",
+    reasoningEffort: usageReasoningEffort(body),
+    requestKind: usageRequestKind(body),
+    userAgent: usageUserAgent(request)
+  };
+  const mockPayloads = settings.mockResponses
+    ? mockChatStreamPayloads(model, promptTokensEstimate)
+    : null;
+  let response: ResponseWithBody | null = null;
+
+  if (!mockPayloads) {
+    const upstreamSettings = resolveUpstreamSettingsForModel(settings, model);
+
+    try {
+      assertUpstreamConfigured(upstreamSettings, model.label);
+    } catch (error) {
+      return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
+    }
+
+    const upstream = await fetchUpstreamChatCompletions({
+      body: upstreamBody,
+      incomingHeaders: request.headers,
+      settings: upstreamSettings,
+      signal: request.signal
+    });
+
+    if ("failure" in upstream) {
+      return upstreamJsonError(upstream.failure, model);
+    }
+
+    response = upstream.response;
+  }
+
+  if (body.stream === true) {
+    const state = createAnthropicStreamState(promptTokensEstimate);
+    let firstTokenLatencyMs: number | null = null;
+    let upstreamUsage: UpstreamUsage | undefined;
+    let outputText = "";
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          const processPayload = (payload: unknown) => {
+            const text = outputTextFromPayload(payload);
+
+            if (text && firstTokenLatencyMs === null) {
+              firstTokenLatencyMs = Date.now() - requestStartedAt;
+            }
+
+            outputText += text;
+            upstreamUsage = parseUsage(payload) ?? upstreamUsage;
+
+            for (const event of anthropicStreamEventsFromChat(payload, requestedModel, state)) {
+              controller.enqueue(
+                encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`)
+              );
+            }
+          };
+
+          if (mockPayloads) {
+            mockPayloads.forEach(processPayload);
+          } else if (response) {
+            const reader = response.body.getReader();
+            let buffer = "";
+
+            while (true) {
+              const { done, value } = await reader.read();
+
+              if (done) {
+                break;
+              }
+
+              buffer += decoder.decode(value, { stream: true });
+              const blocks = buffer.split(/\r?\n\r?\n/);
+              buffer = blocks.pop() ?? "";
+              blocks.flatMap(ssePayloads).forEach(processPayload);
+            }
+
+            if (buffer.trim()) {
+              ssePayloads(buffer).forEach(processPayload);
+            }
+          }
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+          return;
+        }
+
+        try {
+          await recordUserApiUsage({
+            apiKeyPrefix: authenticated.apiKey.keyPrefix,
+            audit: {
+              ...auditBase,
+              durationMs: Date.now() - requestStartedAt,
+              firstTokenLatencyMs
+            },
+            completionTokensEstimate: Math.max(1, estimateTokens(outputText)),
+            model,
+            promptTokensEstimate,
+            upstreamUsage,
+            userId: authenticated.user.id
+          });
+        } catch (error) {
+          console.error("[user-api] Failed to record Anthropic-compatible usage:", error);
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        "x-accel-buffering": "no"
+      }
+    });
+  }
+
+  let chatPayload: unknown;
+
+  if (mockPayloads) {
+    chatPayload = mockChatCompletionBody(body, model, promptTokensEstimate);
+  } else {
+    const text = await response!.text();
+
+    try {
+      chatPayload = JSON.parse(text) as unknown;
+    } catch {
+      chatPayload = {
+        id: `chatcmpl_${Date.now()}`,
+        choices: [{ message: { role: "assistant", content: text }, finish_reason: "stop" }]
+      };
+    }
+  }
+
+  const upstreamUsage = parseUsage(chatPayload);
+  await recordUserApiUsage({
+    apiKeyPrefix: authenticated.apiKey.keyPrefix,
+    audit: { ...auditBase, durationMs: Date.now() - requestStartedAt },
+    completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(chatPayload))),
+    model,
+    promptTokensEstimate,
+    upstreamUsage,
+    userId: authenticated.user.id
+  });
+
+  return Response.json(anthropicResponseFromChat(chatPayload, requestedModel));
+}
+
+export async function handleUserGeminiModelsRequest(
+  request: NextRequest,
+  requestedModel?: string
+) {
+  const authenticated = await authenticatePersonalApiRequest(request);
+
+  if (!authenticated) {
+    return protocolAuthError("gemini");
+  }
+
+  const settings = await getAiRuntimeSettings();
+  const models = getEnabledApiModels(settings.chatModels).map((model) => ({
+    name: `models/${model.upstreamId || model.id}`,
+    version: model.upstreamId || model.id,
+    displayName: model.label,
+    description: "GPT 模型，通过本站 Gemini 协议兼容层提供。",
+    inputTokenLimit: model.contextWindowTokens,
+    outputTokenLimit: model.maxContextWindowTokens,
+    supportedGenerationMethods: ["generateContent", "streamGenerateContent", "countTokens"]
+  }));
+
+  if (requestedModel) {
+    const normalized = decodeURIComponent(requestedModel).replace(/^models\//, "");
+    const model = models.find((item) => item.version === normalized || item.name === `models/${normalized}`);
+
+    return model
+      ? Response.json(model)
+      : Response.json(
+          { error: { code: 404, message: "模型不存在。", status: "NOT_FOUND" } },
+          { status: 404 }
+        );
+  }
+
+  return Response.json({ models });
+}
+
+export async function handleUserGeminiRequest(
+  request: NextRequest,
+  options: { action: string; requestedModel: string }
+) {
+  const requestStartedAt = Date.now();
+  const authenticated = await authenticatePersonalApiRequest(request);
+
+  if (!authenticated) {
+    return protocolAuthError("gemini");
+  }
+
+  const body = await readProtocolJson(request);
+
+  if (!body) {
+    return jsonError("请求体必须是有效 JSON 对象。", 400);
+  }
+
+  const settings = await getAiRuntimeSettings();
+  const requestedModel = decodeURIComponent(options.requestedModel).replace(/^models\//, "");
+  const model = findCompatibleModel(requestedModel, settings.chatModels);
+
+  if (!model) {
+    return jsonError("后台没有启用可用于协议兼容的 GPT 模型。", 400);
+  }
+
+  const streamRequested = options.action === "streamGenerateContent";
+  const upstreamBody = geminiRequestToChat(
+    body,
+    model.upstreamId || model.id,
+    streamRequested
+  );
+  const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
+
+  if (options.action === "countTokens") {
+    return Response.json({ totalTokens: promptTokensEstimate });
+  }
+
+  if (options.action !== "generateContent" && !streamRequested) {
+    return Response.json(
+      { error: { code: 404, message: "不支持的 Gemini 方法。", status: "NOT_FOUND" } },
+      { status: 404 }
+    );
+  }
+
+  const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
+  const quotaError = await protocolQuotaError(
+    authenticated.user.id,
+    authenticated.apiKey,
+    expectedCostCents
+  );
+
+  if (quotaError) {
+    return quotaError;
+  }
+
+  const auditBase: UsageAuditMetadata = {
+    billingMode: "按量",
+    endpoint: `/v1beta/models/${requestedModel}:${options.action}`,
+    reasoningEffort: usageReasoningEffort(body),
+    requestKind: streamRequested ? "stream" : "sync",
+    userAgent: usageUserAgent(request)
+  };
+  const mockPayloads = settings.mockResponses
+    ? mockChatStreamPayloads(model, promptTokensEstimate)
+    : null;
+  let response: ResponseWithBody | null = null;
+
+  if (!mockPayloads) {
+    const upstreamSettings = resolveUpstreamSettingsForModel(settings, model);
+
+    try {
+      assertUpstreamConfigured(upstreamSettings, model.label);
+    } catch (error) {
+      return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
+    }
+
+    const upstream = await fetchUpstreamChatCompletions({
+      body: upstreamBody,
+      incomingHeaders: request.headers,
+      settings: upstreamSettings,
+      signal: request.signal
+    });
+
+    if ("failure" in upstream) {
+      return upstreamJsonError(upstream.failure, model);
+    }
+
+    response = upstream.response;
+  }
+
+  if (streamRequested) {
+    const geminiStreamState = createGeminiStreamState();
+    let firstTokenLatencyMs: number | null = null;
+    let upstreamUsage: UpstreamUsage | undefined;
+    let outputText = "";
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          const processPayload = (payload: unknown) => {
+            const text = outputTextFromPayload(payload);
+
+            if (text && firstTokenLatencyMs === null) {
+              firstTokenLatencyMs = Date.now() - requestStartedAt;
+            }
+
+            outputText += text;
+            upstreamUsage = parseUsage(payload) ?? upstreamUsage;
+            const chunk = geminiStreamChunkFromChat(payload, geminiStreamState);
+
+            if (chunk) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+            }
+          };
+
+          if (mockPayloads) {
+            mockPayloads.forEach(processPayload);
+          } else if (response) {
+            const reader = response.body.getReader();
+            let buffer = "";
+
+            while (true) {
+              const { done, value } = await reader.read();
+
+              if (done) {
+                break;
+              }
+
+              buffer += decoder.decode(value, { stream: true });
+              const blocks = buffer.split(/\r?\n\r?\n/);
+              buffer = blocks.pop() ?? "";
+              blocks.flatMap(ssePayloads).forEach(processPayload);
+            }
+
+            if (buffer.trim()) {
+              ssePayloads(buffer).forEach(processPayload);
+            }
+          }
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+          return;
+        }
+
+        try {
+          await recordUserApiUsage({
+            apiKeyPrefix: authenticated.apiKey.keyPrefix,
+            audit: {
+              ...auditBase,
+              durationMs: Date.now() - requestStartedAt,
+              firstTokenLatencyMs
+            },
+            completionTokensEstimate: Math.max(1, estimateTokens(outputText)),
+            model,
+            promptTokensEstimate,
+            upstreamUsage,
+            userId: authenticated.user.id
+          });
+        } catch (error) {
+          console.error("[user-api] Failed to record Gemini-compatible usage:", error);
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        "x-accel-buffering": "no"
+      }
+    });
+  }
+
+  let chatPayload: unknown;
+
+  if (mockPayloads) {
+    chatPayload = mockChatCompletionBody(body, model, promptTokensEstimate);
+  } else {
+    const text = await response!.text();
+
+    try {
+      chatPayload = JSON.parse(text) as unknown;
+    } catch {
+      chatPayload = {
+        id: `chatcmpl_${Date.now()}`,
+        choices: [{ message: { role: "assistant", content: text }, finish_reason: "stop" }]
+      };
+    }
+  }
+
+  const upstreamUsage = parseUsage(chatPayload);
+  await recordUserApiUsage({
+    apiKeyPrefix: authenticated.apiKey.keyPrefix,
+    audit: { ...auditBase, durationMs: Date.now() - requestStartedAt },
+    completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(chatPayload))),
+    model,
+    promptTokensEstimate,
+    upstreamUsage,
+    userId: authenticated.user.id
+  });
+
+  return Response.json(geminiResponseFromChat(chatPayload, requestedModel));
+}
+
+export async function handleUserAlphaSearchRequest(request: NextRequest) {
+  const requestStartedAt = Date.now();
+  const authenticated = await authenticatePersonalApiRequest(request);
+
+  if (!authenticated) {
+    return jsonError("无效的 API Key，或当前账号没有 VIP / Coding Plan API 权益。", 401);
+  }
+
+  const body = await readProtocolJson(request);
+
+  if (!body) {
+    return jsonError("请求体必须是有效 JSON 对象。", 400);
+  }
+
+  const settings = await getAiRuntimeSettings();
+  const model = findCompatibleModel(body.model, settings.chatModels);
+
+  if (!model) {
+    return jsonError("后台没有启用可用于联网搜索计费的 GPT 模型。", 400);
+  }
+
+  const upstreamBody = {
+    ...body,
+    ...(body.model ? { model: model.upstreamId || model.id } : {})
+  };
+  const promptTokensEstimate = promptEstimateFromBody(upstreamBody);
+  const expectedCostCents = estimateChatCostForModel(model, promptTokensEstimate, 0);
+  const quotaError = await protocolQuotaError(
+    authenticated.user.id,
+    authenticated.apiKey,
+    expectedCostCents
+  );
+
+  if (quotaError) {
+    return quotaError;
+  }
+
+  if (settings.mockResponses) {
+    const payload = {
+      id: `search_mock_${Date.now()}`,
+      type: "search_results",
+      results: []
+    };
+
+    await recordUserApiUsage({
+      apiKeyPrefix: authenticated.apiKey.keyPrefix,
+      audit: {
+        billingMode: "按量",
+        durationMs: Date.now() - requestStartedAt,
+        endpoint: "/v1/alpha/search",
+        requestKind: "sync",
+        userAgent: usageUserAgent(request)
+      },
+      completionTokensEstimate: Math.max(1, estimateTokens(JSON.stringify(payload))),
+      model,
+      promptTokensEstimate,
+      userId: authenticated.user.id
+    });
+
+    return Response.json(payload);
+  }
+
+  const upstreamSettings = resolveUpstreamSettingsForModel(settings, model);
+
+  try {
+    assertUpstreamConfigured(upstreamSettings, model.label);
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "上游 API 未配置。", 500);
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${upstreamSettings.apiBaseUrl}/alpha/search`, {
+      method: "POST",
+      headers: upstreamHeaders(upstreamSettings, request.headers),
+      body: JSON.stringify(upstreamBody),
+      signal: request.signal
+    });
+  } catch (error) {
+    return jsonError(
+      `无法连接上游搜索 API：${error instanceof Error ? error.message : String(error)}`,
+      502
+    );
+  }
+
+  if (!response.ok) {
+    return upstreamJsonError(await upstreamFailureFromResponse(response), model);
+  }
+
+  const text = await response.text();
+  let payload: unknown = text;
+
+  try {
+    payload = JSON.parse(text) as unknown;
+  } catch {
+    // Preserve successful non-JSON responses from Sub2API.
+  }
+
+  await recordUserApiUsage({
+    apiKeyPrefix: authenticated.apiKey.keyPrefix,
+    audit: {
+      billingMode: "按量",
+      durationMs: Date.now() - requestStartedAt,
+      endpoint: "/v1/alpha/search",
+      requestKind: "sync",
+      userAgent: usageUserAgent(request)
+    },
+    completionTokensEstimate: Math.max(1, estimateTokens(outputTextFromPayload(payload) || text)),
+    model,
+    promptTokensEstimate,
+    upstreamUsage: parseUsage(payload),
+    userId: authenticated.user.id
+  });
+
+  return new Response(text, {
+    status: response.status,
+    headers: passthroughHeaders(response)
   });
 }

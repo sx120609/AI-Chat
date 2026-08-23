@@ -1,4 +1,5 @@
 import { cacheDelete, cacheGetJson, cacheSetJson } from "@/lib/cache";
+import { activeBillingMultiplier, billedCostCents } from "@/lib/billing-multiplier";
 import { prisma } from "@/lib/prisma";
 
 export type UsageSummary = {
@@ -7,6 +8,7 @@ export type UsageSummary = {
   tokensUsed: number;
   messagesUsed: number;
   costUsedCents: number;
+  actualCostUsedCents: number;
   remainingCostCents: number;
   monthlyCostLimitCents: number;
   subscriptionCostUsedCents: number;
@@ -268,6 +270,7 @@ export async function getUsageSummary(
 
     if (
       cached &&
+      "actualCostUsedCents" in cached &&
       "aiPointsBalanceCents" in cached &&
       "dailySubscriptionCostUsedCents" in cached &&
       "weeklySubscriptionCostUsedCents" in cached &&
@@ -330,11 +333,12 @@ export async function getUsageSummary(
   ]);
 
   const tokensUsed = usage._sum.totalTokens ?? 0;
-  const costUsedCents = usage._sum.estimatedCostCents ?? 0;
+  const actualCostUsedCents = usage._sum.estimatedCostCents ?? 0;
   const subscriptionCostUsedCents = usage._sum.subscriptionCostCents ?? 0;
   const dailySubscriptionCostUsedCents = dailyUsage._sum.subscriptionCostCents ?? 0;
   const weeklySubscriptionCostUsedCents = weeklyUsage._sum.subscriptionCostCents ?? 0;
   const aiPointsCostUsedCents = usage._sum.aiPointsCostCents ?? 0;
+  const costUsedCents = subscriptionCostUsedCents + aiPointsCostUsedCents;
   const monthlyCostLimitCents = effectiveMonthlyCostLimit(user);
   const subscriptionRemainingCostCents = subscriptionRemainingCostLimit(
     user,
@@ -353,6 +357,7 @@ export async function getUsageSummary(
     tokensUsed,
     messagesUsed,
     costUsedCents,
+    actualCostUsedCents,
     remainingCostCents: subscriptionRemainingCostCents + aiPointsBalanceCents,
     monthlyCostLimitCents,
     subscriptionCostUsedCents,
@@ -368,7 +373,15 @@ export async function getUsageSummary(
   return summary;
 }
 
-function quotaSource(subscriptionCostCents: number, aiPointsCostCents: number) {
+function quotaSource(
+  subscriptionCostCents: number,
+  aiPointsCostCents: number,
+  actualCostCents: number
+) {
+  if (actualCostCents > 0 && subscriptionCostCents === 0 && aiPointsCostCents === 0) {
+    return "FREE_PROMOTION";
+  }
+
   if (subscriptionCostCents > 0 && aiPointsCostCents > 0) {
     return "MIXED";
   }
@@ -381,7 +394,7 @@ function quotaSource(subscriptionCostCents: number, aiPointsCostCents: number) {
 }
 
 export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArgs) {
-  const costCents = Math.max(0, Number(args.data.estimatedCostCents ?? 0));
+  const actualCostCents = Math.max(0, Number(args.data.estimatedCostCents ?? 0));
   const userId = String(args.data.userId);
 
   return prisma.$transaction(async (tx) => {
@@ -419,7 +432,7 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
         })
       : user;
     const now = new Date();
-    const [subscriptionUsage, dailyUsage, weeklyUsage] = await Promise.all([
+    const [subscriptionUsage, dailyUsage, weeklyUsage, billingSettings] = await Promise.all([
       tx.usageRecord.aggregate({
         where: {
           userId,
@@ -452,8 +465,18 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
         _sum: {
           subscriptionCostCents: true
         }
+      }),
+      tx.aiSettings.findUnique({
+        where: { id: "default" },
+        select: {
+          billingMultiplier: true,
+          billingMultiplierEndsAt: true,
+          billingMultiplierStartsAt: true
+        }
       })
     ]);
+    const billingMultiplier = activeBillingMultiplier(billingSettings, now);
+    const costCents = billedCostCents(actualCostCents, billingMultiplier);
     const subscriptionRemainingCostCents = subscriptionRemainingCostLimit(
       periodUser,
       {
@@ -483,7 +506,9 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
       data: {
         ...args.data,
         aiPointsCostCents,
-        quotaSource: quotaSource(subscriptionCostCents, aiPointsCostCents),
+        billedCostCents: costCents,
+        billingMultiplier,
+        quotaSource: quotaSource(subscriptionCostCents, aiPointsCostCents, actualCostCents),
         subscriptionCostCents
       }
     });
@@ -495,9 +520,23 @@ export async function createUsageRecordWithQuotaDebit(args: UsageRecordCreateArg
 }
 
 export async function assertQuotaAvailable(userId: string, expectedCostCents: number) {
-  const summary = await getUsageSummary(userId, { readCache: false });
+  const [summary, billingSettings] = await Promise.all([
+    getUsageSummary(userId, { readCache: false }),
+    prisma.aiSettings.findUnique({
+      where: { id: "default" },
+      select: {
+        billingMultiplier: true,
+        billingMultiplierEndsAt: true,
+        billingMultiplierStartsAt: true
+      }
+    })
+  ]);
+  const expectedBilledCostCents = billedCostCents(
+    expectedCostCents,
+    activeBillingMultiplier(billingSettings)
+  );
 
-  if (expectedCostCents > summary.remainingCostCents) {
+  if (expectedBilledCostCents > summary.remainingCostCents) {
     throw new QuotaError("额度不足。", summary);
   }
 

@@ -307,6 +307,8 @@ model UsageRecord {
   usageSource        String         @default("estimated")
   upstreamUsageJson  String?
   estimatedCostCents Float          @default(0)
+  billedCostCents    Float          @default(0)
+  billingMultiplier Float          @default(1)
   subscriptionCostCents Float       @default(0)
   aiPointsCostCents  Float          @default(0)
   quotaSource        String         @default("MONTHLY_SUBSCRIPTION")
@@ -356,8 +358,12 @@ model AiSettings {
   contextCompressionThresholdPercent Int @default(70)
   longContextThresholdTokens Int @default(0)
   webSearchEnabled    Boolean @default(false)
-  webSearchProvider   String  @default("duckduckgo")
+  webSearchProvider   String  @default("sub2api")
   webSearchMaxResults Int     @default(5)
+  billingMultiplier Float    @default(1)
+  billingMultiplierStartsAt DateTime?
+  billingMultiplierEndsAt DateTime?
+  userApiConcurrencyLimit Int @default(0)
   registrationEnabled Boolean @default(false)
   registrationRequireEmailVerification Boolean @default(false)
   registrationDefaultCostLimitCents Int @default(5000)

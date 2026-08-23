@@ -27,10 +27,15 @@ const MEMORY_CACHE_READ_TTL_SECONDS = readNonNegativeNumber(
 const MEMORY_CACHE_PRUNE_INTERVAL_MS = 30_000;
 const REDIS_WARNING_LOG_INTERVAL_MS = 30_000;
 const memoryCache = new Map<string, MemoryEntry>();
+const memorySemaphoreLeases = new Map<string, Map<string, number>>();
 type CacheRedisClient = {
   connect: () => Promise<unknown>;
   del: (keys: string[]) => Promise<unknown>;
   destroy?: () => void;
+  eval?: (
+    script: string,
+    options: { arguments: string[]; keys: string[] }
+  ) => Promise<number | string>;
   get: (key: string) => Promise<string | null>;
   on: (event: "error", listener: (error: unknown) => void) => void;
   set: (key: string, value: string, options: { EX: number }) => Promise<unknown>;
@@ -302,4 +307,162 @@ export async function cacheDelete(keys: string[]) {
 
   await withRedis("delete", (redis) => redis.del(namespacedKeys));
   pruneMemoryCache(true);
+}
+
+export type CacheSemaphoreLease = {
+  distributed: boolean;
+  id: string;
+  key: string;
+  ttlSeconds: number;
+};
+
+function pruneMemorySemaphore(key: string, now = Date.now()) {
+  const leases = memorySemaphoreLeases.get(key);
+
+  if (!leases) {
+    return null;
+  }
+
+  for (const [id, expiresAt] of leases) {
+    if (expiresAt <= now) {
+      leases.delete(id);
+    }
+  }
+
+  if (leases.size === 0) {
+    memorySemaphoreLeases.delete(key);
+    return null;
+  }
+
+  return leases;
+}
+
+export async function acquireCacheSemaphore(
+  key: string,
+  limit: number,
+  ttlSeconds = 900
+): Promise<CacheSemaphoreLease | null> {
+  const normalizedLimit = Math.max(1, Math.floor(limit));
+  const normalizedTtl = Math.max(30, Math.floor(ttlSeconds));
+  const namespaced = namespacedKey(`semaphore:${key}`);
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  const expiresAt = now + normalizedTtl * 1000;
+  const redisResult = await withRedis("acquire semaphore", async (redis) => {
+    if (!redis.eval) {
+      return null;
+    }
+
+    return redis.eval(
+      `redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+local count = redis.call('ZCARD', KEYS[1])
+if count >= tonumber(ARGV[2]) then return 0 end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return 1`,
+      {
+        keys: [namespaced],
+        arguments: [
+          String(now),
+          String(normalizedLimit),
+          String(expiresAt),
+          id,
+          String(normalizedTtl)
+        ]
+      }
+    );
+  });
+
+  if (redisResult !== null) {
+    if (Number(redisResult) !== 1) {
+      return null;
+    }
+
+    const leases = pruneMemorySemaphore(namespaced, now) ?? new Map<string, number>();
+    leases.set(id, expiresAt);
+    memorySemaphoreLeases.set(namespaced, leases);
+    return { distributed: true, id, key: namespaced, ttlSeconds: normalizedTtl };
+  }
+
+  const leases = pruneMemorySemaphore(namespaced, now) ?? new Map<string, number>();
+
+  if (leases.size >= normalizedLimit) {
+    return null;
+  }
+
+  leases.set(id, expiresAt);
+  memorySemaphoreLeases.set(namespaced, leases);
+  return { distributed: false, id, key: namespaced, ttlSeconds: normalizedTtl };
+}
+
+export async function renewCacheSemaphore(lease: CacheSemaphoreLease) {
+  const expiresAt = Date.now() + lease.ttlSeconds * 1000;
+
+  if (lease.distributed) {
+    const renewed = await withRedis("renew semaphore", async (redis) => {
+      if (!redis.eval) {
+        return 0;
+      }
+
+      return redis.eval(
+        `if redis.call('ZSCORE', KEYS[1], ARGV[1]) then
+  redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+  redis.call('EXPIRE', KEYS[1], ARGV[3])
+  return 1
+end
+return 0`,
+        {
+          keys: [lease.key],
+          arguments: [lease.id, String(expiresAt), String(lease.ttlSeconds)]
+        }
+      );
+    });
+
+    if (Number(renewed) !== 1) {
+      return false;
+    }
+
+    const leases = pruneMemorySemaphore(lease.key) ?? new Map<string, number>();
+    leases.set(lease.id, expiresAt);
+    memorySemaphoreLeases.set(lease.key, leases);
+    return true;
+  }
+
+  const leases = pruneMemorySemaphore(lease.key);
+
+  if (!leases?.has(lease.id)) {
+    return false;
+  }
+
+  leases.set(lease.id, expiresAt);
+  return true;
+}
+
+export async function releaseCacheSemaphore(lease: CacheSemaphoreLease) {
+  if (lease.distributed) {
+    await withRedis("release semaphore", async (redis) => {
+      if (!redis.eval) {
+        return 0;
+      }
+
+      return redis.eval("return redis.call('ZREM', KEYS[1], ARGV[1])", {
+        keys: [lease.key],
+        arguments: [lease.id]
+      });
+    });
+    const leases = memorySemaphoreLeases.get(lease.key);
+    leases?.delete(lease.id);
+
+    if (leases?.size === 0) {
+      memorySemaphoreLeases.delete(lease.key);
+    }
+    return;
+  }
+
+  const leases = memorySemaphoreLeases.get(lease.key);
+  leases?.delete(lease.id);
+
+  if (leases?.size === 0) {
+    memorySemaphoreLeases.delete(lease.key);
+  }
 }

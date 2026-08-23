@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { normalizeRegistrationCostLimitCents } from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
+import { activeBillingMultiplier } from "@/lib/billing-multiplier";
 import {
   DEFAULT_EASYPAY_BALANCE_CENTS_PER_YUAN,
   EASYPAY_NOTIFY_PATH,
@@ -33,6 +34,7 @@ import {
   fetchUpstreamModels,
   getAiRuntimeSettings
 } from "@/lib/upstream";
+import { normalizeUserApiConcurrencyLimit } from "@/lib/user-api-concurrency";
 
 export const runtime = "nodejs";
 
@@ -86,8 +88,15 @@ async function serializeSettings() {
     codeInterpreterAllowPackageInstall: settings.codeInterpreterAllowPackageInstall,
     codeInterpreterPipIndexUrl: settings.codeInterpreterPipIndexUrl || "https://pypi.org/simple",
     webSearchEnabled: settings.webSearchEnabled,
-    webSearchProvider: "duckduckgo",
+    webSearchProvider: "sub2api",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
+    billingMultiplier: settings.billingMultiplier,
+    billingMultiplierStartsAt: settings.billingMultiplierStartsAt?.toISOString() ?? "",
+    billingMultiplierEndsAt: settings.billingMultiplierEndsAt?.toISOString() ?? "",
+    effectiveBillingMultiplier: activeBillingMultiplier(settings),
+    userApiConcurrencyLimit: normalizeUserApiConcurrencyLimit(
+      settings.userApiConcurrencyLimit
+    ),
     registrationEnabled: settings.registrationEnabled,
     registrationRequireEmailVerification: settings.registrationRequireEmailVerification,
     registrationDefaultCostLimitCents: normalizeRegistrationCostLimitCents(
@@ -200,6 +209,7 @@ export async function POST(request: NextRequest) {
         webSearchEnabled: runtimeSettings.webSearchEnabled,
         webSearchProvider: runtimeSettings.webSearchProvider,
         webSearchMaxResults: runtimeSettings.webSearchMaxResults,
+        userApiConcurrencyLimit: runtimeSettings.userApiConcurrencyLimit,
         registrationEnabled: false,
         registrationRequireEmailVerification: false,
         registrationDefaultCostLimitCents: 5000,

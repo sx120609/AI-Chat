@@ -103,7 +103,7 @@ export function ToolsTab({ settingsForm, setSettingsForm }: ToolsTabProps) {
             />
           </label>
           <div className="admin-note lg:col-span-2">
-            开启后，用户可在聊天输入框为单次消息打开联网搜索；后端通过 DuckDuckGo 搜索并把来源卡片随消息保存，前端用户浏览器不会直接访问搜索引擎。
+            开启后，用户可在聊天输入框为单次消息打开联网搜索；主模型通过 Sub2API Responses 原生联网工具检索，来源卡片会随消息保存。
           </div>
         </div>
       </div>

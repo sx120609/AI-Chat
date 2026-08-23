@@ -148,6 +148,28 @@ export function AccessTab({
           />
           清空 Key
         </label>
+        <label className="block lg:col-span-2">
+          <span className="mb-1 block text-xs font-medium ios-muted">
+            单用户个人 API 最大并发数
+          </span>
+          <input
+            className="ios-input w-full"
+            max={1000}
+            min={0}
+            onChange={(event) =>
+              handleUpdate({
+                userApiConcurrencyLimit: Math.min(
+                  1000,
+                  Math.max(0, Math.round(Number(event.target.value) || 0))
+                )
+              })
+            }
+            step={1}
+            type="number"
+            value={settingsForm.userApiConcurrencyLimit}
+          />
+          <p className="mt-1 text-xs ios-muted">按用户跨 Key 统计，0 表示不限。</p>
+        </label>
       </div>
     </div>
 

@@ -202,8 +202,8 @@ export function useChat({
       setReasoningEffort("xhigh");
     }
   }, [activeModel, reasoningEffort]);
-  const webSearchProvider = "duckduckgo";
-  const webSearchProviderLabel = "DuckDuckGo";
+  const webSearchProvider = "sub2api";
+  const webSearchProviderLabel = "Sub2API 上游";
   const inlineProcessMessageId = useMemo(() => {
     if (!processStartedAt || !processMessageId) {
       return null;

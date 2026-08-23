@@ -791,13 +791,16 @@ export function ApiTab({
                 {origin ? `${origin}/v1` : "/v1"}
               </p>
               <p className="mt-1 truncate text-xs ios-muted">
-                管理前缀 {origin ? `${origin}/api/v1` : "/api/v1"}
+                Gemini {origin ? `${origin}/v1beta` : "/v1beta"} · 管理前缀 {origin ? `${origin}/api/v1` : "/api/v1"}
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-3">
               {[
                 ["Responses", "/responses"],
                 ["Chat", "/chat/completions"],
+                ["Anthropic", "/messages"],
+                ["Gemini", "/v1beta/models/..."],
+                ["Search", "/alpha/search"],
                 ["Images", "/images/generations"],
                 ["Models", "/models"]
               ].map(([label, path]) => (

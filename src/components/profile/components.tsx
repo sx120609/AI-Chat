@@ -142,8 +142,8 @@ export const apiGuideTools: Array<{
   {
     id: "claude-router",
     label: "Claude Router",
-    description: "Switch 兼容",
-    hint: "适合 Claude Code Router / switch 类工具，走 Chat Completions 兼容入口。",
+    description: "Anthropic / Switch 兼容",
+    hint: "支持原生 Messages，也兼容 Claude Code Router / switch 类工具。",
     icon: Braces
   }
 ];

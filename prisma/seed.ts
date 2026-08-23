@@ -108,7 +108,7 @@ async function main() {
         process.env.WEB_SEARCH_ENABLED === undefined
           ? existingSettings?.webSearchEnabled || false
           : process.env.WEB_SEARCH_ENABLED === "true",
-      webSearchProvider: "duckduckgo",
+      webSearchProvider: "sub2api",
       webSearchMaxResults:
         Number(process.env.WEB_SEARCH_MAX_RESULTS) ||
         existingSettings?.webSearchMaxResults ||
@@ -206,7 +206,7 @@ async function main() {
       codeInterpreterPipIndexUrl:
         process.env.CODE_INTERPRETER_PIP_INDEX_URL || "https://pypi.org/simple",
       webSearchEnabled: process.env.WEB_SEARCH_ENABLED === "true",
-      webSearchProvider: "duckduckgo",
+      webSearchProvider: "sub2api",
       webSearchMaxResults: Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5,
       registrationEnabled: process.env.REGISTRATION_ENABLED === "true",
       registrationRequireEmailVerification:

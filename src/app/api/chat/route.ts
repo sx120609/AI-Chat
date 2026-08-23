@@ -65,7 +65,12 @@ import {
   type UpstreamMessage,
   type UpstreamUsage
 } from "@/lib/upstream";
-import { formatWebSearchContext, searchWeb, type WebSearchSource } from "@/lib/web-search";
+import {
+  extractWebSearchSources,
+  mergeWebSearchSources,
+  type WebSearchResult,
+  type WebSearchSource
+} from "@/lib/web-search";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,16 +133,6 @@ type ToolEventPayload = {
   status: "done" | "running" | "skipped" | "error";
   type: "router" | "attachments" | "web_search" | "memory";
 };
-
-function normalizeRequestWebSearchProvider(value: string | undefined, fallback: string) {
-  const provider = value?.trim().toLowerCase();
-
-  if (provider === "auto" || provider === "duckduckgo") {
-    return provider;
-  }
-
-  return fallback === "auto" ? fallback : "duckduckgo";
-}
 
 function sse(
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -736,6 +731,7 @@ async function pipeOpenAiSse(
   handlers: {
     onDelta: (delta: string) => void;
     onReasoning: (delta: string) => void;
+    onWebSources?: (sources: WebSearchSource[]) => void;
   }
 ) {
   const reader = body.getReader();
@@ -773,6 +769,7 @@ async function pipeOpenAiSse(
       const delta = parseDelta(payload);
       const reasoningDelta = parseReasoningDelta(payload);
       const nextUsage = parseUsage(payload);
+      const nextWebSources = extractWebSearchSources(payload);
 
       if (delta) {
         handlers.onDelta(delta);
@@ -784,6 +781,10 @@ async function pipeOpenAiSse(
 
       if (nextUsage) {
         usage = nextUsage;
+      }
+
+      if (nextWebSources.length) {
+        handlers.onWebSources?.(nextWebSources);
       }
     }
   };
@@ -856,7 +857,7 @@ function buildToolEvents(options: {
   memoryResult?: MemoryApplyResult | null;
   routerFinishedAt?: number;
   routerStartedAt?: number;
-  webSearchResult: Awaited<ReturnType<typeof searchWeb>>;
+  webSearchResult: WebSearchResult | null;
   webSearchFinishedAt?: number;
   webSearchStartedAt?: number;
 }): ToolEventPayload[] {
@@ -896,23 +897,34 @@ function buildToolEvents(options: {
   }
 
   if (options.webSearchResult) {
-    const sourceCount = options.webSearchResult.sources.length;
-
     events.push({
-      detail:
-        sourceCount > 0
-          ? `查询“${options.webSearchResult.query}”，找到 ${sourceCount} 个来源`
-          : `查询“${options.webSearchResult.query}”，没有拿到可用来源`,
-      finishedAt: options.webSearchFinishedAt,
+      detail: `正在通过 Sub2API 查询“${options.webSearchResult.query}”`,
       id: "web-search",
       label: "联网搜索",
       startedAt: options.webSearchStartedAt,
-      status: sourceCount > 0 ? "done" : "skipped",
+      status: "running",
       type: "web_search"
     });
   }
 
   return events;
+}
+
+function completedWebSearchToolEvent(
+  result: WebSearchResult,
+  sources: WebSearchSource[],
+  finishedAt: number
+): ToolEventPayload {
+  return {
+    detail: sources.length
+      ? `通过 Sub2API 查询“${result.query}”，找到 ${sources.length} 个来源`
+      : `Sub2API 已查询“${result.query}”，没有返回可展示的来源`,
+    finishedAt,
+    id: "web-search",
+    label: "联网搜索",
+    status: sources.length ? "done" : "skipped",
+    type: "web_search"
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -1768,26 +1780,12 @@ export async function POST(request: NextRequest) {
     query: toolRoutePlan.query,
     shouldSearch: webSearchRuntimeEnabled && toolRoutePlan.shouldSearch
   };
-  const webSearchResult = webSearchPlan.shouldSearch
-    ? await searchWeb(
-        content,
-        {
-          ...aiSettings,
-          webSearchProvider: normalizeRequestWebSearchProvider(
-            body.webSearchProvider,
-            aiSettings.webSearchProvider
-          )
-        },
-        { force: true, query: webSearchPlan.query, signal: request.signal }
-      )
+  const webSearchResult: WebSearchResult | null = webSearchPlan.shouldSearch
+    ? { query: webSearchPlan.query || content, sources: [] }
     : null;
-
-  const webSearchFinishedAt = Date.now();
-  const webSearchSources: WebSearchSource[] = webSearchResult?.sources ?? [];
-  const webSearchContext = webSearchResult?.sources.length
-    ? formatWebSearchContext(webSearchResult)
-    : "";
-  const modelContent = webSearchContext ? `${content}\n\n---\n${webSearchContext}` : content;
+  const webSearchFinishedAt = webSearchResult ? undefined : Date.now();
+  let webSearchSources: WebSearchSource[] = [];
+  const modelContent = content;
   const userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
   const requestPreviousContextMessages = previousContextMessages;
 
@@ -2043,7 +2041,8 @@ export async function POST(request: NextRequest) {
               {
                 fallbackMessages: buildFallbackUpstreamMessages,
                 reasoningEffort,
-                signal: streamAbortController.signal
+                signal: streamAbortController.signal,
+                webSearch: Boolean(webSearchResult)
               }
             );
             upstreamUsage = await pipeOpenAiSse(upstreamBody, {
@@ -2056,11 +2055,27 @@ export async function POST(request: NextRequest) {
                 reasoningContent += delta;
                 markModelOutputStarted("正在思考并整理思路");
                 emitReasoningDelta();
+              },
+              onWebSources: (sources) => {
+                webSearchSources = mergeWebSearchSources(
+                  webSearchSources,
+                  sources,
+                  aiSettings.webSearchMaxResults
+                );
               }
             });
           }
 
           const finishedAt = Date.now();
+          if (webSearchResult) {
+            const event = completedWebSearchToolEvent(
+              webSearchResult,
+              webSearchSources,
+              finishedAt
+            );
+            upsertProcessToolEvent(event, finishedAt);
+            sse(controller, "tool", event);
+          }
           const doneDetail = assistantContent
             ? "回答已生成"
             : reasoningContent
@@ -2300,7 +2315,8 @@ export async function POST(request: NextRequest) {
               reasoningContent: visibleReasoningContent || null,
               generationStatus: "running",
               streamStatus: currentStreamStatus,
-              toolEventsJson: stringifyToolEvents(processToolEvents)
+              toolEventsJson: stringifyToolEvents(processToolEvents),
+              webSourcesJson: JSON.stringify(webSearchSources)
             }
           })
           .catch(() => undefined);
@@ -2410,6 +2426,7 @@ export async function POST(request: NextRequest) {
             generationStatus: options.status,
             streamStatus: options.streamStatus,
             toolEventsJson: stringifyToolEvents(processToolEvents),
+            webSourcesJson: JSON.stringify(webSearchSources),
             processFinishedAt: new Date(finishedAt),
             ...(tokenUsage
               ? {
@@ -2495,7 +2512,8 @@ export async function POST(request: NextRequest) {
             {
               fallbackMessages: buildFallbackUpstreamMessages,
               reasoningEffort,
-              signal: streamAbortController.signal
+              signal: streamAbortController.signal,
+              webSearch: Boolean(webSearchResult)
             }
           );
           upstreamUsage = await pipeOpenAiSse(upstreamBody, {
@@ -2510,11 +2528,28 @@ export async function POST(request: NextRequest) {
               markModelOutputStarted("正在思考并整理思路", "正在思考...");
               emitReasoningDelta();
               queueDraftPersist();
+            },
+            onWebSources: (sources) => {
+              webSearchSources = mergeWebSearchSources(
+                webSearchSources,
+                sources,
+                aiSettings.webSearchMaxResults
+              );
+              queueDraftPersist();
             }
           });
         }
 
         const finishedAt = Date.now();
+        if (webSearchResult) {
+          const event = completedWebSearchToolEvent(
+            webSearchResult,
+            webSearchSources,
+            finishedAt
+          );
+          upsertProcessToolEvent(event, finishedAt, false);
+          sse(controller, "tool", event);
+        }
         const doneDetail = assistantContent
           ? "回答已生成"
           : reasoningContent

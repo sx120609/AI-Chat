@@ -170,6 +170,8 @@ function csvResponse(records: ReturnType<typeof serializeUsageRecord>[]) {
     "reasoningTokens",
     "totalTokens",
     "estimatedCostCents",
+    "billedCostCents",
+    "billingMultiplier",
     "firstTokenLatencyMs",
     "durationMs",
     "conversation",
@@ -195,6 +197,8 @@ function csvResponse(records: ReturnType<typeof serializeUsageRecord>[]) {
     record.reasoningTokens,
     record.totalTokens,
     record.estimatedCostCents,
+    record.billedCostCents,
+    record.billingMultiplier,
     formatMs(record.firstTokenLatencyMs),
     formatMs(record.durationMs),
     record.conversationTitle ?? record.conversationId ?? "",
@@ -227,6 +231,10 @@ function serializeUsageRecord(
       ? `${apiKeyName}（${apiKeyPrefix}...）`
       : `API Key ${apiKeyPrefix}...`
     : null;
+  const billedCostCents =
+    record.billedCostCents > 0 || record.billingMultiplier !== 1
+      ? record.billedCostCents
+      : record.subscriptionCostCents + record.aiPointsCostCents;
 
   return {
     id: record.id,
@@ -241,6 +249,8 @@ function serializeUsageRecord(
     durationMs: record.durationMs,
     endpoint: record.endpoint || fallbackEndpoint(record),
     estimatedCostCents: record.estimatedCostCents,
+    billedCostCents,
+    billingMultiplier: record.billingMultiplier,
     firstTokenLatencyMs: record.firstTokenLatencyMs,
     messageId: record.messageId,
     mode: record.mode,

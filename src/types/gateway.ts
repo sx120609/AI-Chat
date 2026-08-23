@@ -82,6 +82,7 @@ export type UsageSummary = {
   tokensUsed: number;
   messagesUsed: number;
   costUsedCents: number;
+  actualCostUsedCents: number;
   remainingCostCents: number;
   monthlyCostLimitCents: number;
   subscriptionCostUsedCents: number;
@@ -317,6 +318,8 @@ export type AdminUsageRecordView = {
   durationMs?: number | null;
   endpoint: string;
   estimatedCostCents: number;
+  billedCostCents: number;
+  billingMultiplier: number;
   firstTokenLatencyMs?: number | null;
   messageId?: string | null;
   mode: GenerationMode;
@@ -397,6 +400,11 @@ export type AiSettingsView = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  billingMultiplier: number;
+  billingMultiplierStartsAt: string;
+  billingMultiplierEndsAt: string;
+  effectiveBillingMultiplier: number;
+  userApiConcurrencyLimit: number;
   registrationEnabled: boolean;
   registrationRequireEmailVerification: boolean;
   registrationDefaultCostLimitCents: number;

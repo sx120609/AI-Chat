@@ -6,6 +6,10 @@ import {
 } from "@/lib/auth-settings";
 import { cacheDelete } from "@/lib/cache";
 import {
+  activeBillingMultiplier,
+  validateBillingMultiplierSchedule
+} from "@/lib/billing-multiplier";
+import {
   normalizeCodingPlanConfig,
   normalizeCodingPlans,
   parseCodingPlans,
@@ -47,6 +51,7 @@ import {
   parseModelSystemPrompts
 } from "@/lib/system-prompt";
 import { AI_RUNTIME_SETTINGS_CACHE_KEY } from "@/lib/upstream";
+import { normalizeUserApiConcurrencyLimit } from "@/lib/user-api-concurrency";
 
 export const runtime = "nodejs";
 
@@ -78,6 +83,10 @@ type SettingsBody = {
   webSearchEnabled?: boolean;
   webSearchProvider?: string;
   webSearchMaxResults?: number;
+  billingMultiplier?: number;
+  billingMultiplierStartsAt?: string | null;
+  billingMultiplierEndsAt?: string | null;
+  userApiConcurrencyLimit?: number;
   registrationEnabled?: boolean;
   registrationRequireEmailVerification?: boolean;
   registrationDefaultCostLimitCents?: number;
@@ -150,6 +159,10 @@ function serializeSettings(settings: {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  billingMultiplier: number;
+  billingMultiplierStartsAt: Date | null;
+  billingMultiplierEndsAt: Date | null;
+  userApiConcurrencyLimit: number;
   registrationEnabled: boolean;
   registrationRequireEmailVerification: boolean;
   registrationDefaultCostLimitCents: number;
@@ -228,8 +241,15 @@ function serializeSettings(settings: {
     codeInterpreterPipIndexUrl:
       settings.codeInterpreterPipIndexUrl || "https://pypi.org/simple",
     webSearchEnabled: settings.webSearchEnabled,
-    webSearchProvider: "duckduckgo",
+    webSearchProvider: "sub2api",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
+    billingMultiplier: settings.billingMultiplier,
+    billingMultiplierStartsAt: settings.billingMultiplierStartsAt?.toISOString() ?? "",
+    billingMultiplierEndsAt: settings.billingMultiplierEndsAt?.toISOString() ?? "",
+    effectiveBillingMultiplier: activeBillingMultiplier(settings),
+    userApiConcurrencyLimit: normalizeUserApiConcurrencyLimit(
+      settings.userApiConcurrencyLimit
+    ),
     registrationEnabled: settings.registrationEnabled,
     registrationRequireEmailVerification: settings.registrationRequireEmailVerification,
     registrationDefaultCostLimitCents: normalizeRegistrationCostLimitCents(
@@ -419,9 +439,21 @@ export async function GET(request: NextRequest) {
       codeInterpreterPipIndexUrl:
         process.env.CODE_INTERPRETER_PIP_INDEX_URL || "https://pypi.org/simple",
       webSearchEnabled: process.env.WEB_SEARCH_ENABLED === "true",
-      webSearchProvider: "duckduckgo",
+      webSearchProvider: "sub2api",
       webSearchMaxResults: normalizeWebSearchMaxResults(
         Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5
+      ),
+      billingMultiplier: Number.isFinite(Number(process.env.BILLING_MULTIPLIER))
+        ? Number(process.env.BILLING_MULTIPLIER)
+        : 1,
+      billingMultiplierStartsAt: process.env.BILLING_MULTIPLIER_STARTS_AT
+        ? new Date(process.env.BILLING_MULTIPLIER_STARTS_AT)
+        : null,
+      billingMultiplierEndsAt: process.env.BILLING_MULTIPLIER_ENDS_AT
+        ? new Date(process.env.BILLING_MULTIPLIER_ENDS_AT)
+        : null,
+      userApiConcurrencyLimit: normalizeUserApiConcurrencyLimit(
+        process.env.USER_API_CONCURRENCY_LIMIT
       ),
       registrationEnabled: process.env.REGISTRATION_ENABLED === "true",
       registrationRequireEmailVerification:
@@ -534,6 +566,26 @@ export async function PATCH(request: NextRequest) {
   const registrationDefaultCostLimitCents = normalizeRegistrationCostLimitCents(
     body.registrationDefaultCostLimitCents
   );
+  let billingSchedule: ReturnType<typeof validateBillingMultiplierSchedule>;
+
+  try {
+    billingSchedule = validateBillingMultiplierSchedule({
+      billingMultiplier: body.billingMultiplier ?? existingSettings?.billingMultiplier,
+      billingMultiplierStartsAt:
+        body.billingMultiplierStartsAt === undefined
+          ? existingSettings?.billingMultiplierStartsAt
+          : body.billingMultiplierStartsAt,
+      billingMultiplierEndsAt:
+        body.billingMultiplierEndsAt === undefined
+          ? existingSettings?.billingMultiplierEndsAt
+          : body.billingMultiplierEndsAt
+    });
+  } catch (billingError) {
+    return jsonError(
+      billingError instanceof Error ? billingError.message : "动态倍率设置无效。",
+      400
+    );
+  }
   let smtpSettings: ReturnType<typeof normalizeSmtpSettings>;
 
   try {
@@ -618,6 +670,10 @@ export async function PATCH(request: NextRequest) {
     webSearchEnabled: boolean;
     webSearchProvider: string;
     webSearchMaxResults: number;
+    billingMultiplier: number;
+    billingMultiplierStartsAt: Date | null;
+    billingMultiplierEndsAt: Date | null;
+    userApiConcurrencyLimit: number;
     registrationEnabled: boolean;
     registrationRequireEmailVerification: boolean;
     registrationDefaultCostLimitCents: number;
@@ -671,8 +727,14 @@ export async function PATCH(request: NextRequest) {
     codeInterpreterAllowPackageInstall: Boolean(body.codeInterpreterAllowPackageInstall),
     codeInterpreterPipIndexUrl,
     webSearchEnabled: Boolean(body.webSearchEnabled),
-    webSearchProvider: "duckduckgo",
+    webSearchProvider: "sub2api",
     webSearchMaxResults: normalizeWebSearchMaxResults(body.webSearchMaxResults),
+    billingMultiplier: billingSchedule.billingMultiplier,
+    billingMultiplierStartsAt: billingSchedule.billingMultiplierStartsAt,
+    billingMultiplierEndsAt: billingSchedule.billingMultiplierEndsAt,
+    userApiConcurrencyLimit: normalizeUserApiConcurrencyLimit(
+      body.userApiConcurrencyLimit ?? existingSettings?.userApiConcurrencyLimit
+    ),
     registrationEnabled,
     registrationRequireEmailVerification,
     registrationDefaultCostLimitCents,

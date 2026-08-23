@@ -22,7 +22,7 @@ export type ToolRoutePlan = {
 };
 
 const MAX_ROUTER_RESPONSE_CHARS = 4000;
-const EXPLICIT_SEARCH_PATTERN = /(联网|搜索|查一下|查找|检索|搜一下|网上|网络|web search|search the web|duckduckgo)/i;
+const EXPLICIT_SEARCH_PATTERN = /(联网|搜索|查一下|查找|检索|搜一下|网上|网络|web search|search the web)/i;
 const ATTACHMENT_BOUND_PATTERN =
   /(这|这个|这份|这张|它|附件|文件|文档|pdf|表格|图片|截图|报告|内容|里面|上面|是什么|总结|概括|分析|解读|翻译|提取|what is this|this file|attached file)/i;
 const IMAGE_CREATION_PATTERN =

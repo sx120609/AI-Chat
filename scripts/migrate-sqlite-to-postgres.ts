@@ -375,7 +375,7 @@ async function main() {
           "https://pypi.org/simple"
         ),
         webSearchEnabled: boolValue(row, columns.AiSettings, "webSearchEnabled", false),
-        webSearchProvider: stringValue(row, columns.AiSettings, "webSearchProvider", "duckduckgo"),
+        webSearchProvider: stringValue(row, columns.AiSettings, "webSearchProvider", "sub2api"),
         webSearchMaxResults: intValue(row, columns.AiSettings, "webSearchMaxResults", 5),
         registrationEnabled: boolValue(row, columns.AiSettings, "registrationEnabled", false),
         registrationRequireEmailVerification: boolValue(

@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import type { AttachmentView, MessageView, ToolEventView } from "@/types/gateway";
 import { sanitizeIdentityLeak, sanitizeReasoningContent } from "@/lib/identity";
-import { prepareMarkdownForRendering } from "@/lib/markdown";
+import { prepareMarkdownForRendering, remarkCjkFriendlyStrong } from "@/lib/markdown";
 import { formatCents, formatNumber } from "@/lib/format";
 import { InlineProcessView } from "./types";
 import {
@@ -519,7 +519,7 @@ export const MessageBubble = memo(function MessageBubble({
                   <ReactMarkdown
                     components={markdownComponents}
                     rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
-                    remarkPlugins={[remarkGfm, remarkMath]}
+                    remarkPlugins={[remarkGfm, remarkMath, remarkCjkFriendlyStrong]}
                   >
                     {renderedContent}
                   </ReactMarkdown>

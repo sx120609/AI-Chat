@@ -14,7 +14,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import { prepareMarkdownForRendering } from "@/lib/markdown";
+import { prepareMarkdownForRendering, remarkCjkFriendlyStrong } from "@/lib/markdown";
 import type {
   AttachmentKind,
   AttachmentView,
@@ -208,7 +208,7 @@ function SharedMessage({
               <ReactMarkdown
                 components={markdownComponents}
                 rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
-                remarkPlugins={[remarkGfm, remarkMath]}
+                remarkPlugins={[remarkGfm, remarkMath, remarkCjkFriendlyStrong]}
               >
                 {renderedContent}
               </ReactMarkdown>

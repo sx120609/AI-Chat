@@ -347,8 +347,6 @@ export function PaymentTab({
     ) {
       setRedemptionForm((current) => ({
         ...current,
-        codingPlanDurationUnit: "MONTHS",
-        codingPlanDurationValue: settingsForm.codingPlans[0].durationMonths,
         codingPlanId: settingsForm.codingPlans[0].id
       }));
     }
@@ -966,14 +964,19 @@ export function PaymentTab({
           </button>
         </div>
 
-        <div className="grid gap-3 border-b border-[color:var(--ios-separator)] p-4 lg:grid-cols-6">
-          <div className="grid grid-cols-2 gap-2 lg:col-span-2">
+        <div className="space-y-4 border-b border-[color:var(--ios-separator)] p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-stone-900">发放内容</p>
+              <p className="mt-0.5 text-xs ios-muted">先选择兑换后到账的权益类型</p>
+            </div>
+            <div className="grid w-full grid-cols-2 gap-1 rounded-xl bg-stone-100 p-1 sm:w-72">
             {(["AI_POINTS", "CODING_PLAN"] as const).map((rewardType) => (
               <button
-                className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                className={`app-action-button h-9 rounded-lg text-sm font-semibold transition ${
                   redemptionForm.rewardType === rewardType
-                    ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
-                    : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                    ? "bg-white text-stone-950 shadow-sm ring-1 ring-black/5"
+                    : "text-stone-500 hover:bg-white/60 hover:text-stone-800"
                 }`}
                 key={rewardType}
                 onClick={() =>
@@ -984,10 +987,13 @@ export function PaymentTab({
                 {rewardType === "AI_POINTS" ? "AI 点数" : "Coding Plan"}
               </button>
             ))}
+            </div>
           </div>
+
+          <div className="rounded-2xl border border-[color:var(--ios-separator)] bg-white/60 p-4 shadow-[0_1px_0_rgba(255,255,255,0.7)_inset]">
           {redemptionForm.rewardType === "AI_POINTS" ? (
-            <label className="block lg:col-span-2">
-              <span className="mb-1 block text-xs font-medium ios-muted">每次到账 AI 点数</span>
+            <label className="block max-w-xl">
+              <span className="mb-1.5 block text-xs font-semibold text-stone-700">每次兑换到账</span>
               <CentsDraftInput
                 className="ios-input w-full"
                 minCents={1}
@@ -996,154 +1002,181 @@ export function PaymentTab({
                 }
                 value={redemptionForm.aiPointsBalanceCents}
               />
+              <span className="mt-1.5 block text-[11px] ios-muted">按 AI 点数余额直接发放到账户。</span>
             </label>
           ) : (
-            <label className="block lg:col-span-2">
-              <span className="mb-1 block text-xs font-medium ios-muted">发放套餐</span>
-              <select
-                className="ios-input w-full"
-                onChange={(event) => {
-                  const plan = settingsForm.codingPlans.find(
-                    (item) => item.id === event.target.value
-                  );
-
-                  setRedemptionForm((current) => ({
-                    ...current,
-                    codingPlanDurationUnit: "MONTHS",
-                    codingPlanDurationValue: plan?.durationMonths ?? 1,
-                    codingPlanId: event.target.value
-                  }));
-                }}
-                value={selectedRedemptionPlan?.id || ""}
-              >
-                {settingsForm.codingPlans.length === 0 ? (
-                  <option value="">请先新增并保存套餐</option>
-                ) : null}
-                {settingsForm.codingPlans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name} · {plan.durationMonths} 个月
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {redemptionForm.rewardType === "CODING_PLAN" ? (
-            <div className="lg:col-span-2">
-              <span className="mb-1 block text-xs font-medium ios-muted">本批兑换后的有效期</span>
-              <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2">
-                <input
-                  className="ios-input w-full"
-                  max={redemptionForm.codingPlanDurationUnit === "DAYS" ? 3650 : 120}
-                  min={1}
-                  onChange={(event) => {
-                    const max = redemptionForm.codingPlanDurationUnit === "DAYS" ? 3650 : 120;
-                    const value = Math.min(
-                      max,
-                      Math.max(1, Math.round(Number(event.target.value) || 1))
-                    );
-
-                    setRedemptionForm((current) => ({
-                      ...current,
-                      codingPlanDurationValue: value
-                    }));
-                  }}
-                  step={1}
-                  type="number"
-                  value={redemptionForm.codingPlanDurationValue}
-                />
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.8fr)]">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold text-stone-700">发放套餐</span>
                 <select
                   className="ios-input w-full"
-                  onChange={(event) => {
-                    const nextUnit = event.target.value as "DAYS" | "MONTHS";
-
+                  onChange={(event) =>
                     setRedemptionForm((current) => ({
                       ...current,
-                      codingPlanDurationUnit: nextUnit,
-                      codingPlanDurationValue:
-                        nextUnit === "DAYS"
-                          ? Math.min(3650, current.codingPlanDurationValue * 30)
-                          : Math.min(120, Math.max(1, Math.ceil(current.codingPlanDurationValue / 30)))
-                    }));
-                  }}
-                  value={redemptionForm.codingPlanDurationUnit}
+                      codingPlanId: event.target.value
+                    }))
+                  }
+                  value={selectedRedemptionPlan?.id || ""}
                 >
-                  <option value="DAYS">天</option>
-                  <option value="MONTHS">个月</option>
+                  {settingsForm.codingPlans.length === 0 ? (
+                    <option value="">请先新增并保存套餐</option>
+                  ) : null}
+                  {settingsForm.codingPlans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>
+                      {plan.name}
+                    </option>
+                  ))}
                 </select>
+                <span className="mt-1.5 block text-[11px] ios-muted">
+                  {selectedRedemptionPlan
+                    ? `${formatCents(selectedRedemptionPlan.monthlyCostLimitCents)} 月额度${
+                        selectedRedemptionPlan.personalApiEnabled ? " · 含个人 API Key" : ""
+                      }`
+                    : "套餐决定额度与 API 权益，不再携带时长。"}
+                </span>
+              </label>
+              <div>
+                <span className="mb-1.5 block text-xs font-semibold text-stone-700">套餐使用时长</span>
+                <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-2">
+                  <input
+                    aria-label="套餐使用时长"
+                    className="ios-input w-full"
+                    max={redemptionForm.codingPlanDurationUnit === "DAYS" ? 3650 : 120}
+                    min={1}
+                    onChange={(event) => {
+                      const max = redemptionForm.codingPlanDurationUnit === "DAYS" ? 3650 : 120;
+                      const value = Math.min(
+                        max,
+                        Math.max(1, Math.round(Number(event.target.value) || 1))
+                      );
+
+                      setRedemptionForm((current) => ({
+                        ...current,
+                        codingPlanDurationValue: value
+                      }));
+                    }}
+                    step={1}
+                    type="number"
+                    value={redemptionForm.codingPlanDurationValue}
+                  />
+                  <div className="grid grid-cols-2 gap-1 rounded-xl border border-[color:var(--ios-separator)] bg-stone-100 p-1">
+                    {(["DAYS", "MONTHS"] as const).map((durationUnit) => (
+                      <button
+                        className={`app-action-button rounded-lg text-xs font-semibold transition ${
+                          redemptionForm.codingPlanDurationUnit === durationUnit
+                            ? "bg-white text-stone-950 shadow-sm"
+                            : "text-stone-500 hover:text-stone-800"
+                        }`}
+                        key={durationUnit}
+                        onClick={() =>
+                          setRedemptionForm((current) => ({
+                            ...current,
+                            codingPlanDurationUnit: durationUnit,
+                            codingPlanDurationValue:
+                              durationUnit === "DAYS"
+                                ? Math.min(3650, current.codingPlanDurationValue * 30)
+                                : Math.min(
+                                    120,
+                                    Math.max(1, Math.ceil(current.codingPlanDurationValue / 30))
+                                  )
+                          }))
+                        }
+                        type="button"
+                      >
+                        {durationUnit === "DAYS" ? "天" : "月"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="mt-1.5 text-[11px] ios-muted">用户兑换后，套餐权益持续的时间。</p>
               </div>
-              <p className="mt-1 text-[11px] ios-muted">只覆盖本批兑换码，不修改原套餐购买时长。</p>
             </div>
-          ) : null}
-          <label className="block lg:col-span-1">
-            <span className="mb-1 block text-xs font-medium ios-muted">生成数量</span>
-            <input
-              className="ios-input w-full"
-              max={100}
-              min={1}
-              onChange={(event) =>
-                setRedemptionForm((current) => ({
-                  ...current,
-                  quantity: Math.min(100, Math.max(1, Math.round(Number(event.target.value) || 1)))
-                }))
-              }
-              type="number"
-              value={redemptionForm.quantity}
-            />
-          </label>
-          <label className="block lg:col-span-1">
-            <span className="mb-1 block text-xs font-medium ios-muted">每码可用次数</span>
-            <input
-              className="ios-input w-full"
-              max={10000}
-              min={1}
-              onChange={(event) =>
-                setRedemptionForm((current) => ({
-                  ...current,
-                  maxRedemptions: Math.min(10000, Math.max(1, Math.round(Number(event.target.value) || 1)))
-                }))
-              }
-              type="number"
-              value={redemptionForm.maxRedemptions}
-            />
-          </label>
-          <label className="block lg:col-span-2">
-            <span className="mb-1 block text-xs font-medium ios-muted">批次说明（可选）</span>
-            <input
-              className="ios-input w-full"
-              maxLength={120}
-              onChange={(event) =>
-                setRedemptionForm((current) => ({ ...current, label: event.target.value }))
-              }
-              placeholder="例如：开学活动 / 合作方赠送"
-              value={redemptionForm.label}
-            />
-          </label>
-          <label className="block lg:col-span-1">
-            <span className="mb-1 block text-xs font-medium ios-muted">兑换码前缀</span>
-            <input
-              className="ios-input w-full font-mono uppercase"
-              maxLength={12}
-              onChange={(event) =>
-                setRedemptionForm((current) => ({ ...current, prefix: event.target.value }))
-              }
-              value={redemptionForm.prefix}
-            />
-          </label>
-          <label className="block lg:col-span-2">
-            <span className="mb-1 block text-xs font-medium ios-muted">过期时间（留空长期有效）</span>
-            <input
-              className="ios-input w-full"
-              min={dateTimeLocalValue(new Date().toISOString())}
-              onChange={(event) =>
-                setRedemptionForm((current) => ({ ...current, expiresAt: event.target.value }))
-              }
-              type="datetime-local"
-              value={redemptionForm.expiresAt}
-            />
-          </label>
-          <div className="flex items-end lg:col-span-1">
+          )}
+          </div>
+
+          <div className="rounded-2xl border border-[color:var(--ios-separator)] bg-[color:var(--app-accent-soft)]/35 p-4">
+            <div className="mb-3">
+              <p className="text-sm font-semibold text-stone-900">兑换码规则</p>
+              <p className="mt-0.5 text-xs ios-muted">控制生成批次、使用次数和领取截止时间</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium ios-muted">生成数量</span>
+                <input
+                  className="ios-input w-full"
+                  max={100}
+                  min={1}
+                  onChange={(event) =>
+                    setRedemptionForm((current) => ({
+                      ...current,
+                      quantity: Math.min(100, Math.max(1, Math.round(Number(event.target.value) || 1)))
+                    }))
+                  }
+                  type="number"
+                  value={redemptionForm.quantity}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium ios-muted">每码可用次数</span>
+                <input
+                  className="ios-input w-full"
+                  max={10000}
+                  min={1}
+                  onChange={(event) =>
+                    setRedemptionForm((current) => ({
+                      ...current,
+                      maxRedemptions: Math.min(10000, Math.max(1, Math.round(Number(event.target.value) || 1)))
+                    }))
+                  }
+                  type="number"
+                  value={redemptionForm.maxRedemptions}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium ios-muted">兑换码前缀</span>
+                <input
+                  className="ios-input w-full font-mono uppercase"
+                  maxLength={12}
+                  onChange={(event) =>
+                    setRedemptionForm((current) => ({ ...current, prefix: event.target.value }))
+                  }
+                  value={redemptionForm.prefix}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium ios-muted">兑换截止时间</span>
+                <input
+                  className="ios-input w-full"
+                  min={dateTimeLocalValue(new Date().toISOString())}
+                  onChange={(event) =>
+                    setRedemptionForm((current) => ({ ...current, expiresAt: event.target.value }))
+                  }
+                  type="datetime-local"
+                  value={redemptionForm.expiresAt}
+                />
+                <span className="mt-1.5 block text-[11px] ios-muted">留空表示长期可兑换，与套餐使用时长无关。</span>
+              </label>
+            </div>
+            <label className="mt-3 block">
+              <span className="mb-1.5 block text-xs font-medium ios-muted">批次说明（可选）</span>
+              <input
+                className="ios-input w-full"
+                maxLength={120}
+                onChange={(event) =>
+                  setRedemptionForm((current) => ({ ...current, label: event.target.value }))
+                }
+                placeholder="例如：开学活动 / 合作方赠送"
+                value={redemptionForm.label}
+              />
+            </label>
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-xl border border-[color:var(--ios-separator)] bg-white/45 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-3xl text-xs leading-5 ios-muted">
+              多次可用的兑换链接适合公开活动，每个账号对同一码仍只能使用一次；套餐权益会在生成时固化。
+            </p>
             <button
-              className="ios-button-primary app-action-button flex h-10 w-full items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+              className="ios-button-primary app-action-button flex h-10 w-full shrink-0 items-center justify-center gap-2 px-5 text-sm disabled:opacity-50 sm:w-auto sm:min-w-36"
               disabled={
                 creatingRedemptionCodes ||
                 (redemptionForm.rewardType === "CODING_PLAN" && !selectedRedemptionPlan)
@@ -1154,9 +1187,6 @@ export function PaymentTab({
               {creatingRedemptionCodes ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
               生成
             </button>
-          </div>
-          <div className="admin-note lg:col-span-6">
-            多次可用的兑换链接适合公开活动；每个账号仍只能使用一次。Coding Plan 会在生成时固化套餐快照，后续修改后台套餐不会改变已生成兑换码。
           </div>
         </div>
 

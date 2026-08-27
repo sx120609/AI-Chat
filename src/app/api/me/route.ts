@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest, serializeCurrentUser } from "@/lib/auth";
 import { getUsageSummary } from "@/lib/quota";
 import { jsonError, requireActiveUser } from "@/lib/http";
-import { getEnabledChatModels } from "@/lib/models";
+import { getVisibleChatModels } from "@/lib/models";
 import { getPublicPaymentSettings } from "@/lib/payment-settings";
 import { getSiteSettings } from "@/lib/site-settings";
 import { getAiRuntimeSettings } from "@/lib/upstream";
@@ -28,10 +28,9 @@ export async function GET(request: NextRequest) {
     user: serializeCurrentUser(user),
     siteSettings,
     usage,
-    chatModels: getEnabledChatModels(aiSettings.chatModels),
+    chatModels: getVisibleChatModels(aiSettings.chatModels),
     defaultReasoningEffort: aiSettings.defaultReasoningEffort,
     paymentSettings,
-    webSearchEnabled: aiSettings.webSearchEnabled,
-    webSearchProvider: aiSettings.webSearchProvider
+    webSearchEnabled: aiSettings.webSearchEnabled
   });
 }

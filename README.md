@@ -204,6 +204,7 @@ CODE_INTERPRETER_DOCKER_CPUS="1"
 WEB_SEARCH_ENABLED="false"
 WEB_SEARCH_PROVIDER="sub2api"
 WEB_SEARCH_MAX_RESULTS="5"
+WEB_SEARCH_COST_CENTS="1"
 REGISTRATION_ENABLED="false"
 REGISTRATION_REQUIRE_EMAIL_VERIFICATION="false"
 REGISTRATION_DEFAULT_COST_LIMIT_CENTS="5000"
@@ -238,9 +239,10 @@ EASYPAY_WXPAY_CHANNEL_ID=""
 WEB_SEARCH_ENABLED="false"
 WEB_SEARCH_PROVIDER="sub2api"
 WEB_SEARCH_MAX_RESULTS="5"
+WEB_SEARCH_COST_CENTS="1"
 ```
 
-管理员开启后，后端会先规划是否需要联网；需要时直接在发给 Sub2API 的 Responses 请求中启用原生 `web_search` 工具，不再由本站抓取 DuckDuckGo 或天气站。Sub2API 返回的搜索来源会从流式事件中提取，并作为来源卡片随助手消息保存。用户也可以点亮聊天输入框的联网按钮，强制下一条消息启用上游搜索。
+管理员开启后，后端会先规划是否需要联网；需要时直接在 Responses 请求中启用原生 `web_search` 工具，不再由本站抓取搜索引擎或天气站。返回的搜索来源会从流式事件中提取，并作为来源卡片随助手消息保存。用户也可以点亮聊天输入框的联网按钮，强制下一条消息启用上游搜索。联网工具按实际查询次数附加费用，默认每次 1 美分，可通过后台或 `WEB_SEARCH_COST_CENTS` 调整；检索内容产生的模型 token 费用仍会照常计算。
 
 ## 注册与邮件
 

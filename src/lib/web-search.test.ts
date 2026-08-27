@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   extractWebSearchSources,
+  extractWebSearchCallIds,
   mergeWebSearchSources,
   parseWebSourcesJson
 } from "./web-search";
@@ -43,6 +44,24 @@ test("extracts and deduplicates Sub2API Responses web search sources", () => {
       ["Example News", "https://example.com/news"],
       ["Documentation", "https://docs.example.org/page"]
     ]
+  );
+});
+
+test("extracts stable web search call IDs from Responses stream events", () => {
+  assert.deepEqual(
+    extractWebSearchCallIds({
+      type: "response.output_item.added",
+      item: { id: "ws_123", type: "web_search_call", status: "in_progress" }
+    }),
+    ["ws_123"]
+  );
+  assert.deepEqual(
+    extractWebSearchCallIds({
+      type: "response.web_search_call.completed",
+      item_id: "ws_123",
+      output_index: 0
+    }),
+    ["ws_123"]
   );
 });
 

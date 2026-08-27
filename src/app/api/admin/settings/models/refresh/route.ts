@@ -17,6 +17,7 @@ import {
   buildChatModelCatalog,
   DEFAULT_UPSTREAM_MODEL_MAP,
   getEnabledChatModels,
+  getVisibleChatModels,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
   parseModelDisplayConfig,
@@ -35,6 +36,7 @@ import {
   getAiRuntimeSettings
 } from "@/lib/upstream";
 import { normalizeUserApiConcurrencyLimit } from "@/lib/user-api-concurrency";
+import { normalizeWebSearchCostCents } from "@/lib/web-search-billing";
 
 export const runtime = "nodejs";
 
@@ -77,6 +79,7 @@ async function serializeSettings() {
     chatModelDisplay: parseModelDisplayConfig(settings.chatModelDisplayJson),
     chatModels,
     enabledChatModelIds: getEnabledChatModels(chatModels).map((model) => model.id),
+    visibleChatModelIds: getVisibleChatModels(chatModels).map((model) => model.id),
     imageModelId: settings.imageModelId,
     defaultReasoningEffort: normalizeReasoningEffort(settings.defaultReasoningEffort),
     reasoningParamMode: normalizeReasoningParamMode(settings.reasoningParamMode),
@@ -90,6 +93,7 @@ async function serializeSettings() {
     webSearchEnabled: settings.webSearchEnabled,
     webSearchProvider: "sub2api",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
+    webSearchCostCents: normalizeWebSearchCostCents(settings.webSearchCostCents),
     billingMultiplier: settings.billingMultiplier,
     billingMultiplierStartsAt: settings.billingMultiplierStartsAt?.toISOString() ?? "",
     billingMultiplierEndsAt: settings.billingMultiplierEndsAt?.toISOString() ?? "",
@@ -154,6 +158,7 @@ export async function POST(request: NextRequest) {
       where: { id: "default" }
     });
     const existingEnabled = existingSettings?.enabledChatModelsJson || "[]";
+    const existingVisible = existingSettings?.visibleChatModelsJson || "[]";
     const existingDisplay = parseModelDisplayConfig(existingSettings?.chatModelDisplayJson);
     const modelMap = parseModelMap(existingSettings?.chatModelMapJson);
     const nextDisplay = { ...existingDisplay };
@@ -181,6 +186,7 @@ export async function POST(request: NextRequest) {
       update: {
         availableModelsJson: JSON.stringify(modelIds),
         enabledChatModelsJson: existingEnabled,
+        visibleChatModelsJson: existingVisible,
         chatModelDisplayJson: JSON.stringify(nextDisplay)
       },
       create: {
@@ -196,6 +202,7 @@ export async function POST(request: NextRequest) {
         chatModelDisplayJson: JSON.stringify(nextDisplay),
         availableModelsJson: JSON.stringify(modelIds),
         enabledChatModelsJson: "[]",
+        visibleChatModelsJson: "[]",
         imageModelId: runtimeSettings.imageModelId,
         defaultReasoningEffort: runtimeSettings.defaultReasoningEffort,
         reasoningParamMode: runtimeSettings.reasoningParamMode,
@@ -209,6 +216,7 @@ export async function POST(request: NextRequest) {
         webSearchEnabled: runtimeSettings.webSearchEnabled,
         webSearchProvider: runtimeSettings.webSearchProvider,
         webSearchMaxResults: runtimeSettings.webSearchMaxResults,
+        webSearchCostCents: runtimeSettings.webSearchCostCents,
         userApiConcurrencyLimit: runtimeSettings.userApiConcurrencyLimit,
         registrationEnabled: false,
         registrationRequireEmailVerification: false,

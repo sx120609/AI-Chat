@@ -77,7 +77,7 @@ export function ToolsTab({ settingsForm, setSettingsForm }: ToolsTabProps) {
           <Globe2 className="size-4 text-[color:var(--claude-accent)]" />
           <span className="text-xs font-semibold ios-muted">联网搜索</span>
         </div>
-        <div className="grid gap-3 p-3 lg:grid-cols-2">
+        <div className="grid gap-3 p-3 lg:grid-cols-3">
           <label className="admin-check-row">
             <input
               checked={settingsForm.webSearchEnabled}
@@ -102,8 +102,23 @@ export function ToolsTab({ settingsForm, setSettingsForm }: ToolsTabProps) {
               value={settingsForm.webSearchMaxResults}
             />
           </label>
-          <div className="admin-note lg:col-span-2">
-            开启后，用户可在聊天输入框为单次消息打开联网搜索；主模型通过 Sub2API Responses 原生联网工具检索，来源卡片会随消息保存。
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium ios-muted">
+              每次查询费用（美分）
+            </span>
+            <input
+              className="ios-input w-full"
+              min={0}
+              onChange={(event) =>
+                handleUpdate({ webSearchCostCents: Number(event.target.value) })
+              }
+              step="0.01"
+              type="number"
+              value={settingsForm.webSearchCostCents}
+            />
+          </label>
+          <div className="admin-note lg:col-span-3">
+            联网搜索按实际查询次数附加计费，并与模型输入、缓存和输出 token 费用一并扣除；当前默认每次 1 美分。来源卡片会随消息保存。
           </div>
         </div>
       </div>

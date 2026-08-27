@@ -21,6 +21,7 @@ export type ChatModelConfig = {
   contextNote: string;
   source: ModelSource;
   enabled: boolean;
+  visibleInChat: boolean;
   supportsReasoning: boolean;
 };
 
@@ -88,6 +89,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "Sol",
     source: "default",
     enabled: true,
+    visibleInChat: true,
     supportsReasoning: true
   },
   {
@@ -102,6 +104,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "Terra",
     source: "default",
     enabled: true,
+    visibleInChat: true,
     supportsReasoning: true
   },
   {
@@ -116,6 +119,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "Luna",
     source: "default",
     enabled: false,
+    visibleInChat: true,
     supportsReasoning: true
   },
   {
@@ -130,6 +134,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "旗舰",
     source: "default",
     enabled: true,
+    visibleInChat: true,
     supportsReasoning: true
   },
   {
@@ -144,6 +149,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "均衡",
     source: "default",
     enabled: true,
+    visibleInChat: true,
     supportsReasoning: true
   },
   {
@@ -158,6 +164,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "Pro",
     source: "default",
     enabled: true,
+    visibleInChat: true,
     supportsReasoning: true
   },
   {
@@ -172,6 +179,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "低成本",
     source: "default",
     enabled: true,
+    visibleInChat: true,
     supportsReasoning: true
   },
   {
@@ -186,6 +194,7 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextNote: "轻量代码",
     source: "default",
     enabled: true,
+    visibleInChat: true,
     supportsReasoning: true
   }
 ];
@@ -448,11 +457,13 @@ export function buildChatModelCatalog(settings?: {
   chatModelDisplayJson?: string | null;
   availableModelsJson?: string | null;
   enabledChatModelsJson?: string | null;
+  visibleChatModelsJson?: string | null;
 }) {
   const modelMap = parseModelMap(settings?.chatModelMapJson);
   const modelDisplay = parseModelDisplayConfig(settings?.chatModelDisplayJson);
   const upstreamIds = uniqueModelIds(parseModelIds(settings?.availableModelsJson));
   const enabledIds = uniqueModelIds(parseModelIds(settings?.enabledChatModelsJson));
+  const visibleIds = uniqueModelIds(parseModelIds(settings?.visibleChatModelsJson));
   const defaultModels = CHAT_MODELS.map((model) => {
     const upstreamId = modelMap[model.id] || model.upstreamId;
     const display = modelDisplay[model.id] || {};
@@ -513,19 +524,18 @@ export function buildChatModelCatalog(settings?: {
         contextNote: display.contextNote || "上游",
         source: "upstream",
         enabled: true,
+        visibleInChat: true,
         supportsReasoning: inferSupportsReasoning(id)
       };
     });
   const catalog = [...defaultModels, ...fetchedModels];
   const enabledSet = new Set(enabledIds);
-
-  if (enabledSet.size === 0) {
-    return catalog;
-  }
+  const visibleSet = new Set(visibleIds);
 
   return catalog.map((model) => ({
     ...model,
-    enabled: enabledSet.has(model.id)
+    enabled: enabledSet.size === 0 ? model.enabled : enabledSet.has(model.id),
+    visibleInChat: visibleSet.size === 0 ? true : visibleSet.has(model.id)
   }));
 }
 
@@ -533,6 +543,13 @@ export function getEnabledChatModels(catalog: ChatModelConfig[]) {
   const enabled = catalog.filter((model) => model.enabled);
 
   return enabled.length > 0 ? enabled : catalog.slice(0, 1);
+}
+
+export function getVisibleChatModels(catalog: ChatModelConfig[]) {
+  const enabled = getEnabledChatModels(catalog);
+  const visible = enabled.filter((model) => model.visibleInChat !== false);
+
+  return visible.length > 0 ? visible : enabled.slice(0, 1);
 }
 
 function preferredApiModelVariant(models: ChatModelConfig[]) {

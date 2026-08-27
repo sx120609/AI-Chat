@@ -34,6 +34,7 @@ import {
   DEFAULT_REASONING_PARAM_MODE,
   DEFAULT_UPSTREAM_MODEL_MAP,
   getEnabledChatModels,
+  getVisibleChatModels,
   normalizeReasoningEffort,
   normalizeReasoningParamMode,
   parseModelDisplayConfig,
@@ -52,6 +53,10 @@ import {
 } from "@/lib/system-prompt";
 import { AI_RUNTIME_SETTINGS_CACHE_KEY } from "@/lib/upstream";
 import { normalizeUserApiConcurrencyLimit } from "@/lib/user-api-concurrency";
+import {
+  DEFAULT_WEB_SEARCH_COST_CENTS,
+  normalizeWebSearchCostCents
+} from "@/lib/web-search-billing";
 
 export const runtime = "nodejs";
 
@@ -70,6 +75,7 @@ type SettingsBody = {
   chatModelMap?: Record<string, string>;
   chatModelDisplay?: Record<string, ChatModelDisplayConfig>;
   enabledChatModelIds?: string[];
+  visibleChatModelIds?: string[];
   imageModelId?: string;
   defaultReasoningEffort?: string;
   reasoningParamMode?: string;
@@ -83,6 +89,7 @@ type SettingsBody = {
   webSearchEnabled?: boolean;
   webSearchProvider?: string;
   webSearchMaxResults?: number;
+  webSearchCostCents?: number;
   billingMultiplier?: number;
   billingMultiplierStartsAt?: string | null;
   billingMultiplierEndsAt?: string | null;
@@ -146,6 +153,7 @@ function serializeSettings(settings: {
   chatModelDisplayJson: string;
   availableModelsJson: string;
   enabledChatModelsJson: string;
+  visibleChatModelsJson: string;
   imageModelId: string;
   defaultReasoningEffort: string;
   reasoningParamMode: string;
@@ -159,6 +167,7 @@ function serializeSettings(settings: {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  webSearchCostCents: number;
   billingMultiplier: number;
   billingMultiplierStartsAt: Date | null;
   billingMultiplierEndsAt: Date | null;
@@ -199,6 +208,7 @@ function serializeSettings(settings: {
   const chatModelDisplay = parseModelDisplayConfig(settings.chatModelDisplayJson);
   const chatModels = buildChatModelCatalog(settings);
   const enabledChatModels = getEnabledChatModels(chatModels);
+  const visibleChatModels = getVisibleChatModels(chatModels);
 
   const easyPayBalanceCentsPerYuan = normalizeEasyPayBalanceCentsPerYuan(
     settings.easyPayBalanceCentsPerYuan
@@ -229,6 +239,7 @@ function serializeSettings(settings: {
     chatModelDisplay,
     chatModels,
     enabledChatModelIds: enabledChatModels.map((model) => model.id),
+    visibleChatModelIds: visibleChatModels.map((model) => model.id),
     imageModelId: settings.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
     defaultReasoningEffort: normalizeReasoningEffort(settings.defaultReasoningEffort),
     reasoningParamMode: normalizeReasoningParamMode(settings.reasoningParamMode),
@@ -243,6 +254,7 @@ function serializeSettings(settings: {
     webSearchEnabled: settings.webSearchEnabled,
     webSearchProvider: "sub2api",
     webSearchMaxResults: Math.min(8, Math.max(1, settings.webSearchMaxResults || 5)),
+    webSearchCostCents: normalizeWebSearchCostCents(settings.webSearchCostCents),
     billingMultiplier: settings.billingMultiplier,
     billingMultiplierStartsAt: settings.billingMultiplierStartsAt?.toISOString() ?? "",
     billingMultiplierEndsAt: settings.billingMultiplierEndsAt?.toISOString() ?? "",
@@ -338,6 +350,26 @@ function normalizeEnabledModelIds(
   return getEnabledChatModels(catalog).map((model) => model.id);
 }
 
+function normalizeVisibleModelIds(
+  value: string[] | undefined,
+  enabledIds: string[],
+  chatModelMapJson: string,
+  availableModelsJson: string
+) {
+  const catalog = buildChatModelCatalog({ chatModelMapJson, availableModelsJson });
+  const validEnabledIds = new Set(
+    catalog.map((model) => model.id).filter((id) => enabledIds.includes(id))
+  );
+  const next = (value ?? [])
+    .map((id) => id.trim())
+    .filter(
+      (id, index, list) =>
+        id && validEnabledIds.has(id) && list.indexOf(id) === index
+    );
+
+  return next.length > 0 ? next : enabledIds.slice(0, 1);
+}
+
 function normalizeBaseUrl(value: string | undefined) {
   const raw = value?.trim();
 
@@ -426,6 +458,7 @@ export async function GET(request: NextRequest) {
       chatModelDisplayJson: "{}",
       availableModelsJson: "[]",
       enabledChatModelsJson: "[]",
+      visibleChatModelsJson: "[]",
       imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
       defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
       reasoningParamMode: DEFAULT_REASONING_PARAM_MODE,
@@ -442,6 +475,10 @@ export async function GET(request: NextRequest) {
       webSearchProvider: "sub2api",
       webSearchMaxResults: normalizeWebSearchMaxResults(
         Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5
+      ),
+      webSearchCostCents: normalizeWebSearchCostCents(
+        process.env.WEB_SEARCH_COST_CENTS,
+        DEFAULT_WEB_SEARCH_COST_CENTS
       ),
       billingMultiplier: Number.isFinite(Number(process.env.BILLING_MULTIPLIER))
         ? Number(process.env.BILLING_MULTIPLIER)
@@ -666,6 +703,7 @@ export async function PATCH(request: NextRequest) {
     chatModelMapJson: string;
     chatModelDisplayJson: string;
     enabledChatModelsJson: string;
+    visibleChatModelsJson: string;
     imageModelId: string;
     defaultReasoningEffort: string;
     reasoningParamMode: string;
@@ -679,6 +717,7 @@ export async function PATCH(request: NextRequest) {
     webSearchEnabled: boolean;
     webSearchProvider: string;
     webSearchMaxResults: number;
+    webSearchCostCents: number;
     billingMultiplier: number;
     billingMultiplierStartsAt: Date | null;
     billingMultiplierEndsAt: Date | null;
@@ -725,6 +764,7 @@ export async function PATCH(request: NextRequest) {
     chatModelMapJson: JSON.stringify(normalizeModelMap(body.chatModelMap)),
     chatModelDisplayJson: "{}",
     enabledChatModelsJson: "[]",
+    visibleChatModelsJson: "[]",
     imageModelId: body.imageModelId?.trim() || DEFAULT_IMAGE_UPSTREAM_MODEL,
     defaultReasoningEffort: normalizeReasoningEffort(body.defaultReasoningEffort),
     reasoningParamMode: normalizeReasoningParamMode(body.reasoningParamMode),
@@ -738,6 +778,10 @@ export async function PATCH(request: NextRequest) {
     webSearchEnabled: Boolean(body.webSearchEnabled),
     webSearchProvider: "sub2api",
     webSearchMaxResults: normalizeWebSearchMaxResults(body.webSearchMaxResults),
+    webSearchCostCents: normalizeWebSearchCostCents(
+      body.webSearchCostCents,
+      existingSettings?.webSearchCostCents ?? DEFAULT_WEB_SEARCH_COST_CENTS
+    ),
     billingMultiplier: billingSchedule.billingMultiplier,
     billingMultiplierStartsAt: billingSchedule.billingMultiplierStartsAt,
     billingMultiplierEndsAt: billingSchedule.billingMultiplierEndsAt,
@@ -778,6 +822,14 @@ export async function PATCH(request: NextRequest) {
   data.enabledChatModelsJson = JSON.stringify(
     normalizeEnabledModelIds(
       body.enabledChatModelIds,
+      data.chatModelMapJson,
+      existingSettings?.availableModelsJson || "[]"
+    )
+  );
+  data.visibleChatModelsJson = JSON.stringify(
+    normalizeVisibleModelIds(
+      body.visibleChatModelIds,
+      JSON.parse(data.enabledChatModelsJson) as string[],
       data.chatModelMapJson,
       existingSettings?.availableModelsJson || "[]"
     )

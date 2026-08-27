@@ -202,8 +202,6 @@ export function useChat({
       setReasoningEffort("xhigh");
     }
   }, [activeModel, reasoningEffort]);
-  const webSearchProvider = "sub2api";
-  const webSearchProviderLabel = "Sub2API 上游";
   const inlineProcessMessageId = useMemo(() => {
     if (!processStartedAt || !processMessageId) {
       return null;
@@ -1226,7 +1224,6 @@ export function useChat({
           temporary: requestTemporary,
           temporaryMessages,
           useWebSearch,
-          webSearchProvider,
           clientDate: promptClock.date,
           clientTime: promptClock.time,
           clientTimeZone: promptClock.timeZone,
@@ -2635,7 +2632,6 @@ export function useChat({
     activeModel,
     messageModelLabels,
     activeReasoningEffort,
-    webSearchProviderLabel,
     inlineProcessMessageId,
     deleteMessagePreview,
 

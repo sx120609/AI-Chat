@@ -31,7 +31,8 @@ test("renders all New API style app choices without exposing the full API key", 
           outputCentsPerMillionTokens: 3000,
           source: "default",
           supportsReasoning: true,
-          upstreamId: "gpt-5.6-sol"
+          upstreamId: "gpt-5.6-sol",
+          visibleInChat: true
         }
       ]}
       onClose={() => undefined}

@@ -49,24 +49,22 @@ function formatContextWindow(model: ChatModelView) {
   return `上下文 ${formatCompactContext(commonContextTokensForModel(model))}`;
 }
 
-function ModelToggle({
-  checked,
+function ModelAvailabilityCard({
+  enabled,
   model,
-  onChange
+  onEnabledChange,
+  onVisibleChange,
+  visible
 }: {
-  checked: boolean;
+  enabled: boolean;
   model: ChatModelView;
-  onChange: (checked: boolean) => void;
+  onEnabledChange: (checked: boolean) => void;
+  onVisibleChange: (checked: boolean) => void;
+  visible: boolean;
 }) {
   return (
-    <label className="app-list-row flex min-h-14 w-full min-w-0 items-start gap-3 rounded-lg bg-white/70 px-3 py-2 text-sm cursor-pointer select-none">
-      <input
-        checked={checked}
-        className="mt-1 size-4 accent-[color:var(--claude-accent)] cursor-pointer"
-        onChange={(event) => onChange(event.target.checked)}
-        type="checkbox"
-      />
-      <span className="min-w-0 flex-1">
+    <div className="app-list-row min-h-14 w-full min-w-0 rounded-lg bg-white/70 px-3 py-3 text-sm">
+      <div className="min-w-0">
         <span className="block truncate font-medium text-slate-800">{model.label}</span>
         <span className="mt-0.5 block truncate text-xs ios-muted">
           {model.upstreamId} · {model.source === "upstream" ? "上游" : model.contextNote}
@@ -76,8 +74,35 @@ function ModelToggle({
           {formatCents(model.cachedInputCentsPerMillionTokens)}/百万 · 输出{" "}
           {formatCents(model.outputCentsPerMillionTokens)}/百万
         </span>
-      </span>
-    </label>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 border-t border-black/5 pt-2">
+        <label className="inline-flex cursor-pointer select-none items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+          <input
+            checked={enabled}
+            className="size-4 accent-[color:var(--claude-accent)]"
+            onChange={(event) => onEnabledChange(event.target.checked)}
+            type="checkbox"
+          />
+          启用模型
+        </label>
+        <label
+          className={`inline-flex select-none items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm ${
+            enabled
+              ? "cursor-pointer bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent-dark)]"
+              : "cursor-not-allowed bg-stone-100 text-stone-400"
+          }`}
+        >
+          <input
+            checked={enabled && visible}
+            className="size-4 accent-[color:var(--claude-accent)]"
+            disabled={!enabled}
+            onChange={(event) => onVisibleChange(event.target.checked)}
+            type="checkbox"
+          />
+          聊天中显示
+        </label>
+      </div>
+    </div>
   );
 }
 
@@ -214,25 +239,45 @@ export function ModelsTab({
       </div>
 
       <div className="ios-list lg:col-span-6">
-        <div className="ios-cell px-3 py-2 text-xs font-semibold ios-muted">
-          启用模型
+        <div className="ios-cell px-3 py-2">
+          <p className="text-xs font-semibold ios-muted">模型可用性</p>
+          <p className="mt-1 text-[11px] ios-muted">
+            “启用模型”控制接口与后台能力；关闭“聊天中显示”只会从聊天模型列表隐藏。
+          </p>
         </div>
         <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
-          {(settings?.chatModels ?? []).map((item) => (
-            <ModelToggle
-              checked={settingsForm.enabledChatModelIds.includes(item.id)}
-              key={item.id}
-              model={item}
-              onChange={(checked) =>
-                setSettingsForm((current) => ({
-                  ...current,
-                  enabledChatModelIds: checked
-                    ? [...new Set([...current.enabledChatModelIds, item.id])]
-                    : current.enabledChatModelIds.filter((id) => id !== item.id)
-                }))
-              }
-            />
-          ))}
+          {(settings?.chatModels ?? []).map((item) => {
+            const enabled = settingsForm.enabledChatModelIds.includes(item.id);
+            const visible = settingsForm.visibleChatModelIds.includes(item.id);
+
+            return (
+              <ModelAvailabilityCard
+                enabled={enabled}
+                key={item.id}
+                model={item}
+                onEnabledChange={(checked) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    enabledChatModelIds: checked
+                      ? [...new Set([...current.enabledChatModelIds, item.id])]
+                      : current.enabledChatModelIds.filter((id) => id !== item.id),
+                    visibleChatModelIds: checked
+                      ? [...new Set([...current.visibleChatModelIds, item.id])]
+                      : current.visibleChatModelIds.filter((id) => id !== item.id)
+                  }))
+                }
+                onVisibleChange={(checked) =>
+                  setSettingsForm((current) => ({
+                    ...current,
+                    visibleChatModelIds: checked
+                      ? [...new Set([...current.visibleChatModelIds, item.id])]
+                      : current.visibleChatModelIds.filter((id) => id !== item.id)
+                  }))
+                }
+                visible={visible}
+              />
+            );
+          })}
         </div>
       </div>
     </>

@@ -66,6 +66,7 @@ export type ChatModelView = {
   contextNote: string;
   source: "default" | "upstream";
   enabled: boolean;
+  visibleInChat: boolean;
   supportsReasoning: boolean;
 };
 
@@ -430,6 +431,7 @@ export type AiSettingsView = {
   chatModelDisplay: Record<string, ChatModelDisplayConfig>;
   chatModels: ChatModelView[];
   enabledChatModelIds: string[];
+  visibleChatModelIds: string[];
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
   reasoningParamMode: ReasoningParamMode;
@@ -443,6 +445,7 @@ export type AiSettingsView = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  webSearchCostCents: number;
   billingMultiplier: number;
   billingMultiplierStartsAt: string;
   billingMultiplierEndsAt: string;

@@ -18,6 +18,10 @@ import {
   type ReasoningParamMode
 } from "@/lib/models";
 import {
+  DEFAULT_WEB_SEARCH_COST_CENTS,
+  normalizeWebSearchCostCents
+} from "@/lib/web-search-billing";
+import {
   normalizeSystemPromptMode,
   parseModelSystemPrompts,
   type SystemPromptMode
@@ -93,6 +97,7 @@ export type AiRuntimeSettings = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  webSearchCostCents: number;
   userApiConcurrencyLimit: number;
 };
 
@@ -100,7 +105,7 @@ const CHAT_HEADERS_TIMEOUT_MS = 60_000;
 const FILE_UPLOAD_TIMEOUT_MS = 300_000;
 const MODELS_TIMEOUT_MS = 20_000;
 const IMAGE_TIMEOUT_MS = 300_000;
-export const AI_RUNTIME_SETTINGS_CACHE_KEY = "ai-runtime-settings:v1";
+export const AI_RUNTIME_SETTINGS_CACHE_KEY = "ai-runtime-settings:v2";
 const AI_RUNTIME_SETTINGS_CACHE_TTL_SECONDS = 30;
 
 function normalizeRuntimeBaseUrl(value: string | null | undefined, fallback = "") {
@@ -158,6 +163,10 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
     webSearchMaxResults: Math.min(
       8,
       Math.max(1, settings?.webSearchMaxResults || Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5)
+    ),
+    webSearchCostCents: normalizeWebSearchCostCents(
+      settings?.webSearchCostCents ?? process.env.WEB_SEARCH_COST_CENTS,
+      DEFAULT_WEB_SEARCH_COST_CENTS
     ),
     userApiConcurrencyLimit: Math.min(
       1_000,

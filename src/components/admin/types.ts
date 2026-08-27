@@ -47,6 +47,7 @@ export type SettingsForm = {
   chatModelMap: Record<string, string>;
   chatModelDisplay: Record<string, ChatModelDisplayConfig>;
   enabledChatModelIds: string[];
+  visibleChatModelIds: string[];
   imageModelId: string;
   defaultReasoningEffort: ReasoningEffort;
   reasoningParamMode: ReasoningParamMode;
@@ -60,6 +61,7 @@ export type SettingsForm = {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchMaxResults: number;
+  webSearchCostCents: number;
   billingMultiplier: number;
   billingMultiplierStartsAt: string;
   billingMultiplierEndsAt: string;

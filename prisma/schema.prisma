@@ -345,6 +345,7 @@ model AiSettings {
   chatModelDisplayJson  String   @default("{}")
   availableModelsJson   String   @default("[]")
   enabledChatModelsJson String   @default("[]")
+  visibleChatModelsJson String   @default("[]")
   imageModelId          String   @default("image2")
   defaultReasoningEffort String  @default("medium")
   reasoningParamMode    String   @default("chat")
@@ -361,6 +362,7 @@ model AiSettings {
   webSearchEnabled    Boolean @default(false)
   webSearchProvider   String  @default("sub2api")
   webSearchMaxResults Int     @default(5)
+  webSearchCostCents  Float   @default(1)
   billingMultiplier Float    @default(1)
   billingMultiplierStartsAt DateTime?
   billingMultiplierEndsAt DateTime?

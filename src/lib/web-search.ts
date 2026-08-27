@@ -131,6 +131,48 @@ export function extractWebSearchSources(payload: unknown, maxResults = 8) {
   return sources.slice(0, Math.max(1, maxResults));
 }
 
+export function extractWebSearchCallIds(payload: unknown) {
+  const ids = new Set<string>();
+
+  const visit = (value: unknown, depth = 0) => {
+    if (depth > 8 || !value || typeof value !== "object") {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1));
+      return;
+    }
+
+    const object = value as Record<string, unknown>;
+    const type = typeof object.type === "string" ? object.type.toLowerCase() : "";
+    const isSearchCall = type === "web_search_call" || type.includes("web_search_call.");
+
+    if (isSearchCall) {
+      const idCandidates = [
+        object.id,
+        object.item_id,
+        object.call_id,
+        object.output_index
+      ];
+      const id = idCandidates.find(
+        (candidate) =>
+          (typeof candidate === "string" && candidate.trim()) ||
+          (typeof candidate === "number" && Number.isFinite(candidate))
+      );
+
+      if (id !== undefined) {
+        ids.add(String(id));
+      }
+    }
+
+    Object.values(object).forEach((nested) => visit(nested, depth + 1));
+  };
+
+  visit(payload);
+  return [...ids];
+}
+
 export function mergeWebSearchSources(
   current: WebSearchSource[],
   incoming: WebSearchSource[],

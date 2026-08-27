@@ -66,6 +66,10 @@ import {
   type UpstreamUsage
 } from "@/lib/upstream";
 import {
+  calculateWebSearchCostCents
+} from "@/lib/web-search-billing";
+import {
+  extractWebSearchCallIds,
   extractWebSearchSources,
   mergeWebSearchSources,
   type WebSearchResult,
@@ -87,7 +91,6 @@ type ChatBody = {
   reuseUserMessageId?: string;
   sourceImageMessageId?: string;
   useWebSearch?: boolean;
-  webSearchProvider?: string;
   clientDate?: string;
   clientTime?: string;
   clientTimeZone?: string;
@@ -279,12 +282,19 @@ function usageToJson(upstreamUsage: UpstreamUsage | undefined) {
 }
 
 function resolveTokenUsage(options: {
+  additionalCostCents?: number;
   completionTokensEstimate: number;
   model: ReturnType<typeof getChatModel>;
   promptTokensEstimate: number;
   upstreamUsage?: UpstreamUsage;
 }) {
-  const { completionTokensEstimate, model, promptTokensEstimate, upstreamUsage } = options;
+  const {
+    additionalCostCents = 0,
+    completionTokensEstimate,
+    model,
+    promptTokensEstimate,
+    upstreamUsage
+  } = options;
   const promptTokens =
     numberFromUsage(upstreamUsage?.prompt_tokens) ||
     numberFromUsage(upstreamUsage?.input_tokens) ||
@@ -322,8 +332,9 @@ function resolveTokenUsage(options: {
     usageSource: upstreamUsage ? "upstream" : "estimated",
     upstreamUsageJson: usageToJson(upstreamUsage),
     estimatedCostCents:
-      upstreamCostCents ||
-      estimateChatCostForModel(model, promptTokens, completionTokens, cachedPromptTokens)
+      (upstreamCostCents ||
+        estimateChatCostForModel(model, promptTokens, completionTokens, cachedPromptTokens)) +
+      Math.max(0, additionalCostCents)
   };
 }
 
@@ -731,6 +742,7 @@ async function pipeOpenAiSse(
   handlers: {
     onDelta: (delta: string) => void;
     onReasoning: (delta: string) => void;
+    onWebSearchCalls?: (count: number) => void;
     onWebSources?: (sources: WebSearchSource[]) => void;
   }
 ) {
@@ -738,6 +750,7 @@ async function pipeOpenAiSse(
   const decoder = new TextDecoder();
   let buffer = "";
   let usage: UpstreamUsage | undefined;
+  const seenWebSearchCallIds = new Set<string>();
 
   const processBlock = (block: string) => {
     const lines = block
@@ -769,6 +782,9 @@ async function pipeOpenAiSse(
       const delta = parseDelta(payload);
       const reasoningDelta = parseReasoningDelta(payload);
       const nextUsage = parseUsage(payload);
+      const nextWebSearchCallIds = extractWebSearchCallIds(payload).filter(
+        (id) => !seenWebSearchCallIds.has(id)
+      );
       const nextWebSources = extractWebSearchSources(payload);
 
       if (delta) {
@@ -781,6 +797,11 @@ async function pipeOpenAiSse(
 
       if (nextUsage) {
         usage = nextUsage;
+      }
+
+      if (nextWebSearchCallIds.length) {
+        nextWebSearchCallIds.forEach((id) => seenWebSearchCallIds.add(id));
+        handlers.onWebSearchCalls?.(nextWebSearchCallIds.length);
       }
 
       if (nextWebSources.length) {
@@ -898,7 +919,7 @@ function buildToolEvents(options: {
 
   if (options.webSearchResult) {
     events.push({
-      detail: `正在通过 Sub2API 查询“${options.webSearchResult.query}”`,
+      detail: `正在查询“${options.webSearchResult.query}”`,
       id: "web-search",
       label: "联网搜索",
       startedAt: options.webSearchStartedAt,
@@ -917,8 +938,8 @@ function completedWebSearchToolEvent(
 ): ToolEventPayload {
   return {
     detail: sources.length
-      ? `通过 Sub2API 查询“${result.query}”，找到 ${sources.length} 个来源`
-      : `Sub2API 已查询“${result.query}”，没有返回可展示的来源`,
+      ? `已查询“${result.query}”，找到 ${sources.length} 个来源`
+      : `已查询“${result.query}”，没有返回可展示的来源`,
     finishedAt,
     id: "web-search",
     label: "联网搜索",
@@ -1785,6 +1806,14 @@ export async function POST(request: NextRequest) {
     : null;
   const webSearchFinishedAt = webSearchResult ? undefined : Date.now();
   let webSearchSources: WebSearchSource[] = [];
+  let webSearchCallCount = 0;
+  const currentWebSearchCostCents = () =>
+    calculateWebSearchCostCents(
+      webSearchResult && !aiSettings.mockResponses
+        ? Math.max(1, webSearchCallCount)
+        : 0,
+      aiSettings.webSearchCostCents
+    );
   const modelContent = content;
   const userContent = await buildUserContentWithImages(modelContent, effectiveAttachments);
   const requestPreviousContextMessages = previousContextMessages;
@@ -1823,7 +1852,9 @@ export async function POST(request: NextRequest) {
         }).upstreamMessages;
       }
     : undefined;
-  const quotaCostEstimate = estimateChatCostForModel(model, promptTokensEstimate, 0);
+  const quotaCostEstimate =
+    estimateChatCostForModel(model, promptTokensEstimate, 0) +
+    currentWebSearchCostCents();
 
   try {
     await assertQuotaAvailable(user.id, quotaCostEstimate);
@@ -1960,6 +1991,7 @@ export async function POST(request: NextRequest) {
           );
           const tokenUsage = shouldRecordUsage
             ? resolveTokenUsage({
+                additionalCostCents: currentWebSearchCostCents(),
                 completionTokensEstimate: Math.max(
                   1,
                   estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
@@ -2056,7 +2088,11 @@ export async function POST(request: NextRequest) {
                 markModelOutputStarted("正在思考并整理思路");
                 emitReasoningDelta();
               },
+              onWebSearchCalls: (count) => {
+                webSearchCallCount += count;
+              },
               onWebSources: (sources) => {
+                webSearchCallCount = Math.max(1, webSearchCallCount);
                 webSearchSources = mergeWebSearchSources(
                   webSearchSources,
                   sources,
@@ -2408,6 +2444,7 @@ export async function POST(request: NextRequest) {
         );
         const tokenUsage = shouldRecordUsage
           ? resolveTokenUsage({
+              additionalCostCents: currentWebSearchCostCents(),
               completionTokensEstimate: Math.max(
                 1,
                 estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
@@ -2529,7 +2566,11 @@ export async function POST(request: NextRequest) {
               emitReasoningDelta();
               queueDraftPersist();
             },
+            onWebSearchCalls: (count) => {
+              webSearchCallCount += count;
+            },
             onWebSources: (sources) => {
+              webSearchCallCount = Math.max(1, webSearchCallCount);
               webSearchSources = mergeWebSearchSources(
                 webSearchSources,
                 sources,

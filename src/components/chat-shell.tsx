@@ -176,7 +176,6 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
     activeProject,
     activeModel,
     messageModelLabels,
-    webSearchProviderLabel,
     inlineProcessMessageId,
     deleteMessagePreview,
 
@@ -435,7 +434,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
             {webSearchToolAvailable && webSearchEnabledForMessage ? (
               <div className="app-status-pill app-glass-control mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-stone-700">
                 <Search className="size-3.5 text-[color:var(--claude-accent)]" />
-                下一条将联网搜索（{webSearchProviderLabel}）
+                下一条将联网搜索
               </div>
             ) : null}
             {temporaryChatEnabled ? (
@@ -622,8 +621,8 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
                       }}
                       title={
                         webSearchEnabledForMessage
-                          ? `已开启：下一条联网搜索（${webSearchProviderLabel}）`
-                          : `下一条联网搜索（${webSearchProviderLabel}）`
+                          ? "已开启：下一条联网搜索"
+                          : "下一条联网搜索"
                       }
                       type="button"
                     >

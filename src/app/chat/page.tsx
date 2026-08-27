@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { ChatShell } from "@/components/chat-shell";
 import { getCurrentUser, serializeCurrentUser } from "@/lib/auth";
-import { getEnabledChatModels } from "@/lib/models";
+import { getVisibleChatModels } from "@/lib/models";
 import { getPublicPaymentSettings } from "@/lib/payment-settings";
 import { getUsageSummary } from "@/lib/quota";
 import { getSiteSettings } from "@/lib/site-settings";
@@ -31,7 +31,7 @@ export default async function ChatPage() {
   return (
     <ChatShell
       initialDefaultReasoningEffort={aiSettings.defaultReasoningEffort}
-      initialModels={getEnabledChatModels(aiSettings.chatModels)}
+      initialModels={getVisibleChatModels(aiSettings.chatModels)}
       initialSiteSettings={siteSettings}
       initialUsage={usage}
       initialUser={serializeCurrentUser(user)}

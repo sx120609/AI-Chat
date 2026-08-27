@@ -12,6 +12,10 @@ import {
   normalizeSiteUrl
 } from "../src/lib/site-settings";
 import { DEFAULT_SYSTEM_PROMPT_MODE } from "../src/lib/system-prompt";
+import {
+  DEFAULT_WEB_SEARCH_COST_CENTS,
+  normalizeWebSearchCostCents
+} from "../src/lib/web-search-billing";
 
 function nextQuotaResetAt(start: Date) {
   const next = new Date(start);
@@ -82,6 +86,7 @@ async function main() {
       chatModelDisplayJson: existingSettings?.chatModelDisplayJson || "{}",
       availableModelsJson: existingSettings?.availableModelsJson || "[]",
       enabledChatModelsJson: existingSettings?.enabledChatModelsJson || "[]",
+      visibleChatModelsJson: existingSettings?.visibleChatModelsJson || "[]",
       imageModelId: existingSettings?.imageModelId || DEFAULT_IMAGE_UPSTREAM_MODEL,
       defaultReasoningEffort: normalizeReasoningEffort(
         existingSettings?.defaultReasoningEffort || DEFAULT_REASONING_EFFORT
@@ -113,6 +118,10 @@ async function main() {
         Number(process.env.WEB_SEARCH_MAX_RESULTS) ||
         existingSettings?.webSearchMaxResults ||
         5,
+      webSearchCostCents: normalizeWebSearchCostCents(
+        process.env.WEB_SEARCH_COST_CENTS,
+        existingSettings?.webSearchCostCents ?? DEFAULT_WEB_SEARCH_COST_CENTS
+      ),
       registrationEnabled:
         process.env.REGISTRATION_ENABLED === undefined
           ? existingSettings?.registrationEnabled || false
@@ -193,6 +202,7 @@ async function main() {
       chatModelDisplayJson: "{}",
       availableModelsJson: "[]",
       enabledChatModelsJson: "[]",
+      visibleChatModelsJson: "[]",
       imageModelId: DEFAULT_IMAGE_UPSTREAM_MODEL,
       defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
       reasoningParamMode: DEFAULT_REASONING_PARAM_MODE,
@@ -208,6 +218,10 @@ async function main() {
       webSearchEnabled: process.env.WEB_SEARCH_ENABLED === "true",
       webSearchProvider: "sub2api",
       webSearchMaxResults: Number(process.env.WEB_SEARCH_MAX_RESULTS) || 5,
+      webSearchCostCents: normalizeWebSearchCostCents(
+        process.env.WEB_SEARCH_COST_CENTS,
+        DEFAULT_WEB_SEARCH_COST_CENTS
+      ),
       registrationEnabled: process.env.REGISTRATION_ENABLED === "true",
       registrationRequireEmailVerification:
         process.env.REGISTRATION_REQUIRE_EMAIL_VERIFICATION === "true",

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { redirect } from "next/navigation";
 import { BetaChatShell } from "@/components/beta-chat-shell";
 import { getCurrentUser, serializeCurrentUser } from "@/lib/auth";
-import { getEnabledChatModels } from "@/lib/models";
+import { getVisibleChatModels } from "@/lib/models";
 import { getPublicPaymentSettings } from "@/lib/payment-settings";
 import { getUsageSummary } from "@/lib/quota";
 import { getSiteSettings } from "@/lib/site-settings";
@@ -40,7 +40,7 @@ export default async function BetaPage() {
   return (
     <BetaChatShell
       initialDefaultReasoningEffort={aiSettings.defaultReasoningEffort}
-      initialModels={getEnabledChatModels(aiSettings.chatModels)}
+      initialModels={getVisibleChatModels(aiSettings.chatModels)}
       initialPaymentSettings={paymentSettings}
       initialSiteSettings={siteSettings}
       initialUsage={usage}

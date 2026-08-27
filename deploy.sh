@@ -1210,6 +1210,7 @@ migrate_sqlite() {
 print_usage() {
   cat <<EOF
 Usage:
+  ./deploy.sh                  Update without downtime when an active deployment exists; otherwise install
   ./deploy.sh install          Install environment, create DB, build, and start systemd service
   ./deploy.sh deploy           Build current code in an isolated blue/green release and switch after health checks
   ./deploy.sh update           Pull code, build an isolated release, health-check, then switch Nginx without downtime
@@ -1232,9 +1233,23 @@ EOF
 }
 
 main() {
-  cd "$APP_DIR"
+  local command
 
-  case "${1:-install}" in
+  cd "$APP_DIR"
+  command="${1:-}"
+
+  if [[ -z "$command" ]]; then
+    detect_active_deployment
+    if [[ -n "$ACTIVE_SERVICE" ]]; then
+      command="update"
+      log "Active deployment detected; using the zero-downtime update path."
+    else
+      command="install"
+      log "No active deployment detected; using the first-install path."
+    fi
+  fi
+
+  case "$command" in
     install)
       install_all
       ;;
@@ -1264,7 +1279,7 @@ main() {
       ;;
     *)
       print_usage
-      fail "Unknown command: $1"
+      fail "Unknown command: $command"
       ;;
   esac
 }

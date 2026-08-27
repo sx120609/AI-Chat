@@ -671,7 +671,7 @@ wait_for_release_health() {
 }
 
 site_hostname() {
-  local site_url host
+  local site_url host parent_name
 
   if [[ -n "$DOMAIN" ]]; then
     printf '%s' "$DOMAIN"
@@ -682,15 +682,36 @@ site_hostname() {
   host="${site_url#*://}"
   host="${host%%/*}"
   host="${host%%:*}"
-  printf '%s' "$host"
+  if [[ -n "$host" ]]; then
+    printf '%s' "$host"
+    return
+  fi
+
+  # Baota commonly keeps a Git checkout one directory below the site root,
+  # for example /www/wwwroot/chat.example.com/AI-Chat. Infer that hostname
+  # when SITE_URL was intentionally left empty.
+  parent_name="$(basename "$(dirname "$APP_DIR")")"
+  if [[ "$parent_name" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+    printf '%s' "$parent_name"
+  fi
 }
 
 nginx_site_name() {
   printf '%s' "$APP_NAME" | tr -cs 'A-Za-z0-9_.-' '-'
 }
 
+nginx_config_proxies_to_port() {
+  local config_file="$1"
+  local port="$2"
+
+  grep -Eq \
+    "proxy_pass[[:space:]]+http://(127\\.0\\.0\\.1|localhost):${port}(/)?;" \
+    "$config_file"
+}
+
 resolve_nginx_site_config() {
-  local nginx_name host candidate
+  local active_port="${1:-}"
+  local nginx_name host candidate matched_config
 
   if [[ -n "$NGINX_SITE_CONFIG" ]]; then
     [[ -f "$NGINX_SITE_CONFIG" ]] || fail "NGINX_SITE_CONFIG does not exist: $NGINX_SITE_CONFIG"
@@ -704,7 +725,8 @@ resolve_nginx_site_config() {
   for candidate in \
     "/etc/nginx/sites-available/$nginx_name" \
     "/etc/nginx/conf.d/${nginx_name}.conf"; do
-    if [[ -f "$candidate" ]]; then
+    if [[ -f "$candidate" ]] &&
+      { [[ -z "$active_port" ]] || nginx_config_proxies_to_port "$candidate" "$active_port"; }; then
       printf '%s' "$candidate"
       return
     fi
@@ -715,11 +737,37 @@ resolve_nginx_site_config() {
       "/www/server/panel/vhost/nginx/${host}.conf" \
       "/etc/nginx/sites-available/$host" \
       "/etc/nginx/conf.d/${host}.conf"; do
-      if [[ -f "$candidate" ]]; then
+      if [[ -f "$candidate" ]] &&
+        { [[ -z "$active_port" ]] || nginx_config_proxies_to_port "$candidate" "$active_port"; }; then
         printf '%s' "$candidate"
         return
       fi
     done
+  fi
+
+  # Last-resort discovery for existing installations whose SITE_URL is empty
+  # or whose Baota site directory does not match the repository directory.
+  # Promote only a unique match so an ambiguous server can never be switched.
+  if [[ -n "$active_port" ]]; then
+    matched_config=""
+    for candidate in \
+      /www/server/panel/vhost/nginx/*.conf \
+      /etc/nginx/sites-enabled/* \
+      /etc/nginx/conf.d/*.conf; do
+      [[ -f "$candidate" ]] || continue
+      nginx_config_proxies_to_port "$candidate" "$active_port" || continue
+
+      if [[ -n "$matched_config" && "$matched_config" != "$candidate" ]]; then
+        warn "Multiple Nginx configs proxy to port $active_port; set NGINX_SITE_CONFIG explicitly."
+        return 1
+      fi
+      matched_config="$candidate"
+    done
+
+    if [[ -n "$matched_config" ]]; then
+      printf '%s' "$matched_config"
+      return
+    fi
   fi
 
   return 1
@@ -756,14 +804,14 @@ switch_nginx_proxy_port() {
   local backup_file match_count
 
   [[ -f "$config_file" ]] || fail "Nginx site config does not exist: $config_file"
-  match_count="$(grep -Ec "proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:${from_port}(/)?;" "$config_file" || true)"
+  match_count="$(grep -Ec "proxy_pass[[:space:]]+http://(127\\.0\\.0\\.1|localhost):${from_port}(/)?;" "$config_file" || true)"
   [[ "$match_count" -gt 0 ]] ||
-    fail "No proxy_pass to 127.0.0.1:$from_port was found in $config_file. Set NGINX_SITE_CONFIG to the correct site file."
+    fail "No proxy_pass to 127.0.0.1:$from_port or localhost:$from_port was found in $config_file. Set NGINX_SITE_CONFIG to the correct site file."
 
   backup_file="${config_file}.deploy-backup.$$"
   as_root cp -a "$config_file" "$backup_file"
   as_root sed -E -i \
-    "s#(proxy_pass[[:space:]]+http://127\\.0\\.0\\.1):${from_port}(/?;)#\\1:${to_port}\\2#g" \
+    "s#(proxy_pass[[:space:]]+http://)(127\\.0\\.0\\.1|localhost):${from_port}(/?;)#\\1\\2:${to_port}\\3#g" \
     "$config_file"
 
   if ! run_nginx_test; then
@@ -999,7 +1047,7 @@ deploy_release_without_downtime() {
 
   nginx_config=""
   if [[ -n "$ACTIVE_SERVICE" ]]; then
-    nginx_config="$(resolve_nginx_site_config || true)"
+    nginx_config="$(resolve_nginx_site_config "$ACTIVE_PORT" || true)"
     [[ -n "$nginx_config" ]] ||
       fail "An active service was found, but its Nginx site config could not be resolved. Set NGINX_SITE_CONFIG=/absolute/path/to/site.conf so traffic can switch without downtime."
   fi

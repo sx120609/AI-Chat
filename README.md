@@ -69,7 +69,7 @@ chmod +x deploy.sh
 ./deploy.sh update
 ```
 
-蓝绿更新需要脚本能够定位当前站点的 Nginx 配置。脚本会自动识别自身创建的配置、常规 `/etc/nginx` 站点配置，以及由 `SITE_URL` 推导出的宝塔配置 `/www/server/panel/vhost/nginx/<域名>.conf`。如果站点配置位于其他位置，请显式指定：
+蓝绿更新需要脚本能够定位当前站点的 Nginx 配置。脚本会自动识别自身创建的配置、常规 `/etc/nginx` 站点配置，以及由 `SITE_URL` 或站点父目录名推导出的宝塔配置 `/www/server/panel/vhost/nginx/<域名>.conf`；仍无法定位时，会按当前服务端口查找唯一匹配的反向代理配置。存在多个匹配项或站点配置位于其他位置时，请显式指定：
 
 ```bash
 NGINX_SITE_CONFIG="/absolute/path/to/site.conf" ./deploy.sh update

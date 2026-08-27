@@ -105,20 +105,17 @@ export function RedeemForm({ initialCode = "" }: { initialCode?: string }) {
       </div>
       <label className="block">
         <span className="mb-1.5 block text-xs font-medium ios-muted">兑换码</span>
-        <div className="relative">
-          <TicketCheck className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
-          <input
-            autoCapitalize="characters"
-            autoComplete="one-time-code"
-            autoFocus={!initialCode}
-            className="ios-input h-11 w-full pl-10 font-mono tracking-wide uppercase"
-            maxLength={80}
-            onChange={(event) => setCode(event.target.value)}
-            placeholder="LOWIQ-XXXX-XXXX-XXXX"
-            spellCheck={false}
-            value={code}
-          />
-        </div>
+        <input
+          autoCapitalize="characters"
+          autoComplete="one-time-code"
+          autoFocus={!initialCode}
+          className="ios-input h-11 w-full font-mono tracking-wide uppercase"
+          maxLength={80}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder="LOWIQ-XXXX-XXXX-XXXX"
+          spellCheck={false}
+          value={code}
+        />
       </label>
       <p className="mt-2 text-xs leading-5 ios-muted">
         兑换后权益立即到账；同一个账号不能重复使用同一兑换码。

@@ -750,11 +750,7 @@ resolve_nginx_site_config() {
   # Promote only a unique match so an ambiguous server can never be switched.
   if [[ -n "$active_port" ]]; then
     matched_config=""
-    for candidate in \
-      /www/server/panel/vhost/nginx/*.conf \
-      /etc/nginx/sites-enabled/* \
-      /etc/nginx/conf.d/*.conf; do
-      [[ -f "$candidate" ]] || continue
+    while IFS= read -r -d '' candidate; do
       nginx_config_proxies_to_port "$candidate" "$active_port" || continue
 
       if [[ -n "$matched_config" && "$matched_config" != "$candidate" ]]; then
@@ -762,7 +758,16 @@ resolve_nginx_site_config() {
         return 1
       fi
       matched_config="$candidate"
-    done
+    done < <(
+      # Baota stores reverse-proxy rules in nested files such as
+      # vhost/nginx/proxy/<domain>/<rule>.conf, included by the site config.
+      find /www/server/panel/vhost/nginx \
+        -type f -name '*.conf' -print0 2>/dev/null
+
+      for candidate in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+        [[ -f "$candidate" ]] && printf '%s\0' "$candidate"
+      done
+    )
 
     if [[ -n "$matched_config" ]]; then
       printf '%s' "$matched_config"

@@ -61,12 +61,25 @@ chmod +x deploy.sh
 ./deploy.sh install
 ```
 
-脚本会安装系统依赖、Node.js、PostgreSQL，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务 `team-ai-gateway`。如果没有可用 Redis，脚本会尝试安装并启动本机 `redis-server`；如果服务器已有可连接的 Redis，会直接复用。生产服务默认监听 `20131` 端口；重新执行 `deploy` 或 `update` 会重写 systemd 服务并重启到当前端口。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
+脚本会安装系统依赖、Node.js、PostgreSQL，创建本地数据库和 `.env`，执行 `npm ci`、`npm run db:push`、`npm run db:seed`、`npm run build`，并注册 `systemd` 服务。如果没有可用 Redis，脚本会尝试安装并启动本机 `redis-server`；如果服务器已有可连接的 Redis，会直接复用。首次安装默认监听 `20131` 端口；后续 `deploy` / `update` 会在 `.deploy/releases` 中独立安装依赖和构建，当前实例在整个构建过程中继续服务。新版本会先在蓝/绿备用端口启动，并通过 `/api/health` 验证数据库和版本，再原子切换 Nginx 流量；健康检查、Nginx 校验或 reload 失败时会保留旧服务和旧配置。旧实例默认继续保留 600 秒，让已开始的流式响应和长连接自然结束后再停止；这段时间若再次更新，脚本会安全退出并要求等待，不会强停仍在排空的实例。如果 `.env` 不存在，脚本会生成管理员初始密码并在终端输出一次，同时保存到服务器本地 `.env`。
 
 从 GitHub 拉取最新代码并更新部署：
 
 ```bash
 ./deploy.sh update
+```
+
+蓝绿更新需要脚本能够定位当前站点的 Nginx 配置。脚本会自动识别自身创建的配置、常规 `/etc/nginx` 站点配置，以及由 `SITE_URL` 推导出的宝塔配置 `/www/server/panel/vhost/nginx/<域名>.conf`。如果站点配置位于其他位置，请显式指定：
+
+```bash
+NGINX_SITE_CONFIG="/absolute/path/to/site.conf" ./deploy.sh update
+```
+
+第一次从旧版部署脚本升级时，建议先单独拉取脚本，再执行更新，确保本次更新直接使用新的蓝绿逻辑：
+
+```bash
+git pull --ff-only
+bash deploy.sh update
 ```
 
 常用运维命令：
@@ -83,6 +96,8 @@ chmod +x deploy.sh
 ```bash
 APP_PORT=20132 ./deploy.sh install
 SETUP_NGINX=true DOMAIN=example.com ./deploy.sh install
+NGINX_SITE_CONFIG="/absolute/path/to/site.conf" ./deploy.sh update
+STANDBY_PORT=20132 DEPLOY_DRAIN_SECONDS=600 ./deploy.sh update
 INSTALL_DOCKER=true ./deploy.sh install
 SKIP_LOCAL_POSTGRES=true DATABASE_URL="postgresql://user:pass@host:5432/db?schema=public" ./deploy.sh install
 ```
@@ -307,7 +322,7 @@ BILLING_MULTIPLIER_ENDS_AT=""
 
 ### 兑换码与兑换链接
 
-管理员可在“支付”选项卡批量生成兑换码，权益可选 AI 点数或任意已保存的 Coding Plan。每批可设置兑换码前缀、生成数量、单码总可用次数、批次说明和可选过期时间；后台可随时停用或重新启用。每个账号对同一个兑换码只能使用一次，多次可用的兑换码适合公开活动。
+管理员可在“支付”选项卡批量生成兑换码，权益可选 AI 点数或任意已保存的 Coding Plan。发放套餐时可为本批兑换码单独指定 `1-3650` 天或 `1-120` 个月的有效期，不会修改原套餐的正常购买时长。每批还可设置兑换码前缀、生成数量、单码总可用次数、批次说明和可选过期时间；后台可随时停用或重新启用。每个账号对同一个兑换码只能使用一次，多次可用的兑换码适合公开活动。
 
 兑换链接格式为 `/redeem?code=兑换码`。未登录用户打开后会先登录并自动返回兑换页，但仍需主动确认兑换。服务端只用 SHA-256 哈希匹配兑换码，原码使用 `AUTH_SECRET` 派生密钥加密保存以便管理员再次复制；兑换次数预占、兑换记录和权益到账在同一个数据库事务中完成，避免并发超发。Coding Plan 兑换码会保存生成时的套餐快照，之后修改套餐不会改变已发放权益。
 

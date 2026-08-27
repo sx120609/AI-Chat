@@ -14,6 +14,15 @@ SKIP_LOCAL_POSTGRES="${SKIP_LOCAL_POSTGRES:-false}"
 INSTALL_DOCKER="${INSTALL_DOCKER:-false}"
 SETUP_NGINX="${SETUP_NGINX:-false}"
 DOMAIN="${DOMAIN:-}"
+DEPLOY_ROOT="${DEPLOY_ROOT:-$APP_DIR/.deploy}"
+RELEASES_DIR="${RELEASES_DIR:-$DEPLOY_ROOT/releases}"
+CURRENT_RELEASE_LINK="${CURRENT_RELEASE_LINK:-$DEPLOY_ROOT/current}"
+ACTIVE_SLOT_FILE="${ACTIVE_SLOT_FILE:-$DEPLOY_ROOT/active-slot}"
+STANDBY_PORT="${STANDBY_PORT:-$((APP_PORT + 1))}"
+DEPLOY_DRAIN_SECONDS="${DEPLOY_DRAIN_SECONDS:-600}"
+DEPLOY_KEEP_RELEASES="${DEPLOY_KEEP_RELEASES:-4}"
+HEALTH_PATH="${HEALTH_PATH:-/api/health}"
+NGINX_SITE_CONFIG="${NGINX_SITE_CONFIG:-}"
 
 GENERATED_ADMIN_PASSWORD=""
 ENV_CREATED="false"
@@ -99,6 +108,24 @@ run_as_app_user() {
   fi
 }
 
+run_as_app_user_in_dir() {
+  local target_dir="$1"
+  local quoted_dir quoted_cmd
+  shift
+
+  quoted_dir="$(shell_quote "$target_dir")"
+  quoted_cmd=""
+  for arg in "$@"; do
+    quoted_cmd+=" $(shell_quote "$arg")"
+  done
+
+  if [[ "$(id -un)" == "$APP_USER" ]]; then
+    (cd "$target_dir" && "$@")
+  else
+    as_user "$APP_USER" bash -lc "cd $quoted_dir &&$quoted_cmd"
+  fi
+}
+
 load_env_file() {
   if [[ -f "$ENV_FILE" ]]; then
     set -a
@@ -160,7 +187,7 @@ install_system_packages() {
   require_apt
   log "Installing system packages..."
   as_root apt-get update
-  as_root apt-get install -y ca-certificates curl git build-essential openssl postgresql postgresql-contrib
+  as_root apt-get install -y ca-certificates curl git rsync build-essential openssl postgresql postgresql-contrib
 
   local current_major="0"
   if command -v node >/dev/null 2>&1; then
@@ -500,10 +527,11 @@ clean_next_build() {
 }
 
 verify_next_static_assets() {
-  local asset_file static_dir
+  local target_dir asset_file static_dir
 
-  static_dir="$APP_DIR/.next/static/chunks"
-  [[ -s "$APP_DIR/.next/BUILD_ID" ]] || fail "Next.js build is missing .next/BUILD_ID."
+  target_dir="${1:-$APP_DIR}"
+  static_dir="$target_dir/.next/static/chunks"
+  [[ -s "$target_dir/.next/BUILD_ID" ]] || fail "Next.js build is missing $target_dir/.next/BUILD_ID."
   [[ -d "$static_dir" ]] || fail "Next.js build is missing static chunks at $static_dir."
 
   asset_file="$(find "$static_dir" -maxdepth 1 -type f \( -name "*.css" -o -name "*.js" \) -readable -print -quit)"
@@ -541,15 +569,353 @@ build_application() {
   verify_next_static_assets
 }
 
+validate_release_paths() {
+  [[ -n "$APP_DIR" && "$APP_DIR" != "/" ]] || fail "Unsafe APP_DIR for release deployment: $APP_DIR"
+  [[ -n "$DEPLOY_ROOT" && "$DEPLOY_ROOT" != "/" ]] || fail "Unsafe DEPLOY_ROOT: $DEPLOY_ROOT"
+  [[ "$RELEASES_DIR" == "$DEPLOY_ROOT"/* ]] ||
+    fail "RELEASES_DIR must stay inside DEPLOY_ROOT."
+  [[ "$CURRENT_RELEASE_LINK" == "$DEPLOY_ROOT"/* ]] ||
+    fail "CURRENT_RELEASE_LINK must stay inside DEPLOY_ROOT."
+  [[ "$ACTIVE_SLOT_FILE" == "$DEPLOY_ROOT"/* ]] ||
+    fail "ACTIVE_SLOT_FILE must stay inside DEPLOY_ROOT."
+}
+
+prepare_release_root() {
+  validate_release_paths
+  as_root install -d -o "$APP_USER" -g "$APP_GROUP" "$DEPLOY_ROOT" "$RELEASES_DIR"
+}
+
+ensure_release_tools() {
+  if command -v rsync >/dev/null 2>&1; then
+    return
+  fi
+
+  require_apt
+  log "Installing rsync for isolated release builds..."
+  as_root apt-get update
+  as_root apt-get install -y rsync
+}
+
+stage_release() {
+  local release_dir="$1"
+
+  [[ "$release_dir" == "$RELEASES_DIR"/* ]] || fail "Unsafe release directory: $release_dir"
+  as_root install -d -o "$APP_USER" -g "$APP_GROUP" "$release_dir"
+
+  log "Staging isolated release at $release_dir..."
+  as_user "$APP_USER" rsync -a --delete \
+    --exclude='.git/' \
+    --exclude='.deploy/' \
+    --exclude='.next/' \
+    --exclude='node_modules/' \
+    --exclude='.env' \
+    --exclude='uploads/' \
+    --exclude='logs/' \
+    --exclude='.cache/' \
+    "$APP_DIR/" "$release_dir/"
+
+  run_as_app_user_in_dir "$release_dir" ln -s "$ENV_FILE" .env
+  run_as_app_user_in_dir "$release_dir" ln -s "$APP_DIR/uploads" uploads
+  run_as_app_user_in_dir "$release_dir" ln -s "$APP_DIR/logs" logs
+  run_as_app_user_in_dir "$release_dir" ln -s "$APP_DIR/.cache" .cache
+}
+
+sync_release_database() {
+  local release_dir="$1"
+
+  log "Syncing Prisma schema from the staged release..."
+  if ! run_as_app_user_in_dir "$release_dir" npm run db:push; then
+    warn "Prisma db push failed, applying additive quota-wallet, Coding Plan and redemption schema changes only."
+    run_as_app_user_in_dir "$release_dir" npm run db:quota-wallets
+    run_as_app_user_in_dir "$release_dir" npx prisma generate
+  fi
+
+  if [[ ! -f "$APP_DIR/.deploy-seeded" || "${SEED_ADMIN:-false}" == "true" ]]; then
+    log "Seeding administrator account..."
+    run_as_app_user_in_dir "$release_dir" npm run db:seed
+    run_as_app_user touch "$APP_DIR/.deploy-seeded"
+  fi
+}
+
+build_release() {
+  local release_dir="$1"
+
+  log "Installing dependencies inside the staged release..."
+  if [[ -f "$release_dir/package-lock.json" ]]; then
+    run_as_app_user_in_dir "$release_dir" npm ci
+  else
+    run_as_app_user_in_dir "$release_dir" npm install
+  fi
+
+  sync_release_database "$release_dir"
+  log "Building the staged Next.js release while the active service stays online..."
+  run_as_app_user_in_dir "$release_dir" npm run build
+  verify_next_static_assets "$release_dir"
+}
+
+wait_for_release_health() {
+  local port="$1"
+  local release_id="$2"
+  local attempt response
+
+  for attempt in $(seq 1 45); do
+    response="$(curl -fsS --max-time 3 "http://127.0.0.1:${port}${HEALTH_PATH}" 2>/dev/null || true)"
+    if [[ "$response" == *'"status":"ok"'* && "$response" == *"\"release\":\"$release_id\""* ]]; then
+      log "Release $release_id passed health checks on port $port."
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
+site_hostname() {
+  local site_url host
+
+  if [[ -n "$DOMAIN" ]]; then
+    printf '%s' "$DOMAIN"
+    return
+  fi
+
+  site_url="${SITE_URL:-}"
+  host="${site_url#*://}"
+  host="${host%%/*}"
+  host="${host%%:*}"
+  printf '%s' "$host"
+}
+
+nginx_site_name() {
+  printf '%s' "$APP_NAME" | tr -cs 'A-Za-z0-9_.-' '-'
+}
+
+resolve_nginx_site_config() {
+  local nginx_name host candidate
+
+  if [[ -n "$NGINX_SITE_CONFIG" ]]; then
+    [[ -f "$NGINX_SITE_CONFIG" ]] || fail "NGINX_SITE_CONFIG does not exist: $NGINX_SITE_CONFIG"
+    printf '%s' "$NGINX_SITE_CONFIG"
+    return
+  fi
+
+  nginx_name="$(nginx_site_name)"
+  host="$(site_hostname)"
+
+  for candidate in \
+    "/etc/nginx/sites-available/$nginx_name" \
+    "/etc/nginx/conf.d/${nginx_name}.conf"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+
+  if [[ -n "$host" ]]; then
+    for candidate in \
+      "/www/server/panel/vhost/nginx/${host}.conf" \
+      "/etc/nginx/sites-available/$host" \
+      "/etc/nginx/conf.d/${host}.conf"; do
+      if [[ -f "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return
+      fi
+    done
+  fi
+
+  return 1
+}
+
+run_nginx_test() {
+  if command -v nginx >/dev/null 2>&1; then
+    as_root nginx -t
+  elif [[ -x /www/server/nginx/sbin/nginx ]]; then
+    as_root /www/server/nginx/sbin/nginx -t
+  else
+    warn "Nginx binary was not found."
+    return 1
+  fi
+}
+
+reload_nginx() {
+  if as_root systemctl is-active --quiet nginx 2>/dev/null; then
+    as_root systemctl reload nginx
+  elif command -v nginx >/dev/null 2>&1; then
+    as_root nginx -s reload
+  elif [[ -x /www/server/nginx/sbin/nginx ]]; then
+    as_root /www/server/nginx/sbin/nginx -s reload
+  else
+    warn "Nginx is not available for an atomic traffic switch."
+    return 1
+  fi
+}
+
+switch_nginx_proxy_port() {
+  local config_file="$1"
+  local from_port="$2"
+  local to_port="$3"
+  local backup_file match_count
+
+  [[ -f "$config_file" ]] || fail "Nginx site config does not exist: $config_file"
+  match_count="$(grep -Ec "proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:${from_port}(/)?;" "$config_file" || true)"
+  [[ "$match_count" -gt 0 ]] ||
+    fail "No proxy_pass to 127.0.0.1:$from_port was found in $config_file. Set NGINX_SITE_CONFIG to the correct site file."
+
+  backup_file="${config_file}.deploy-backup.$$"
+  as_root cp -a "$config_file" "$backup_file"
+  as_root sed -E -i \
+    "s#(proxy_pass[[:space:]]+http://127\\.0\\.0\\.1):${from_port}(/?;)#\\1:${to_port}\\2#g" \
+    "$config_file"
+
+  if ! run_nginx_test; then
+    as_root mv -f "$backup_file" "$config_file"
+    fail "Nginx validation failed; the previous site config was restored."
+  fi
+
+  if ! reload_nginx; then
+    warn "Nginx reload failed; restoring the previous site config."
+    as_root mv -f "$backup_file" "$config_file"
+    if run_nginx_test; then
+      reload_nginx || warn "The previous config was restored, but Nginx reload still needs manual attention."
+    fi
+    fail "Nginx traffic was not switched. The old application service remains active."
+  fi
+
+  as_root rm -f "$backup_file"
+  log "Nginx traffic switched from port $from_port to $to_port."
+}
+
+detect_active_deployment() {
+  ACTIVE_SLOT=""
+  ACTIVE_SERVICE=""
+  ACTIVE_PORT=""
+
+  if [[ -f "$ACTIVE_SLOT_FILE" ]]; then
+    ACTIVE_SLOT="$(tr -d '[:space:]' <"$ACTIVE_SLOT_FILE")"
+  fi
+
+  if [[ "$ACTIVE_SLOT" == "blue" || "$ACTIVE_SLOT" == "green" ]]; then
+    ACTIVE_SERVICE="${SERVICE_NAME}-${ACTIVE_SLOT}"
+    ACTIVE_PORT="$APP_PORT"
+    [[ "$ACTIVE_SLOT" == "green" ]] && ACTIVE_PORT="$STANDBY_PORT"
+
+    if as_root systemctl is-active --quiet "$ACTIVE_SERVICE"; then
+      return
+    fi
+  fi
+
+  if as_root systemctl is-active --quiet "$SERVICE_NAME"; then
+    ACTIVE_SLOT="legacy"
+    ACTIVE_SERVICE="$SERVICE_NAME"
+    ACTIVE_PORT="$APP_PORT"
+    return
+  fi
+
+  ACTIVE_SLOT=""
+  ACTIVE_SERVICE=""
+  ACTIVE_PORT=""
+}
+
+atomic_set_current_release() {
+  local release_dir="$1"
+  local temp_link="${CURRENT_RELEASE_LINK}.new.$$"
+
+  [[ "$release_dir" == "$RELEASES_DIR"/* ]] || fail "Unsafe current release target: $release_dir"
+  run_as_app_user ln -s "$release_dir" "$temp_link"
+  as_root mv -Tf "$temp_link" "$CURRENT_RELEASE_LINK"
+}
+
+record_active_slot() {
+  local slot="$1"
+  local temp_file="${ACTIVE_SLOT_FILE}.new.$$"
+
+  printf '%s\n' "$slot" | as_root tee "$temp_file" >/dev/null
+  as_root chown "$APP_USER:$APP_GROUP" "$temp_file"
+  as_root mv -f "$temp_file" "$ACTIVE_SLOT_FILE"
+}
+
+schedule_old_service_stop() {
+  local service_name="$1"
+  local release_id="$2"
+  local timer_name
+
+  [[ -n "$service_name" ]] || return
+  timer_name="$(printf '%s-drain-%s' "$service_name" "$release_id" | tr -cs 'A-Za-z0-9_.@-' '-')"
+
+  if [[ "$DEPLOY_DRAIN_SECONDS" -le 0 ]]; then
+    as_root systemctl stop "$service_name" || true
+    return
+  fi
+
+  log "Keeping $service_name alive for ${DEPLOY_DRAIN_SECONDS}s so existing streams can drain."
+  if ! as_root systemd-run \
+    --unit "$timer_name" \
+    --on-active "${DEPLOY_DRAIN_SECONDS}s" \
+    /bin/systemctl stop "$service_name" >/dev/null; then
+    warn "Could not schedule automatic drain stop for $service_name; it remains available and can be stopped manually later."
+  fi
+}
+
+assert_target_port_available() {
+  local target_service="$1"
+  local target_port="$2"
+  local candidate candidate_port
+
+  for candidate in "$SERVICE_NAME" "${SERVICE_NAME}-blue" "${SERVICE_NAME}-green"; do
+    [[ "$candidate" != "$ACTIVE_SERVICE" ]] || continue
+
+    case "$candidate" in
+      "$SERVICE_NAME"|"${SERVICE_NAME}-blue") candidate_port="$APP_PORT" ;;
+      "${SERVICE_NAME}-green") candidate_port="$STANDBY_PORT" ;;
+      *) continue ;;
+    esac
+
+    [[ "$candidate_port" == "$target_port" ]] || continue
+    if as_root systemctl is-active --quiet "$candidate"; then
+      fail "$candidate is still using standby port $target_port, usually because existing requests are draining. Wait for it to stop (default: ${DEPLOY_DRAIN_SECONDS}s) before updating again; the current live service was not changed."
+    fi
+  done
+
+  if as_root systemctl is-active --quiet "$target_service"; then
+    fail "$target_service is still active on standby port $target_port. Wait for its drain period to finish before updating again; the current live service was not changed."
+  fi
+}
+
+prune_old_releases() {
+  local keep_count=0 release_dir protected_blue protected_green
+
+  protected_blue="$(as_root systemctl show -p WorkingDirectory --value "${SERVICE_NAME}-blue" 2>/dev/null || true)"
+  protected_green="$(as_root systemctl show -p WorkingDirectory --value "${SERVICE_NAME}-green" 2>/dev/null || true)"
+
+  while IFS= read -r release_dir; do
+    [[ -n "$release_dir" ]] || continue
+    keep_count=$((keep_count + 1))
+
+    if [[ "$keep_count" -le "$DEPLOY_KEEP_RELEASES" || "$release_dir" == "$protected_blue" || "$release_dir" == "$protected_green" ]]; then
+      continue
+    fi
+
+    [[ "$release_dir" == "$RELEASES_DIR"/* ]] || fail "Refusing to prune unsafe release path: $release_dir"
+    as_root rm -rf -- "$release_dir"
+  done < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -print | sort -r)
+}
+
 write_systemd_service() {
-  local npm_path escaped_app_dir escaped_env_file
+  local target_service target_dir target_port release_id enable_service
+  local npm_path escaped_app_dir escaped_env_file release_environment
+
+  target_service="${1:-$SERVICE_NAME}"
+  target_dir="${2:-$APP_DIR}"
+  target_port="${3:-$APP_PORT}"
+  release_id="${4:-legacy}"
+  enable_service="${5:-true}"
 
   npm_path="$(command -v npm)"
-  escaped_app_dir="$(systemd_escape_path "$APP_DIR")"
+  escaped_app_dir="$(systemd_escape_path "$target_dir")"
   escaped_env_file="$(systemd_escape_path "$ENV_FILE")"
+  release_environment="$(systemd_escape_path "$release_id")"
 
-  log "Writing systemd service: $SERVICE_NAME"
-  as_root tee "/etc/systemd/system/${SERVICE_NAME}.service" >/dev/null <<EOF
+  log "Writing systemd service: $target_service"
+  as_root tee "/etc/systemd/system/${target_service}.service" >/dev/null <<EOF
 [Unit]
 Description=Team AI Gateway
 After=network.target postgresql.service
@@ -562,7 +928,8 @@ WorkingDirectory=$escaped_app_dir
 EnvironmentFile=$escaped_env_file
 Environment=NODE_ENV=production
 Environment=NEXT_TELEMETRY_DISABLED=1
-ExecStart=$npm_path run start -- --hostname $APP_HOST --port $APP_PORT
+Environment=DEPLOY_RELEASE=$release_environment
+ExecStart=$npm_path run start -- --hostname $APP_HOST --port $target_port
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
@@ -572,7 +939,9 @@ WantedBy=multi-user.target
 EOF
 
   as_root systemctl daemon-reload
-  as_root systemctl enable "$SERVICE_NAME"
+  if [[ "$enable_service" == "true" ]]; then
+    as_root systemctl enable "$target_service"
+  fi
 }
 
 setup_nginx() {
@@ -620,12 +989,114 @@ start_service() {
   as_root systemctl --no-pager --full status "$SERVICE_NAME" || true
 }
 
+deploy_release_without_downtime() {
+  local release_id release_dir target_slot target_service target_port
+  local nginx_config git_revision
+
+  ensure_release_tools
+  prepare_release_root
+  detect_active_deployment
+
+  nginx_config=""
+  if [[ -n "$ACTIVE_SERVICE" ]]; then
+    nginx_config="$(resolve_nginx_site_config || true)"
+    [[ -n "$nginx_config" ]] ||
+      fail "An active service was found, but its Nginx site config could not be resolved. Set NGINX_SITE_CONFIG=/absolute/path/to/site.conf so traffic can switch without downtime."
+  fi
+
+  if [[ "$ACTIVE_SLOT" == "blue" || "$ACTIVE_SLOT" == "legacy" ]]; then
+    target_slot="green"
+    target_port="$STANDBY_PORT"
+  else
+    target_slot="blue"
+    target_port="$APP_PORT"
+  fi
+  target_service="${SERVICE_NAME}-${target_slot}"
+
+  # Never stop or reuse a slot that may still own long-running responses from
+  # the preceding release. A rapid second deployment should fail closed and
+  # leave all existing traffic untouched.
+  assert_target_port_available "$target_service" "$target_port"
+
+  git_revision="$(run_as_app_user git rev-parse --short HEAD 2>/dev/null || printf 'manual')"
+  release_id="$(date -u +%Y%m%d%H%M%S)-${git_revision}-${BASHPID}"
+  release_dir="$RELEASES_DIR/$release_id"
+
+  stage_release "$release_dir"
+  build_release "$release_dir"
+
+  write_systemd_service "$target_service" "$release_dir" "$target_port" "$release_id" false
+  as_root systemctl restart "$target_service"
+
+  if ! wait_for_release_health "$target_port" "$release_id"; then
+    as_root systemctl stop "$target_service" || true
+    warn "The staged release failed health checks. The active service was not changed."
+    as_root journalctl -u "$target_service" -n 80 --no-pager || true
+    fail "Release $release_id was not promoted."
+  fi
+
+  if [[ -n "$ACTIVE_SERVICE" ]]; then
+    switch_nginx_proxy_port "$nginx_config" "$ACTIVE_PORT" "$target_port"
+  fi
+
+  atomic_set_current_release "$release_dir"
+  record_active_slot "$target_slot"
+  as_root systemctl enable "$target_service"
+
+  if [[ -n "$ACTIVE_SERVICE" && "$ACTIVE_SERVICE" != "$target_service" ]]; then
+    as_root systemctl disable "$ACTIVE_SERVICE" >/dev/null 2>&1 || true
+    schedule_old_service_stop "$ACTIVE_SERVICE" "$release_id"
+  fi
+
+  prune_old_releases
+  log "Release $release_id is live on the $target_slot slot (port $target_port)."
+}
+
+active_service_name() {
+  detect_active_deployment
+  printf '%s' "${ACTIVE_SERVICE:-$SERVICE_NAME}"
+}
+
+restart_active_service() {
+  local service_name
+  service_name="$(active_service_name)"
+  as_root systemctl restart "$service_name"
+  as_root systemctl --no-pager --full status "$service_name" || true
+}
+
+stop_all_app_services() {
+  as_root systemctl stop \
+    "$SERVICE_NAME" \
+    "${SERVICE_NAME}-blue" \
+    "${SERVICE_NAME}-green" 2>/dev/null || true
+}
+
+show_deployment_status() {
+  local service_name
+  service_name="$(active_service_name)"
+  log "Active service: $service_name"
+  as_root systemctl --no-pager --full status "$service_name"
+}
+
+follow_active_logs() {
+  local service_name
+  service_name="$(active_service_name)"
+  as_root journalctl -u "$service_name" -n 100 -f
+}
+
 deploy_app() {
   ensure_env_file
   ensure_redis
   prepare_app_dir
-  install_node_dependencies
   setup_postgres
+
+  detect_active_deployment
+  if [[ -n "$ACTIVE_SERVICE" ]]; then
+    deploy_release_without_downtime
+    return
+  fi
+
+  install_node_dependencies
   build_application
   write_systemd_service
   setup_nginx
@@ -648,24 +1119,30 @@ install_all() {
 }
 
 update_app() {
+  local previous_revision current_revision
+
   ensure_env_file
   ensure_redis
 
   if [[ -d "$APP_DIR/.git" ]]; then
+    previous_revision="$(run_as_app_user git rev-parse HEAD)"
     log "Pulling latest code from GitHub..."
     run_as_app_user git fetch --all --prune
     run_as_app_user git pull --ff-only
+    current_revision="$(run_as_app_user git rev-parse HEAD)"
+
+    if [[ "${DEPLOY_REEXEC:-false}" != "true" && "$previous_revision" != "$current_revision" ]] &&
+      ! run_as_app_user git diff --quiet "$previous_revision" "$current_revision" -- deploy.sh; then
+      log "deploy.sh changed during pull; restarting with the updated deployment logic..."
+      exec env DEPLOY_REEXEC=true bash "$APP_DIR/deploy.sh" update
+    fi
   else
     warn "$APP_DIR is not a Git repository; skipping git pull."
   fi
 
   prepare_app_dir
-  install_node_dependencies
   setup_postgres
-  build_application
-  write_systemd_service
-  setup_nginx
-  start_service
+  deploy_release_without_downtime
 }
 
 migrate_sqlite() {
@@ -674,15 +1151,15 @@ migrate_sqlite() {
   setup_postgres
   run_as_app_user npm run db:push
   run_as_app_user npm run db:migrate:sqlite-to-pg
-  start_service
+  restart_active_service
 }
 
 print_usage() {
   cat <<EOF
 Usage:
   ./deploy.sh install          Install environment, create DB, build, and start systemd service
-  ./deploy.sh deploy           Build and deploy current code without apt package installation
-  ./deploy.sh update           git pull --ff-only, install deps, db push, build, restart
+  ./deploy.sh deploy           Build current code in an isolated blue/green release and switch after health checks
+  ./deploy.sh update           Pull code, build an isolated release, health-check, then switch Nginx without downtime
   ./deploy.sh migrate-sqlite   Import old dev.db into PostgreSQL
   ./deploy.sh restart          Restart systemd service
   ./deploy.sh stop             Stop systemd service
@@ -694,6 +1171,8 @@ Common environment overrides:
   APP_USER=www-data ./deploy.sh install
   SKIP_LOCAL_POSTGRES=true DATABASE_URL='postgresql://user:pass@host:5432/db?schema=public' ./deploy.sh install
   SETUP_NGINX=true DOMAIN=example.com ./deploy.sh install
+  NGINX_SITE_CONFIG=/absolute/path/to/site.conf ./deploy.sh update
+  STANDBY_PORT=20132 DEPLOY_DRAIN_SECONDS=600 ./deploy.sh update
   INSTALL_DOCKER=true ./deploy.sh install
   SEED_ADMIN=true ./deploy.sh deploy
 EOF
@@ -716,16 +1195,16 @@ main() {
       migrate_sqlite
       ;;
     restart)
-      as_root systemctl restart "$SERVICE_NAME"
+      restart_active_service
       ;;
     stop)
-      as_root systemctl stop "$SERVICE_NAME"
+      stop_all_app_services
       ;;
     status)
-      as_root systemctl --no-pager --full status "$SERVICE_NAME"
+      show_deployment_status
       ;;
     logs)
-      as_root journalctl -u "$SERVICE_NAME" -n 100 -f
+      follow_active_logs
       ;;
     help|-h|--help)
       print_usage

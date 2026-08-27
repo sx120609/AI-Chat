@@ -7,6 +7,7 @@ import {
   validateCodingPlans
 } from "./coding-plan";
 import { nextQuotaResetAt } from "./quota";
+import { codingPlanGrantExpiry } from "./entitlements";
 
 test("keeps configurable Coding Plan duration in payment snapshots", () => {
   const plan = normalizeCodingPlanConfig({
@@ -27,6 +28,10 @@ test("keeps configurable Coding Plan duration in payment snapshots", () => {
   assert.equal(parsed?.durationMonths, 3);
   assert.equal(parsed?.id, "pro-3m");
   assert.equal(nextQuotaResetAt(new Date("2026-01-31T12:00:00.000Z"), 3).toISOString(), "2026-04-30T12:00:00.000Z");
+  assert.equal(
+    codingPlanGrantExpiry(new Date("2026-01-31T12:00:00.000Z"), "DAYS", 10).toISOString(),
+    "2026-02-10T12:00:00.000Z"
+  );
 });
 
 test("rejects duplicate or malformed Coding Plan ids instead of silently dropping plans", () => {

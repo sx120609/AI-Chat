@@ -28,6 +28,8 @@ export type RedemptionReward =
     }
   | {
       codingPlan: CodingPlanOrderSnapshot;
+      durationUnit: "DAYS" | "MONTHS";
+      durationValue: number;
       rewardType: typeof CODING_PLAN_PRODUCT_TYPE;
     };
 
@@ -158,9 +160,19 @@ export function serializeRedemptionReward(input: {
       priceCents: 100,
       weeklyCostLimitCents: raw.weeklyCostLimitCents as number | undefined
     }, "redeemed-coding-plan");
+    const durationUnit = raw.redemptionDurationUnit === "DAYS" ? "DAYS" : "MONTHS";
+    const configuredDuration = Number(raw.redemptionDurationValue);
+    const durationValue = Number.isFinite(configuredDuration)
+      ? Math.min(
+          durationUnit === "DAYS" ? 3650 : 120,
+          Math.max(1, Math.round(configuredDuration))
+        )
+      : normalized.durationMonths;
 
     return {
       codingPlan: codingPlanSnapshot(normalized),
+      durationUnit,
+      durationValue,
       rewardType: CODING_PLAN_PRODUCT_TYPE
     };
   } catch {

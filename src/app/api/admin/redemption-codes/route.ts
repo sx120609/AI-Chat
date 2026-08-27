@@ -22,6 +22,8 @@ export const dynamic = "force-dynamic";
 
 type CreateRedemptionCodesBody = {
   aiPointsBalanceCents?: number;
+  codingPlanDurationUnit?: string;
+  codingPlanDurationValue?: number;
   codingPlanId?: string;
   expiresAt?: string | null;
   label?: string;
@@ -173,7 +175,25 @@ export async function POST(request: NextRequest) {
       return jsonError("所选 Coding Plan 不存在，请先保存套餐配置。", 400);
     }
 
-    codingPlanSnapshotJson = JSON.stringify(codingPlanSnapshot(plan));
+    const durationUnit = body.codingPlanDurationUnit === "DAYS" ? "DAYS" : "MONTHS";
+    const fallbackDuration = durationUnit === "DAYS" ? plan.durationMonths * 30 : plan.durationMonths;
+    const durationValue = Number(body.codingPlanDurationValue ?? fallbackDuration);
+    const maxDuration = durationUnit === "DAYS" ? 3650 : 120;
+
+    if (!Number.isInteger(durationValue) || durationValue < 1 || durationValue > maxDuration) {
+      return jsonError(
+        durationUnit === "DAYS"
+          ? "兑换套餐有效期必须是 1-3650 个整天。"
+          : "兑换套餐有效期必须是 1-120 个整月。",
+        400
+      );
+    }
+
+    codingPlanSnapshotJson = JSON.stringify({
+      ...codingPlanSnapshot(plan),
+      redemptionDurationUnit: durationUnit,
+      redemptionDurationValue: durationValue
+    });
   }
 
   const codes = await prisma.$transaction(async (tx) => {

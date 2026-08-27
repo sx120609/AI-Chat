@@ -40,7 +40,9 @@ test("parses point and Coding Plan redemption rewards", () => {
       monthlyCostLimitCents: 2000,
       dailyCostLimitCents: 0,
       weeklyCostLimitCents: 0,
-      personalApiEnabled: true
+      personalApiEnabled: true,
+      redemptionDurationUnit: "DAYS",
+      redemptionDurationValue: 45
     }),
     rewardType: "CODING_PLAN"
   });
@@ -48,4 +50,6 @@ test("parses point and Coding Plan redemption rewards", () => {
   assert.deepEqual(points, { aiPointsBalanceCents: 1200, rewardType: "AI_POINTS" });
   assert.equal(plan?.rewardType, "CODING_PLAN");
   assert.equal(plan?.rewardType === "CODING_PLAN" ? plan.codingPlan.durationMonths : 0, 2);
+  assert.equal(plan?.rewardType === "CODING_PLAN" ? plan.durationUnit : "", "DAYS");
+  assert.equal(plan?.rewardType === "CODING_PLAN" ? plan.durationValue : 0, 45);
 });

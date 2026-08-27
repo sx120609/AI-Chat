@@ -136,6 +136,8 @@ export type AdminRedemptionCodesPayload = {
 
 export type CreateRedemptionCodesInput = {
   aiPointsBalanceCents: number;
+  codingPlanDurationUnit: "DAYS" | "MONTHS";
+  codingPlanDurationValue: number;
   codingPlanId: string;
   expiresAt: string;
   label: string;

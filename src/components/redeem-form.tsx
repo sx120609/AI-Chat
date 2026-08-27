@@ -53,7 +53,9 @@ export function RedeemForm({ initialCode = "" }: { initialCode?: string }) {
   if (result?.reward) {
     const reward = result.reward;
     const benefit = reward.rewardType === "CODING_PLAN"
-      ? `${reward.codingPlan.name}（${reward.codingPlan.durationMonths} 个月）`
+      ? `${reward.codingPlan.name}（${reward.durationValue} ${
+          reward.durationUnit === "DAYS" ? "天" : "个月"
+        }）`
       : `${formatCents(reward.aiPointsBalanceCents)} AI 点数`;
 
     return (

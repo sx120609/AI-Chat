@@ -222,6 +222,8 @@ export type RedemptionRewardView =
         | "personalApiEnabled"
         | "weeklyCostLimitCents"
       >;
+      durationUnit: "DAYS" | "MONTHS";
+      durationValue: number;
       rewardType: "CODING_PLAN";
     };
 

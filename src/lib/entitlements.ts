@@ -9,8 +9,22 @@ export type EntitlementGrant =
     }
   | {
       codingPlan: CodingPlanOrderSnapshot;
+      durationUnit?: "DAYS" | "MONTHS";
+      durationValue?: number;
       rewardType: "CODING_PLAN";
     };
+
+export function codingPlanGrantExpiry(
+  base: Date,
+  durationUnit: "DAYS" | "MONTHS",
+  durationValue: number
+) {
+  const normalizedValue = Math.max(1, Math.round(durationValue));
+
+  return durationUnit === "DAYS"
+    ? new Date(base.getTime() + normalizedValue * 24 * 60 * 60 * 1000)
+    : nextQuotaResetAt(base, normalizedValue);
+}
 
 export async function grantEntitlement(
   tx: Prisma.TransactionClient,
@@ -46,7 +60,12 @@ export async function grantEntitlement(
   });
   const existingExpiry = user.codingPlanExpiresAt;
   const base = existingExpiry && existingExpiry > grantedAt ? existingExpiry : grantedAt;
-  const expiresAt = nextQuotaResetAt(base, grant.codingPlan.durationMonths);
+  const durationUnit = grant.durationUnit === "DAYS" ? "DAYS" : "MONTHS";
+  const durationValue = Math.max(
+    1,
+    Math.round(grant.durationValue ?? grant.codingPlan.durationMonths)
+  );
+  const expiresAt = codingPlanGrantExpiry(base, durationUnit, durationValue);
   const startsNewPlan = !existingExpiry || existingExpiry <= grantedAt;
 
   await tx.user.update({

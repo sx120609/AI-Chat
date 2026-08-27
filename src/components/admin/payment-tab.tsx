@@ -54,6 +54,8 @@ type PaymentTabProps = {
 
 const emptyRedemptionForm: CreateRedemptionCodesInput = {
   aiPointsBalanceCents: 1000,
+  codingPlanDurationUnit: "MONTHS",
+  codingPlanDurationValue: 1,
   codingPlanId: "",
   expiresAt: "",
   label: "",
@@ -216,7 +218,9 @@ function redemptionRewardLabel(code: RedemptionCodeView) {
   }
 
   if (code.reward.rewardType === "CODING_PLAN") {
-    return `${code.reward.codingPlan.name} · ${code.reward.codingPlan.durationMonths} 个月`;
+    return `${code.reward.codingPlan.name} · ${code.reward.durationValue} ${
+      code.reward.durationUnit === "DAYS" ? "天" : "个月"
+    }`;
   }
 
   return `${formatCents(code.reward.aiPointsBalanceCents)} AI 点数`;
@@ -343,6 +347,8 @@ export function PaymentTab({
     ) {
       setRedemptionForm((current) => ({
         ...current,
+        codingPlanDurationUnit: "MONTHS",
+        codingPlanDurationValue: settingsForm.codingPlans[0].durationMonths,
         codingPlanId: settingsForm.codingPlans[0].id
       }));
     }
@@ -996,12 +1002,18 @@ export function PaymentTab({
               <span className="mb-1 block text-xs font-medium ios-muted">发放套餐</span>
               <select
                 className="ios-input w-full"
-                onChange={(event) =>
+                onChange={(event) => {
+                  const plan = settingsForm.codingPlans.find(
+                    (item) => item.id === event.target.value
+                  );
+
                   setRedemptionForm((current) => ({
                     ...current,
+                    codingPlanDurationUnit: "MONTHS",
+                    codingPlanDurationValue: plan?.durationMonths ?? 1,
                     codingPlanId: event.target.value
-                  }))
-                }
+                  }));
+                }}
                 value={selectedRedemptionPlan?.id || ""}
               >
                 {settingsForm.codingPlans.length === 0 ? (
@@ -1015,6 +1027,53 @@ export function PaymentTab({
               </select>
             </label>
           )}
+          {redemptionForm.rewardType === "CODING_PLAN" ? (
+            <div className="lg:col-span-2">
+              <span className="mb-1 block text-xs font-medium ios-muted">本批兑换后的有效期</span>
+              <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2">
+                <input
+                  className="ios-input w-full"
+                  max={redemptionForm.codingPlanDurationUnit === "DAYS" ? 3650 : 120}
+                  min={1}
+                  onChange={(event) => {
+                    const max = redemptionForm.codingPlanDurationUnit === "DAYS" ? 3650 : 120;
+                    const value = Math.min(
+                      max,
+                      Math.max(1, Math.round(Number(event.target.value) || 1))
+                    );
+
+                    setRedemptionForm((current) => ({
+                      ...current,
+                      codingPlanDurationValue: value
+                    }));
+                  }}
+                  step={1}
+                  type="number"
+                  value={redemptionForm.codingPlanDurationValue}
+                />
+                <select
+                  className="ios-input w-full"
+                  onChange={(event) => {
+                    const nextUnit = event.target.value as "DAYS" | "MONTHS";
+
+                    setRedemptionForm((current) => ({
+                      ...current,
+                      codingPlanDurationUnit: nextUnit,
+                      codingPlanDurationValue:
+                        nextUnit === "DAYS"
+                          ? Math.min(3650, current.codingPlanDurationValue * 30)
+                          : Math.min(120, Math.max(1, Math.ceil(current.codingPlanDurationValue / 30)))
+                    }));
+                  }}
+                  value={redemptionForm.codingPlanDurationUnit}
+                >
+                  <option value="DAYS">天</option>
+                  <option value="MONTHS">个月</option>
+                </select>
+              </div>
+              <p className="mt-1 text-[11px] ios-muted">只覆盖本批兑换码，不修改原套餐购买时长。</p>
+            </div>
+          ) : null}
           <label className="block lg:col-span-1">
             <span className="mb-1 block text-xs font-medium ios-muted">生成数量</span>
             <input

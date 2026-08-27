@@ -31,12 +31,14 @@ import type { CreateRedemptionCodesInput, SettingsForm } from "./types";
 
 type PaymentTabProps = {
   creatingRedemptionCodes: boolean;
+  deletingRedemptionCodeId: string | null;
   deletingOrderId: string | null;
   loadingOrders: boolean;
   loadingRedemptionCodes: boolean;
   onCreateRedemptionCodes: (input: CreateRedemptionCodesInput) => Promise<boolean>;
   onRefreshOrders: () => void;
   onRefreshRedemptionCodes: () => void;
+  onSetDeleteRedemptionCodeTarget: (code: RedemptionCodeView) => void;
   onSetDeleteOrderTarget: (order: PaymentOrderView) => void;
   onSyncOrder: (orderId: string) => void;
   onToggleRedemptionCode: (code: RedemptionCodeView) => void;
@@ -244,12 +246,14 @@ function redemptionStatus(code: RedemptionCodeView) {
 
 export function PaymentTab({
   creatingRedemptionCodes,
+  deletingRedemptionCodeId,
   deletingOrderId,
   loadingOrders,
   loadingRedemptionCodes,
   onCreateRedemptionCodes,
   onRefreshOrders,
   onRefreshRedemptionCodes,
+  onSetDeleteRedemptionCodeTarget,
   onSetDeleteOrderTarget,
   onSyncOrder,
   onToggleRedemptionCode,
@@ -1250,7 +1254,9 @@ export function PaymentTab({
                     </button>
                     <button
                       className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-1.5 px-3 text-xs disabled:opacity-50"
-                      disabled={updatingRedemptionCodeId === code.id}
+                      disabled={
+                        updatingRedemptionCodeId === code.id || deletingRedemptionCodeId === code.id
+                      }
                       onClick={() => onToggleRedemptionCode(code)}
                       type="button"
                     >
@@ -1262,6 +1268,28 @@ export function PaymentTab({
                         <PlayCircle className="size-3.5" />
                       )}
                       {code.active ? "停用" : "启用"}
+                    </button>
+                    <button
+                      className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-1.5 px-3 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
+                      disabled={
+                        code.redeemedCount > 0 ||
+                        updatingRedemptionCodeId === code.id ||
+                        deletingRedemptionCodeId === code.id
+                      }
+                      onClick={() => onSetDeleteRedemptionCodeTarget(code)}
+                      title={
+                        code.redeemedCount > 0
+                          ? "已有兑换记录，只能停用以保留审计记录"
+                          : "删除兑换码"
+                      }
+                      type="button"
+                    >
+                      {deletingRedemptionCodeId === code.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
+                      )}
+                      删除
                     </button>
                   </div>
                 </div>

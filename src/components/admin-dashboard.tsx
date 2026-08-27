@@ -118,12 +118,15 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [loadingRedemptionCodes, setLoadingRedemptionCodes] = useState(false);
   const [updatingRedemptionCodeId, setUpdatingRedemptionCodeId] = useState<string | null>(null);
+  const [deletingRedemptionCodeId, setDeletingRedemptionCodeId] = useState<string | null>(null);
   const [syncingPaymentOrderId, setSyncingPaymentOrderId] = useState<string | null>(null);
   const [deletingPaymentOrderId, setDeletingPaymentOrderId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = useState<AdminUserView | null>(null);
   const [deletePaymentOrderTarget, setDeletePaymentOrderTarget] =
     useState<PaymentOrderView | null>(null);
+  const [deleteRedemptionCodeTarget, setDeleteRedemptionCodeTarget] =
+    useState<RedemptionCodeView | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [testingSettings, setTestingSettings] = useState(false);
@@ -497,6 +500,36 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       setError(redemptionError instanceof Error ? redemptionError.message : "更新兑换码失败。");
     } finally {
       setUpdatingRedemptionCodeId(null);
+    }
+  }
+
+  async function deleteRedemptionCode() {
+    if (!deleteRedemptionCodeTarget) {
+      return;
+    }
+
+    const target = deleteRedemptionCodeTarget;
+    setDeletingRedemptionCodeId(target.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch(`/api/admin/redemption-codes/${target.id}`, {
+        method: "DELETE"
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        setError(payload?.error || "删除兑换码失败。");
+      } else {
+        setNotice("兑换码已删除。");
+        setDeleteRedemptionCodeTarget(null);
+        await loadRedemptionCodes();
+      }
+    } catch (redemptionError) {
+      setError(redemptionError instanceof Error ? redemptionError.message : "删除兑换码失败。");
+    } finally {
+      setDeletingRedemptionCodeId(null);
     }
   }
 
@@ -981,10 +1014,12 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
                 {activeTab === "payment" && (
                   <PaymentTab
                     creatingRedemptionCodes={loadingRedemptionCodes}
+                    deletingRedemptionCodeId={deletingRedemptionCodeId}
                     deletingOrderId={deletingPaymentOrderId}
                     loadingOrders={loadingPayments || loading}
                     loadingRedemptionCodes={loadingRedemptionCodes || loading}
                     onCreateRedemptionCodes={createRedemptionCodes}
+                    onSetDeleteRedemptionCodeTarget={setDeleteRedemptionCodeTarget}
                     onSetDeleteOrderTarget={setDeletePaymentOrderTarget}
                     onSyncOrder={syncPaymentOrder}
                     onRefreshOrders={refreshPayments}
@@ -1027,6 +1062,20 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
         onConfirm={deleteUser}
         open={Boolean(deleteUserTarget)}
         title="删除用户"
+        tone="danger"
+      />
+      <SiteConfirmDialog
+        confirmLabel="删除兑换码"
+        description={`确定删除兑换码 ${
+          deleteRedemptionCodeTarget?.code || deleteRedemptionCodeTarget?.codePreview || ""
+        } 吗？删除后该兑换码和兑换链接会立即失效，此操作不可恢复。`}
+        loading={Boolean(
+          deleteRedemptionCodeTarget && deletingRedemptionCodeId === deleteRedemptionCodeTarget.id
+        )}
+        onCancel={() => setDeleteRedemptionCodeTarget(null)}
+        onConfirm={deleteRedemptionCode}
+        open={Boolean(deleteRedemptionCodeTarget)}
+        title="删除兑换码"
         tone="danger"
       />
       <SiteConfirmDialog

@@ -11,8 +11,18 @@ type LoginPageProps = {
   searchParams: Promise<{ next?: string | string[] }>;
 };
 
-function safeNextPath(value: string | string[] | undefined): "/chat" | "/beta" {
-  return value === "/beta" ? "/beta" : "/chat";
+function safeNextPath(value: string | string[] | undefined) {
+  const path = typeof value === "string" ? value : "";
+
+  if (path === "/beta" || path === "/chat" || path === "/profile") {
+    return path;
+  }
+
+  if (path === "/redeem" || path.startsWith("/redeem?")) {
+    return path;
+  }
+
+  return "/chat";
 }
 
 export async function generateMetadata(): Promise<Metadata> {

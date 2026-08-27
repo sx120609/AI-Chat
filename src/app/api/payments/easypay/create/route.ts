@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
         );
   const subject =
     productType === CODING_PLAN_PRODUCT_TYPE
-      ? `${siteName} ${selectedCodingPlan.name} 月度订阅`
+      ? `${siteName} ${selectedCodingPlan.name} ${selectedCodingPlan.durationMonths} 个月套餐`
       : `${siteName} AI 点数充值`;
   const order = await prisma.paymentOrder.create({
     data: {

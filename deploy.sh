@@ -524,7 +524,7 @@ install_node_dependencies() {
 build_application() {
   log "Syncing Prisma schema..."
   if ! run_as_app_user npm run db:push; then
-    warn "Prisma db push failed, applying additive quota-wallet schema changes only."
+    warn "Prisma db push failed, applying additive quota-wallet, Coding Plan and redemption schema changes only."
     run_as_app_user npm run db:quota-wallets
     run_as_app_user npx prisma generate
   fi

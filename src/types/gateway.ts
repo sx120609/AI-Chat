@@ -19,6 +19,7 @@ export type EasyPayAmountTierView = {
 export type PublicCodingPlanView = {
   dailyCostLimitCents: number;
   description: string;
+  durationMonths: number;
   enabled: boolean;
   id: string;
   monthlyCostLimitCents: number;
@@ -191,6 +192,7 @@ export type PaymentOrderView = {
   amountCents: number;
   balanceCents: number;
   codingPlanDailyCostLimitCents?: number | null;
+  codingPlanDurationMonths?: number | null;
   codingPlanMonthlyCostLimitCents?: number | null;
   codingPlanName?: string | null;
   codingPlanWeeklyCostLimitCents?: number | null;
@@ -201,6 +203,45 @@ export type PaymentOrderView = {
   userId?: string;
   userEmail?: string;
   userName?: string;
+};
+
+export type RedemptionRewardView =
+  | {
+      aiPointsBalanceCents: number;
+      rewardType: "AI_POINTS";
+    }
+  | {
+      codingPlan: Pick<
+        PublicCodingPlanView,
+        | "dailyCostLimitCents"
+        | "description"
+        | "durationMonths"
+        | "id"
+        | "monthlyCostLimitCents"
+        | "name"
+        | "personalApiEnabled"
+        | "weeklyCostLimitCents"
+      >;
+      rewardType: "CODING_PLAN";
+    };
+
+export type RedemptionCodeView = {
+  id: string;
+  code?: string | null;
+  codePreview: string;
+  label: string;
+  reward: RedemptionRewardView | null;
+  maxRedemptions: number;
+  redeemedCount: number;
+  active: boolean;
+  expiresAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  recentRedemptions: Array<{
+    redeemedAt: string;
+    userEmail: string;
+    userName: string;
+  }>;
 };
 
 export type PaymentOrderSummaryView = {

@@ -7,7 +7,7 @@ import type { PublicAuthSettingsView } from "@/types/gateway";
 
 type LoginFormProps = {
   authSettings: PublicAuthSettingsView;
-  nextPath?: "/chat" | "/beta";
+  nextPath?: string;
 };
 
 type AuthMode = "forgot" | "login" | "register";

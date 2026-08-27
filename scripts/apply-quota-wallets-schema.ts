@@ -34,7 +34,40 @@ const statements = [
   'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanPriceCents" INTEGER NOT NULL DEFAULT 1990',
   'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanMonthlyCostLimitCents" INTEGER NOT NULL DEFAULT 1000',
   'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlanPersonalApiEnabled" BOOLEAN NOT NULL DEFAULT TRUE',
-  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlansJson" TEXT NOT NULL DEFAULT \'\''
+  'ALTER TABLE "AiSettings" ADD COLUMN IF NOT EXISTS "codingPlansJson" TEXT NOT NULL DEFAULT \'\'',
+  `CREATE TABLE IF NOT EXISTS "RedemptionCode" (
+    "id" TEXT PRIMARY KEY,
+    "codeHash" TEXT NOT NULL UNIQUE,
+    "codeEncrypted" TEXT,
+    "codePreview" TEXT NOT NULL,
+    "label" TEXT NOT NULL DEFAULT '',
+    "rewardType" TEXT NOT NULL,
+    "aiPointsBalanceCents" INTEGER NOT NULL DEFAULT 0,
+    "codingPlanSnapshotJson" TEXT NOT NULL DEFAULT '{}',
+    "maxRedemptions" INTEGER NOT NULL DEFAULT 1,
+    "redeemedCount" INTEGER NOT NULL DEFAULT 0,
+    "active" BOOLEAN NOT NULL DEFAULT TRUE,
+    "expiresAt" TIMESTAMP(3),
+    "createdById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "Redemption" (
+    "id" TEXT PRIMARY KEY,
+    "codeId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "rewardType" TEXT NOT NULL,
+    "aiPointsBalanceCents" INTEGER NOT NULL DEFAULT 0,
+    "codingPlanSnapshotJson" TEXT NOT NULL DEFAULT '{}',
+    "redeemedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Redemption_codeId_fkey" FOREIGN KEY ("codeId") REFERENCES "RedemptionCode"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Redemption_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  'CREATE INDEX IF NOT EXISTS "RedemptionCode_active_expiresAt_idx" ON "RedemptionCode"("active", "expiresAt")',
+  'CREATE INDEX IF NOT EXISTS "RedemptionCode_createdAt_idx" ON "RedemptionCode"("createdAt")',
+  'CREATE UNIQUE INDEX IF NOT EXISTS "Redemption_codeId_userId_key" ON "Redemption"("codeId", "userId")',
+  'CREATE INDEX IF NOT EXISTS "Redemption_userId_redeemedAt_idx" ON "Redemption"("userId", "redeemedAt")',
+  'CREATE INDEX IF NOT EXISTS "Redemption_codeId_redeemedAt_idx" ON "Redemption"("codeId", "redeemedAt")'
 ];
 
 async function main() {
@@ -57,7 +90,7 @@ async function main() {
     await client.end();
   }
 
-  console.log("Applied quota wallet, Coding Plan and model upstream schema additions.");
+  console.log("Applied quota wallet, Coding Plan, redemption code and model upstream schema additions.");
 }
 
 main().catch((error) => {

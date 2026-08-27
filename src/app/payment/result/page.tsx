@@ -86,7 +86,7 @@ export default async function PaymentResultPage({ searchParams }: PaymentResultP
             <p className="mt-1 text-sm leading-6 ios-muted">
               {paid
                 ? codingPlan
-                  ? `${codingPlan.name} 已开通一个月，每月可用 ${formatCents(codingPlan.monthlyCostLimitCents)} 额度${
+                  ? `${codingPlan.name} 已开通 ${codingPlan.durationMonths} 个月，每月可用 ${formatCents(codingPlan.monthlyCostLimitCents)} 额度${
                       codingPlan.dailyCostLimitCents > 0
                         ? `，每日限 ${formatCents(codingPlan.dailyCostLimitCents)}`
                         : ""

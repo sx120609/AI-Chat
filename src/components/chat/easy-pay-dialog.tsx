@@ -47,6 +47,7 @@ export function EasyPayDialog({
   const codingPlan = matchedCodingPlan ?? {
     dailyCostLimitCents: 0,
     description: "",
+    durationMonths: 1,
     enabled: false,
     id: "",
     monthlyCostLimitCents: 0,
@@ -168,7 +169,9 @@ export function EasyPayDialog({
             <div>
               <h2 className="text-base font-semibold">{isCodingPlan ? codingPlan.name : "充值 AI 点数"}</h2>
               <p className="mt-0.5 text-xs ios-muted">
-                {isCodingPlan ? "支付后开通或顺延一个月，不自动续费" : "支付完成后异步通知到账"}
+                {isCodingPlan
+                  ? `支付后开通或顺延 ${codingPlan.durationMonths} 个月，不自动续费`
+                  : "支付完成后异步通知到账"}
               </p>
             </div>
           </div>
@@ -237,7 +240,9 @@ export function EasyPayDialog({
                       </span>
                     </span>
                   </span>
-                  <span className="shrink-0 text-sm font-semibold">{formatPaymentYuan(plan.priceCents)}/月</span>
+                  <span className="shrink-0 text-sm font-semibold">
+                    {formatPaymentYuan(plan.priceCents)} / {plan.durationMonths} 个月
+                  </span>
                 </button>
               ))}
             </div>
@@ -245,7 +250,9 @@ export function EasyPayDialog({
           {isCodingPlan ? (
             <div className="rounded-lg border border-[color:var(--app-border)] bg-white/60 px-3 py-3 text-sm text-stone-700">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="font-semibold text-stone-950">{formatPaymentYuan(codingPlan.priceCents)} / 月</span>
+                <span className="font-semibold text-stone-950">
+                  {formatPaymentYuan(codingPlan.priceCents)} / {codingPlan.durationMonths} 个月
+                </span>
                 <span>月额度 {formatCents(codingPlan.monthlyCostLimitCents)}</span>
               </div>
               {codingPlan.dailyCostLimitCents > 0 || codingPlan.weeklyCostLimitCents > 0 ? (

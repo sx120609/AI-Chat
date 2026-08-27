@@ -20,7 +20,8 @@ import type {
   AdminUsageSummaryView,
   AdminUsageFilterOptionsView,
   PaymentOrderSummaryView,
-  PaymentOrderView
+  PaymentOrderView,
+  RedemptionCodeView
 } from "@/types/gateway";
 
 import type {
@@ -30,7 +31,9 @@ import type {
   CreateForm,
   UsageFilterState,
   AdminUsagePayload,
-  AdminPaymentsPayload
+  AdminPaymentsPayload,
+  AdminRedemptionCodesPayload,
+  CreateRedemptionCodesInput
 } from "./admin/types";
 
 import {
@@ -83,6 +86,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [paymentOrders, setPaymentOrders] = useState<PaymentOrderView[]>([]);
   const [paymentSummary, setPaymentSummary] =
     useState<PaymentOrderSummaryView>(emptyPaymentSummary);
+  const [redemptionCodes, setRedemptionCodes] = useState<RedemptionCodeView[]>([]);
   const [settings, setSettings] = useState<AiSettingsView | null>(null);
   const [settingsForm, _setSettingsForm] = useState<SettingsForm>(emptySettings);
   const setSettingsForm = useCallback((
@@ -112,6 +116,8 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [loadingUsage, setLoadingUsage] = useState(false);
   const [loadingPayments, setLoadingPayments] = useState(false);
+  const [loadingRedemptionCodes, setLoadingRedemptionCodes] = useState(false);
+  const [updatingRedemptionCodeId, setUpdatingRedemptionCodeId] = useState<string | null>(null);
   const [syncingPaymentOrderId, setSyncingPaymentOrderId] = useState<string | null>(null);
   const [deletingPaymentOrderId, setDeletingPaymentOrderId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -198,6 +204,18 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     setPaymentSummary(payload.summary);
   }, []);
 
+  const loadRedemptionCodes = useCallback(async () => {
+    const response = await fetch("/api/admin/redemption-codes?limit=100");
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error || "加载兑换码失败。");
+    }
+
+    const payload = (await response.json()) as AdminRedemptionCodesPayload;
+    setRedemptionCodes(payload.codes);
+  }, []);
+
   const applySettings = useCallback((nextSettings: AiSettingsView) => {
     setSettings(nextSettings);
     setSettingsForm({
@@ -278,13 +296,19 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
     setError("");
 
     try {
-      await Promise.all([loadUsers(), loadSettings(), loadUsage(), loadPayments()]);
+      await Promise.all([
+        loadUsers(),
+        loadSettings(),
+        loadUsage(),
+        loadPayments(),
+        loadRedemptionCodes()
+      ]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "加载失败。");
     } finally {
       setLoading(false);
     }
-  }, [loadPayments, loadSettings, loadUsage, loadUsers]);
+  }, [loadPayments, loadRedemptionCodes, loadSettings, loadUsage, loadUsers]);
 
   useEffect(() => {
     void loadAll();
@@ -402,6 +426,77 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       setError(paymentError instanceof Error ? paymentError.message : "加载充值订单失败。");
     } finally {
       setLoadingPayments(false);
+    }
+  }
+
+  async function refreshRedemptionCodes() {
+    setLoadingRedemptionCodes(true);
+    setError("");
+    setNotice("");
+
+    try {
+      await loadRedemptionCodes();
+    } catch (redemptionError) {
+      setError(redemptionError instanceof Error ? redemptionError.message : "加载兑换码失败。");
+    } finally {
+      setLoadingRedemptionCodes(false);
+    }
+  }
+
+  async function createRedemptionCodes(input: CreateRedemptionCodesInput) {
+    setLoadingRedemptionCodes(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch("/api/admin/redemption-codes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input)
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | (AdminRedemptionCodesPayload & { error?: string })
+        | null;
+
+      if (!response.ok) {
+        setError(payload?.error || "创建兑换码失败。");
+        return false;
+      }
+
+      setNotice(`已创建 ${payload?.codes.length ?? input.quantity} 个兑换码。`);
+      await loadRedemptionCodes();
+      return true;
+    } catch (redemptionError) {
+      setError(redemptionError instanceof Error ? redemptionError.message : "创建兑换码失败。");
+      return false;
+    } finally {
+      setLoadingRedemptionCodes(false);
+    }
+  }
+
+  async function toggleRedemptionCode(code: RedemptionCodeView) {
+    setUpdatingRedemptionCodeId(code.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch(`/api/admin/redemption-codes/${code.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ active: !code.active })
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        setError(payload?.error || "更新兑换码失败。");
+      } else {
+        setNotice(code.active ? "兑换码已停用。" : "兑换码已启用。");
+        await loadRedemptionCodes();
+      }
+    } catch (redemptionError) {
+      setError(redemptionError instanceof Error ? redemptionError.message : "更新兑换码失败。");
+    } finally {
+      setUpdatingRedemptionCodeId(null);
     }
   }
 
@@ -885,14 +980,21 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
 
                 {activeTab === "payment" && (
                   <PaymentTab
+                    creatingRedemptionCodes={loadingRedemptionCodes}
                     deletingOrderId={deletingPaymentOrderId}
                     loadingOrders={loadingPayments || loading}
+                    loadingRedemptionCodes={loadingRedemptionCodes || loading}
+                    onCreateRedemptionCodes={createRedemptionCodes}
                     onSetDeleteOrderTarget={setDeletePaymentOrderTarget}
                     onSyncOrder={syncPaymentOrder}
                     onRefreshOrders={refreshPayments}
+                    onRefreshRedemptionCodes={refreshRedemptionCodes}
+                    onToggleRedemptionCode={toggleRedemptionCode}
                     orders={paymentOrders}
+                    redemptionCodes={redemptionCodes}
                     summary={paymentSummary}
                     syncingOrderId={syncingPaymentOrderId}
+                    updatingRedemptionCodeId={updatingRedemptionCodeId}
                     settings={settings}
                     settingsForm={settingsForm}
                     setSettingsForm={setSettingsForm}

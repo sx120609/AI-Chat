@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
+  TicketCheck,
   UserRound
 } from "lucide-react";
 import type {
@@ -101,7 +102,7 @@ function paymentStatusMeta(status: string) {
 
 function paymentBenefitLabel(order: PaymentOrderView) {
   if (order.productType === "CODING_PLAN") {
-    return `月额度 ${formatCents(order.codingPlanMonthlyCostLimitCents ?? 0)}`;
+    return `${order.codingPlanDurationMonths ?? 1} 个月 · 月额度 ${formatCents(order.codingPlanMonthlyCostLimitCents ?? 0)}`;
   }
 
   return `${formatCents(order.balanceCents)} AI 点数`;
@@ -226,17 +227,26 @@ export function OverviewTab({
                 ) : null}
               </div>
             ) : null}
-            {paymentSettings.easyPayEnabled ? (
-              <button
-                className="ios-button-primary app-action-button mt-4 flex h-10 w-full items-center justify-center gap-2 px-4 text-sm"
-                data-testid="profile-recharge-button"
-                onClick={onRecharge}
-                type="button"
+            <div className={`mt-4 grid gap-2 ${paymentSettings.easyPayEnabled ? "grid-cols-2" : "grid-cols-1"}`}>
+              {paymentSettings.easyPayEnabled ? (
+                <button
+                  className="ios-button-primary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                  data-testid="profile-recharge-button"
+                  onClick={onRecharge}
+                  type="button"
+                >
+                  <CreditCard className="size-4" />
+                  充值 / 套餐
+                </button>
+              ) : null}
+              <a
+                className="ios-button-secondary app-action-button flex h-10 items-center justify-center gap-2 px-3 text-sm"
+                href="/redeem"
               >
-                <CreditCard className="size-4" />
-                充值 / 购买套餐
-              </button>
-            ) : null}
+                <TicketCheck className="size-4" />
+                兑换码
+              </a>
+            </div>
           </div>
         </div>
       </section>

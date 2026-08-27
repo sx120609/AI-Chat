@@ -115,6 +115,7 @@ export const emptySettings: SettingsForm = {
     {
       dailyCostLimitCents: 0,
       description: "面向编码任务的月度额度套餐",
+      durationMonths: 1,
       enabled: false,
       id: "coding-plan",
       monthlyCostLimitCents: 1000,

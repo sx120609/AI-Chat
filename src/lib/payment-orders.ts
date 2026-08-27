@@ -5,8 +5,9 @@ import {
   parseCodingPlanOrderSnapshot,
   paymentProductType
 } from "@/lib/coding-plan";
+import { grantEntitlement } from "@/lib/entitlements";
 import { prisma } from "@/lib/prisma";
-import { nextQuotaResetAt, usageCacheKey } from "@/lib/quota";
+import { usageCacheKey } from "@/lib/quota";
 
 export async function settlePaidPaymentOrder(
   order: PaymentOrder,
@@ -55,49 +56,14 @@ export async function settlePaidPaymentOrder(
       return false;
     }
 
-    if (codingPlan) {
-      const user = await tx.user.findUniqueOrThrow({
-        where: { id: order.userId },
-        select: {
-          codingPlanExpiresAt: true
-        }
-      });
-      const existingExpiry = user.codingPlanExpiresAt;
-      const base = existingExpiry && existingExpiry > paidAt ? existingExpiry : paidAt;
-      const expiresAt = nextQuotaResetAt(base);
-      const startsNewPlan = !existingExpiry || existingExpiry <= paidAt;
-
-      await tx.user.update({
-        where: { id: order.userId },
-        data: {
-          userGroup: "VIP",
-          codingPlanExpiresAt: expiresAt,
-          codingPlanDailyCostLimitCents: codingPlan.dailyCostLimitCents,
-          codingPlanId: codingPlan.id,
-          codingPlanMonthlyCostLimitCents: codingPlan.monthlyCostLimitCents,
-          codingPlanName: codingPlan.name,
-          codingPlanPersonalApiEnabled: codingPlan.personalApiEnabled,
-          codingPlanWeeklyCostLimitCents: codingPlan.weeklyCostLimitCents,
-          ...(startsNewPlan
-            ? {
-                quotaNextResetAt: nextQuotaResetAt(paidAt),
-                quotaResetAt: paidAt,
-                quotaSystemMigratedAt: paidAt
-              }
-            : {})
-        }
-      });
-    } else {
-      await tx.user.update({
-        where: { id: order.userId },
-        data: {
-          userGroup: "VIP",
-          aiPointsBalanceCents: {
-            increment: balanceCents
-          }
-        }
-      });
-    }
+    await grantEntitlement(
+      tx,
+      order.userId,
+      codingPlan
+        ? { codingPlan, rewardType: CODING_PLAN_PRODUCT_TYPE }
+        : { aiPointsBalanceCents: balanceCents, rewardType: "AI_POINTS" },
+      paidAt
+    );
 
     return true;
   });

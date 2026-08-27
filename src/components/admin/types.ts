@@ -9,6 +9,7 @@ import type {
   EasyPayMethod,
   PaymentOrderSummaryView,
   PaymentOrderView,
+  RedemptionCodeView,
   ReasoningEffort,
   ReasoningParamMode,
   Role,
@@ -127,6 +128,21 @@ export type AdminPaymentsPayload = {
   };
   orders: PaymentOrderView[];
   summary: PaymentOrderSummaryView;
+};
+
+export type AdminRedemptionCodesPayload = {
+  codes: RedemptionCodeView[];
+};
+
+export type CreateRedemptionCodesInput = {
+  aiPointsBalanceCents: number;
+  codingPlanId: string;
+  expiresAt: string;
+  label: string;
+  maxRedemptions: number;
+  prefix: string;
+  quantity: number;
+  rewardType: "AI_POINTS" | "CODING_PLAN";
 };
 
 export type UsageFilterState = {

@@ -58,6 +58,7 @@ model User {
   sessions              UserSession[]
   authEvents            AuthEvent[]
   paymentOrders        PaymentOrder[]
+  redemptions          Redemption[]
   apiKeys              UserApiKey[]
   memories             UserMemory[]
   projects             UserProject[]
@@ -395,4 +396,42 @@ model AiSettings {
   codingPlanPersonalApiEnabled Boolean @default(true)
   codingPlansJson String @default("")
   updatedAt             DateTime @updatedAt
+}
+
+model RedemptionCode {
+  id                     String       @id @default(cuid())
+  codeHash               String       @unique
+  codeEncrypted          String?
+  codePreview            String
+  label                  String       @default("")
+  rewardType             String
+  aiPointsBalanceCents   Int          @default(0)
+  codingPlanSnapshotJson String       @default("{}")
+  maxRedemptions         Int          @default(1)
+  redeemedCount          Int          @default(0)
+  active                 Boolean      @default(true)
+  expiresAt              DateTime?
+  createdById            String?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  redemptions            Redemption[]
+
+  @@index([active, expiresAt])
+  @@index([createdAt])
+}
+
+model Redemption {
+  id                     String         @id @default(cuid())
+  codeId                 String
+  userId                 String
+  rewardType             String
+  aiPointsBalanceCents   Int            @default(0)
+  codingPlanSnapshotJson String         @default("{}")
+  redeemedAt             DateTime       @default(now())
+  code                   RedemptionCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  user                   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([codeId, userId])
+  @@index([userId, redeemedAt])
+  @@index([codeId, redeemedAt])
 }

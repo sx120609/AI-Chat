@@ -39,7 +39,7 @@ export function usageCacheKey(userId: string) {
   return usageSummaryCacheKey(userId);
 }
 
-function addMonthsClamped(date: Date, months = 1) {
+export function addMonthsClamped(date: Date, months = 1) {
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth() + months;
   const day = date.getUTCDate();
@@ -74,8 +74,8 @@ function resolveCurrentPeriod(start: Date, end: Date, now = new Date()) {
   };
 }
 
-export function nextQuotaResetAt(start = new Date()) {
-  return addMonthsClamped(start);
+export function nextQuotaResetAt(start = new Date(), months = 1) {
+  return addMonthsClamped(start, months);
 }
 
 export function startOfUtcDay(date = new Date()) {

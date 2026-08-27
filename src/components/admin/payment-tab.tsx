@@ -1,7 +1,12 @@
 import {
   Code2,
+  Copy,
   CreditCard,
+  Gift,
+  Link2,
   Loader2,
+  PauseCircle,
+  PlayCircle,
   Plus,
   ReceiptText,
   RefreshCw,
@@ -18,18 +23,25 @@ import type {
   EasyPayDisplayMode,
   EasyPayMethod,
   PaymentOrderSummaryView,
-  PaymentOrderView
+  PaymentOrderView,
+  RedemptionCodeView
 } from "@/types/gateway";
 import { formatDateTime } from "./components";
-import type { SettingsForm } from "./types";
+import type { CreateRedemptionCodesInput, SettingsForm } from "./types";
 
 type PaymentTabProps = {
+  creatingRedemptionCodes: boolean;
   deletingOrderId: string | null;
   loadingOrders: boolean;
+  loadingRedemptionCodes: boolean;
+  onCreateRedemptionCodes: (input: CreateRedemptionCodesInput) => Promise<boolean>;
   onRefreshOrders: () => void;
+  onRefreshRedemptionCodes: () => void;
   onSetDeleteOrderTarget: (order: PaymentOrderView) => void;
   onSyncOrder: (orderId: string) => void;
+  onToggleRedemptionCode: (code: RedemptionCodeView) => void;
   orders: PaymentOrderView[];
+  redemptionCodes: RedemptionCodeView[];
   settings: AiSettingsView | null;
   settingsForm: SettingsForm;
   setSettingsForm: (
@@ -37,6 +49,18 @@ type PaymentTabProps = {
   ) => void;
   summary: PaymentOrderSummaryView;
   syncingOrderId: string | null;
+  updatingRedemptionCodeId: string | null;
+};
+
+const emptyRedemptionForm: CreateRedemptionCodesInput = {
+  aiPointsBalanceCents: 1000,
+  codingPlanId: "",
+  expiresAt: "",
+  label: "",
+  maxRedemptions: 1,
+  prefix: "LOWIQ",
+  quantity: 1,
+  rewardType: "AI_POINTS"
 };
 
 function formatPaymentYuan(amountCents: number) {
@@ -180,26 +204,63 @@ function paymentStatusMeta(status: string) {
 
 function paymentBenefitLabel(order: PaymentOrderView) {
   if (order.productType === "CODING_PLAN") {
-    return `月额度 ${formatCents(order.codingPlanMonthlyCostLimitCents ?? 0)}`;
+    return `${order.codingPlanDurationMonths ?? 1} 个月 · 月额度 ${formatCents(order.codingPlanMonthlyCostLimitCents ?? 0)}`;
   }
 
   return `${formatCents(order.balanceCents)} AI 点数`;
 }
 
+function redemptionRewardLabel(code: RedemptionCodeView) {
+  if (!code.reward) {
+    return "权益配置无效";
+  }
+
+  if (code.reward.rewardType === "CODING_PLAN") {
+    return `${code.reward.codingPlan.name} · ${code.reward.codingPlan.durationMonths} 个月`;
+  }
+
+  return `${formatCents(code.reward.aiPointsBalanceCents)} AI 点数`;
+}
+
+function redemptionStatus(code: RedemptionCodeView) {
+  if (!code.active) {
+    return { label: "已停用", tone: "bg-slate-100 text-slate-600" };
+  }
+
+  if (code.expiresAt && new Date(code.expiresAt).getTime() <= Date.now()) {
+    return { label: "已过期", tone: "bg-red-50 text-red-700" };
+  }
+
+  if (code.redeemedCount >= code.maxRedemptions) {
+    return { label: "已用完", tone: "bg-amber-50 text-amber-700" };
+  }
+
+  return { label: "可兑换", tone: "bg-green-50 text-green-700" };
+}
+
 export function PaymentTab({
+  creatingRedemptionCodes,
   deletingOrderId,
   loadingOrders,
+  loadingRedemptionCodes,
+  onCreateRedemptionCodes,
   onRefreshOrders,
+  onRefreshRedemptionCodes,
   onSetDeleteOrderTarget,
   onSyncOrder,
+  onToggleRedemptionCode,
   orders,
+  redemptionCodes,
   settings,
   settingsForm,
   setSettingsForm,
   summary,
-  syncingOrderId
+  syncingOrderId,
+  updatingRedemptionCodeId
 }: PaymentTabProps) {
   const [billingPreviewNow] = useState(() => Date.now());
+  const [redemptionForm, setRedemptionForm] = useState(emptyRedemptionForm);
+  const [copiedRedemptionId, setCopiedRedemptionId] = useState("");
   const handleUpdate = (patch: Partial<SettingsForm>) => {
     setSettingsForm((current) => ({ ...current, ...patch }));
   };
@@ -270,6 +331,45 @@ export function PaymentTab({
         easyPayAmountTiers: tiers.filter((_, tierIndex) => tierIndex !== index)
       };
     });
+  };
+  const selectedRedemptionPlan = settingsForm.codingPlans.find(
+    (plan) => plan.id === redemptionForm.codingPlanId
+  );
+  useEffect(() => {
+    if (
+      redemptionForm.rewardType === "CODING_PLAN" &&
+      !selectedRedemptionPlan &&
+      settingsForm.codingPlans[0]
+    ) {
+      setRedemptionForm((current) => ({
+        ...current,
+        codingPlanId: settingsForm.codingPlans[0].id
+      }));
+    }
+  }, [redemptionForm.rewardType, selectedRedemptionPlan, settingsForm.codingPlans]);
+  const createRedemptionCodes = async () => {
+    const created = await onCreateRedemptionCodes({
+      ...redemptionForm,
+      expiresAt: dateTimeIsoValue(redemptionForm.expiresAt)
+    });
+
+    if (created) {
+      setRedemptionForm((current) => ({ ...current, label: "", quantity: 1 }));
+    }
+  };
+  const copyRedemption = async (code: RedemptionCodeView, link: boolean) => {
+    if (!code.code) {
+      return;
+    }
+
+    const baseUrl = settingsForm.siteUrl.trim().replace(/\/+$/, "") || window.location.origin;
+    const text = link
+      ? `${baseUrl}/redeem?code=${encodeURIComponent(code.code)}`
+      : code.code;
+
+    await navigator.clipboard.writeText(text);
+    setCopiedRedemptionId(`${code.id}:${link ? "link" : "code"}`);
+    window.setTimeout(() => setCopiedRedemptionId(""), 1600);
   };
 
   return (
@@ -584,7 +684,7 @@ export function PaymentTab({
             <div>
               <h2 className="text-base font-semibold">Coding Plans</h2>
               <p className="mt-1 text-xs ios-muted">
-                可配置多个固定售价的月度编码套餐；每次支付开通或顺延一个自然月，不自动续费。
+                可配置套餐 ID、售价、有效月数与额度；续购按该套餐月数顺延，不自动续费。
               </p>
             </div>
           </div>
@@ -599,6 +699,7 @@ export function PaymentTab({
                   {
                     dailyCostLimitCents: 0,
                     description: "面向编码任务的月度额度套餐",
+                    durationMonths: 1,
                     enabled: false,
                     id: `coding-plan-${Date.now().toString(36)}`,
                     monthlyCostLimitCents: 1000,
@@ -620,7 +721,7 @@ export function PaymentTab({
           {settingsForm.codingPlans.map((plan, index) => (
             <div
               className="grid gap-3 rounded-xl border border-[color:var(--ios-separator)] bg-white/55 p-3 lg:grid-cols-6"
-              key={plan.id}
+              key={`coding-plan-editor-${index}`}
             >
               <div className="flex items-center justify-between gap-3 lg:col-span-6">
                 <div className="min-w-0">
@@ -679,6 +780,27 @@ export function PaymentTab({
                 关闭 API 权益后，套餐仍提供月额度。
               </p>
               <label className="block lg:col-span-2">
+                <span className="mb-1 block text-xs font-medium ios-muted">套餐 ID</span>
+                <input
+                  autoCapitalize="none"
+                  className="ios-input w-full font-mono"
+                  maxLength={40}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      codingPlans: current.codingPlans.map((item, planIndex) =>
+                        planIndex === index ? { ...item, id: event.target.value.toLowerCase() } : item
+                      )
+                    }))
+                  }
+                  pattern="[a-z0-9][a-z0-9_-]{0,39}"
+                  required
+                  spellCheck={false}
+                  value={plan.id}
+                />
+                <p className="mt-1 text-[11px] ios-muted">用于支付和兑换码关联；保存后不建议修改。</p>
+              </label>
+              <label className="block lg:col-span-2">
                 <span className="mb-1 block text-xs font-medium ios-muted">套餐名称</span>
                 <input
                   className="ios-input w-full"
@@ -692,6 +814,30 @@ export function PaymentTab({
                     }))
                   }
                   value={plan.name}
+                />
+              </label>
+              <label className="block lg:col-span-2">
+                <span className="mb-1 block text-xs font-medium ios-muted">有效期（月）</span>
+                <input
+                  className="ios-input w-full"
+                  max={36}
+                  min={1}
+                  onChange={(event) => {
+                    const durationMonths = Number(event.target.value);
+
+                    if (Number.isInteger(durationMonths)) {
+                      setSettingsForm((current) => ({
+                        ...current,
+                        codingPlans: current.codingPlans.map((item, planIndex) =>
+                          planIndex === index ? { ...item, durationMonths } : item
+                        )
+                      }));
+                    }
+                  }}
+                  required
+                  step={1}
+                  type="number"
+                  value={plan.durationMonths}
                 />
               </label>
               <label className="block lg:col-span-2">
@@ -775,7 +921,7 @@ export function PaymentTab({
                 />
               </label>
               <div className="rounded-lg border border-[color:var(--ios-separator)] bg-white/60 px-3 py-2 text-sm text-stone-700 lg:col-span-6">
-                {plan.enabled ? "上架" : "未上架"} · ¥{(plan.priceCents / 100).toFixed(2)} / 月 · 月额度 {formatCents(plan.monthlyCostLimitCents)}
+                {plan.enabled ? "上架" : "未上架"} · ¥{(plan.priceCents / 100).toFixed(2)} / {plan.durationMonths} 个月 · 月额度 {formatCents(plan.monthlyCostLimitCents)}
                 {plan.dailyCostLimitCents > 0 ? ` · 日限 ${formatCents(plan.dailyCostLimitCents)}` : ""}
                 {plan.weeklyCostLimitCents > 0 ? ` · 周限 ${formatCents(plan.weeklyCostLimitCents)}` : ""}
                 {plan.personalApiEnabled ? " · 含个人 API Key" : ""}
@@ -788,6 +934,256 @@ export function PaymentTab({
             </div>
           ) : null}
         </div>
+      </section>
+
+      <section className="ios-panel overflow-hidden" data-testid="admin-redemption-codes">
+        <div className="flex flex-col gap-3 border-b border-[color:var(--ios-separator)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[color:var(--app-accent-soft)] text-[color:var(--claude-accent)]">
+              <Gift className="size-4" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">兑换码与兑换链接</h2>
+              <p className="mt-1 text-xs ios-muted">
+                批量发放 AI 点数或已保存的 Coding Plan；每个账号对同一码最多兑换一次。
+              </p>
+            </div>
+          </div>
+          <button
+            className="ios-button-secondary app-action-button flex h-9 shrink-0 items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+            disabled={loadingRedemptionCodes}
+            onClick={onRefreshRedemptionCodes}
+            type="button"
+          >
+            {loadingRedemptionCodes ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            刷新
+          </button>
+        </div>
+
+        <div className="grid gap-3 border-b border-[color:var(--ios-separator)] p-4 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 lg:col-span-2">
+            {(["AI_POINTS", "CODING_PLAN"] as const).map((rewardType) => (
+              <button
+                className={`app-action-button h-10 rounded-lg border text-sm font-semibold ${
+                  redemptionForm.rewardType === rewardType
+                    ? "border-[color:var(--claude-accent)] bg-white text-stone-950"
+                    : "border-[color:var(--ios-separator)] bg-white/60 text-stone-600"
+                }`}
+                key={rewardType}
+                onClick={() =>
+                  setRedemptionForm((current) => ({ ...current, rewardType }))
+                }
+                type="button"
+              >
+                {rewardType === "AI_POINTS" ? "AI 点数" : "Coding Plan"}
+              </button>
+            ))}
+          </div>
+          {redemptionForm.rewardType === "AI_POINTS" ? (
+            <label className="block lg:col-span-2">
+              <span className="mb-1 block text-xs font-medium ios-muted">每次到账 AI 点数</span>
+              <CentsDraftInput
+                className="ios-input w-full"
+                minCents={1}
+                onChange={(aiPointsBalanceCents) =>
+                  setRedemptionForm((current) => ({ ...current, aiPointsBalanceCents }))
+                }
+                value={redemptionForm.aiPointsBalanceCents}
+              />
+            </label>
+          ) : (
+            <label className="block lg:col-span-2">
+              <span className="mb-1 block text-xs font-medium ios-muted">发放套餐</span>
+              <select
+                className="ios-input w-full"
+                onChange={(event) =>
+                  setRedemptionForm((current) => ({
+                    ...current,
+                    codingPlanId: event.target.value
+                  }))
+                }
+                value={selectedRedemptionPlan?.id || ""}
+              >
+                {settingsForm.codingPlans.length === 0 ? (
+                  <option value="">请先新增并保存套餐</option>
+                ) : null}
+                {settingsForm.codingPlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name} · {plan.durationMonths} 个月
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="block lg:col-span-1">
+            <span className="mb-1 block text-xs font-medium ios-muted">生成数量</span>
+            <input
+              className="ios-input w-full"
+              max={100}
+              min={1}
+              onChange={(event) =>
+                setRedemptionForm((current) => ({
+                  ...current,
+                  quantity: Math.min(100, Math.max(1, Math.round(Number(event.target.value) || 1)))
+                }))
+              }
+              type="number"
+              value={redemptionForm.quantity}
+            />
+          </label>
+          <label className="block lg:col-span-1">
+            <span className="mb-1 block text-xs font-medium ios-muted">每码可用次数</span>
+            <input
+              className="ios-input w-full"
+              max={10000}
+              min={1}
+              onChange={(event) =>
+                setRedemptionForm((current) => ({
+                  ...current,
+                  maxRedemptions: Math.min(10000, Math.max(1, Math.round(Number(event.target.value) || 1)))
+                }))
+              }
+              type="number"
+              value={redemptionForm.maxRedemptions}
+            />
+          </label>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">批次说明（可选）</span>
+            <input
+              className="ios-input w-full"
+              maxLength={120}
+              onChange={(event) =>
+                setRedemptionForm((current) => ({ ...current, label: event.target.value }))
+              }
+              placeholder="例如：开学活动 / 合作方赠送"
+              value={redemptionForm.label}
+            />
+          </label>
+          <label className="block lg:col-span-1">
+            <span className="mb-1 block text-xs font-medium ios-muted">兑换码前缀</span>
+            <input
+              className="ios-input w-full font-mono uppercase"
+              maxLength={12}
+              onChange={(event) =>
+                setRedemptionForm((current) => ({ ...current, prefix: event.target.value }))
+              }
+              value={redemptionForm.prefix}
+            />
+          </label>
+          <label className="block lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium ios-muted">过期时间（留空长期有效）</span>
+            <input
+              className="ios-input w-full"
+              min={dateTimeLocalValue(new Date().toISOString())}
+              onChange={(event) =>
+                setRedemptionForm((current) => ({ ...current, expiresAt: event.target.value }))
+              }
+              type="datetime-local"
+              value={redemptionForm.expiresAt}
+            />
+          </label>
+          <div className="flex items-end lg:col-span-1">
+            <button
+              className="ios-button-primary app-action-button flex h-10 w-full items-center justify-center gap-2 px-3 text-sm disabled:opacity-50"
+              disabled={
+                creatingRedemptionCodes ||
+                (redemptionForm.rewardType === "CODING_PLAN" && !selectedRedemptionPlan)
+              }
+              onClick={createRedemptionCodes}
+              type="button"
+            >
+              {creatingRedemptionCodes ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+              生成
+            </button>
+          </div>
+          <div className="admin-note lg:col-span-6">
+            多次可用的兑换链接适合公开活动；每个账号仍只能使用一次。Coding Plan 会在生成时固化套餐快照，后续修改后台套餐不会改变已生成兑换码。
+          </div>
+        </div>
+
+        {loadingRedemptionCodes && redemptionCodes.length === 0 ? (
+          <div className="app-loading-pulse grid min-h-40 place-items-center text-slate-500">
+            <Loader2 className="size-6 animate-spin" />
+          </div>
+        ) : redemptionCodes.length > 0 ? (
+          <div className="grid gap-3 p-4">
+            {redemptionCodes.map((code) => {
+              const status = redemptionStatus(code);
+
+              return (
+                <div
+                  className="grid gap-3 rounded-xl border border-[color:var(--ios-separator)] bg-white/55 p-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto] lg:items-center"
+                  key={code.id}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="break-all text-sm font-semibold text-stone-950">
+                        {code.code || code.codePreview}
+                      </code>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>
+                        {status.label}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs ios-muted">
+                      {code.label || "未填写批次说明"} · 创建 {formatDateTime(code.createdAt)}
+                    </p>
+                    {code.recentRedemptions[0] ? (
+                      <p className="mt-1 truncate text-xs ios-muted">
+                        最近兑换：{code.recentRedemptions[0].userName} · {code.recentRedemptions[0].userEmail} · {formatDateTime(code.recentRedemptions[0].redeemedAt)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-semibold text-stone-900">{redemptionRewardLabel(code)}</p>
+                    <p className="mt-1 text-xs ios-muted">
+                      已用 {code.redeemedCount} / {code.maxRedemptions}
+                      {code.expiresAt ? ` · 到期 ${formatDateTime(code.expiresAt)}` : " · 长期有效"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 lg:justify-end">
+                    <button
+                      className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-1.5 px-3 text-xs disabled:opacity-50"
+                      disabled={!code.code}
+                      onClick={() => void copyRedemption(code, false)}
+                      type="button"
+                    >
+                      <Copy className="size-3.5" />
+                      {copiedRedemptionId === `${code.id}:code` ? "已复制" : "复制码"}
+                    </button>
+                    <button
+                      className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-1.5 px-3 text-xs disabled:opacity-50"
+                      disabled={!code.code}
+                      onClick={() => void copyRedemption(code, true)}
+                      type="button"
+                    >
+                      <Link2 className="size-3.5" />
+                      {copiedRedemptionId === `${code.id}:link` ? "已复制" : "复制链接"}
+                    </button>
+                    <button
+                      className="ios-button-secondary app-action-button flex h-9 items-center justify-center gap-1.5 px-3 text-xs disabled:opacity-50"
+                      disabled={updatingRedemptionCodeId === code.id}
+                      onClick={() => onToggleRedemptionCode(code)}
+                      type="button"
+                    >
+                      {updatingRedemptionCodeId === code.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : code.active ? (
+                        <PauseCircle className="size-3.5" />
+                      ) : (
+                        <PlayCircle className="size-3.5" />
+                      )}
+                      {code.active ? "停用" : "启用"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid min-h-32 place-items-center px-4 py-8 text-center text-sm ios-muted">
+            暂无兑换码。设置权益后点击“生成”。
+          </div>
+        )}
       </section>
 
       <section className="ios-panel overflow-hidden" data-testid="admin-payment-orders">

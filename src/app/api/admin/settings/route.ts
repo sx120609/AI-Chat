@@ -11,8 +11,8 @@ import {
 } from "@/lib/billing-multiplier";
 import {
   normalizeCodingPlanConfig,
-  normalizeCodingPlans,
   parseCodingPlans,
+  validateCodingPlans,
   type CodingPlanConfig
 } from "@/lib/coding-plan";
 import { jsonError, readJson, requireAdmin } from "@/lib/http";
@@ -610,18 +610,27 @@ export async function PATCH(request: NextRequest) {
 
   let easyPaySettings: ReturnType<typeof normalizeEasyPaySettings>;
   const legacyCodingPlan = normalizeCodingPlanConfig({
-    description: existingSettings?.codingPlanDescription ?? body.codingPlanDescription,
-    enabled: existingSettings?.codingPlanEnabled ?? body.codingPlanEnabled,
+    description: body.codingPlanDescription ?? existingSettings?.codingPlanDescription,
+    enabled: body.codingPlanEnabled ?? existingSettings?.codingPlanEnabled,
     monthlyCostLimitCents:
-      existingSettings?.codingPlanMonthlyCostLimitCents ?? body.codingPlanMonthlyCostLimitCents,
-    name: existingSettings?.codingPlanName ?? body.codingPlanName,
+      body.codingPlanMonthlyCostLimitCents ?? existingSettings?.codingPlanMonthlyCostLimitCents,
+    name: body.codingPlanName ?? existingSettings?.codingPlanName,
     personalApiEnabled:
-      existingSettings?.codingPlanPersonalApiEnabled ?? body.codingPlanPersonalApiEnabled,
-    priceCents: existingSettings?.codingPlanPriceCents ?? body.codingPlanPriceCents
+      body.codingPlanPersonalApiEnabled ?? existingSettings?.codingPlanPersonalApiEnabled,
+    priceCents: body.codingPlanPriceCents ?? existingSettings?.codingPlanPriceCents
   });
-  const codingPlans = Array.isArray(body.codingPlans)
-    ? normalizeCodingPlans(body.codingPlans, [legacyCodingPlan])
-    : parseCodingPlans(existingSettings?.codingPlansJson, [legacyCodingPlan]);
+  let codingPlans: CodingPlanConfig[];
+
+  try {
+    codingPlans = Array.isArray(body.codingPlans)
+      ? validateCodingPlans(body.codingPlans)
+      : parseCodingPlans(existingSettings?.codingPlansJson, [legacyCodingPlan]);
+  } catch (codingPlanError) {
+    return jsonError(
+      codingPlanError instanceof Error ? codingPlanError.message : "Coding Plan 设置无效。",
+      400
+    );
+  }
 
   try {
     easyPaySettings = normalizeEasyPaySettings({

@@ -11,12 +11,12 @@ import {
   getVisibleChatModels
 } from "./models";
 
-test("Astra supports chat and API discovery without changing the default model", () => {
+test("Astra supports chat and API discovery with Astra first", () => {
   const catalog = buildChatModelCatalog({
     availableModelsJson: JSON.stringify(["gpt-6-astra"])
   });
   const astra = getChatModel("gpt-6-astra", catalog);
-  assert.equal(catalog[0].id, "GPT-5.6-Sol");
+  assert.equal(catalog[0].id, "GPT-6-Astra");
   assert.equal(astra.id, "GPT-6-Astra");
   assert.equal(astra.supportsReasoning, true);
   assert.ok(getVisibleChatModels(catalog).includes(astra));

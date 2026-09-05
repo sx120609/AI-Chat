@@ -79,21 +79,6 @@ const DEFAULT_DYNAMIC_OUTPUT_CENTS_PER_MILLION = 500;
 
 export const CHAT_MODELS: ChatModelConfig[] = [
   {
-    id: GPT_56_SOL_MODEL_ID,
-    label: "GPT-5.6 Sol",
-    upstreamId: "gpt-5.6-sol",
-    inputCentsPerMillionTokens: 500,
-    cachedInputCentsPerMillionTokens: 50,
-    outputCentsPerMillionTokens: 3000,
-    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
-    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
-    contextNote: "Sol",
-    source: "default",
-    enabled: true,
-    visibleInChat: true,
-    supportsReasoning: true
-  },
-  {
     id: GPT_6_ASTRA_MODEL_ID,
     label: "GPT-6 Astra",
     upstreamId: "gpt-6-astra",
@@ -103,6 +88,21 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
     maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
     contextNote: "Astra",
+    source: "default",
+    enabled: true,
+    visibleInChat: true,
+    supportsReasoning: true
+  },
+  {
+    id: GPT_56_SOL_MODEL_ID,
+    label: "GPT-5.6 Sol",
+    upstreamId: "gpt-5.6-sol",
+    inputCentsPerMillionTokens: 500,
+    cachedInputCentsPerMillionTokens: 50,
+    outputCentsPerMillionTokens: 3000,
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+    contextNote: "Sol",
     source: "default",
     enabled: true,
     visibleInChat: true,

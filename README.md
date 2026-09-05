@@ -388,7 +388,7 @@ npm run prisma:studio
 
 ### GPT-6 Astra
 
-内置 `GPT-6-Astra`，上游 ID 为 `gpt-6-astra`，支持 Responses、图像输入和 `low / medium / high / xhigh / max` 推理。保留原默认模型；已有启用/聊天可见白名单的部署，需在后台“模型”页启用并按需设为聊天可见。
+内置 `GPT-6-Astra`，上游 ID 为 `gpt-6-astra`，支持 Responses、图像输入和 `low / medium / high / xhigh / max` 推理。Astra 排在模型列表首位；已有启用/聊天可见白名单的部署，需在后台“模型”页启用并按需设为聊天可见。
 
 标准输入/缓存输入/输出估算价为每百万 tokens `$10 / $1 / $50`，可在后台按中转站价格覆盖。官方原生上下文为 1,050,000 tokens、最大输出 128,000 tokens；本项目沿用已有上下文策略，由上游实施实际限制。官方超过 272K 输入的长上下文、缓存写入和 Fast/Batch 等差异价格不包含在基础估算中，实际费用优先采用上游 usage 费用。
 

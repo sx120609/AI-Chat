@@ -586,9 +586,16 @@ export function responseBodyVariants(options: {
   stream: boolean;
   webSearch?: boolean;
 }) {
+  const systemMessages = options.messages.filter(
+    (message) => message.role === "system" && typeof message.content === "string"
+  );
+  const instructions = systemMessages.map((message) => message.content).join("\n\n").trim();
   const baseBody: Record<string, unknown> = {
     model: options.model.upstreamId,
-    input: messagesToResponseInput(options.messages),
+    ...(instructions ? { instructions } : {}),
+    input: messagesToResponseInput(
+      options.messages.filter((message) => !systemMessages.includes(message))
+    ),
     stream: options.stream,
     ...(options.webSearch ? { tools: [{ type: "web_search" }] } : {})
   };

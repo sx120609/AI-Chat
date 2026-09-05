@@ -8,7 +8,7 @@
 - 个人中心：昵称、密码、个人 AI 风格和个人 API Key 管理
 - 类 ChatGPT 聊天界面，支持服务端流式输出
 - 会话与消息历史持久化
-- 模型选择：`GPT-5.6 Sol`、`GPT-5.6 Terra`、`GPT-5.6 Luna`、`GPT-5.5`、`GPT-5.4`、`GPT-5.4-Pro`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
+- 模型选择：`GPT-6 Astra`、`GPT-5.6 Sol`、`GPT-5.6 Terra`、`GPT-5.6 Luna`、`GPT-5.5`、`GPT-5.4`、`GPT-5.4-Pro`、`GPT-5.4-Mini`、`GPT-5.3-Codex-Spark`
 - 管理员可从上游 `/models` 自动刷新模型，并启用/停用聊天模型
 - 聊天页支持推理强度选择：低、中、高、超高、Max
 - 支持全局和模型专属系统提示词，用于修正 Sub2API 后端透出的 Codex CLI 等身份设定
@@ -385,3 +385,13 @@ npm run db:push
 npm run db:seed
 npm run prisma:studio
 ```
+
+### GPT-6 Astra
+
+内置 `GPT-6-Astra`，上游 ID 为 `gpt-6-astra`，支持 Responses、图像输入和 `low / medium / high / xhigh / max` 推理。保留原默认模型；已有启用/聊天可见白名单的部署，需在后台“模型”页启用并按需设为聊天可见。
+
+标准输入/缓存输入/输出估算价为每百万 tokens `$10 / $1 / $50`，可在后台按中转站价格覆盖。官方原生上下文为 1,050,000 tokens、最大输出 128,000 tokens；本项目沿用已有上下文策略，由上游实施实际限制。官方超过 272K 输入的长上下文、缓存写入和 Fast/Batch 等差异价格不包含在基础估算中，实际费用优先采用上游 usage 费用。
+
+个人 API 调用不要传 `temperature`、`top_p`、`top_logprobs`；工具调用使用 Responses。模型可用性取决于上游权限，本地加入支持不代表账号已获开通。
+
+参考：[OpenAI 模型文档](https://developers.openai.com/api/docs/models/gpt-6-astra)、[接入指南](https://developers.openai.com/api/docs/guides/latest-model)。

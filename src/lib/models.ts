@@ -64,6 +64,7 @@ export const DEFAULT_REASONING_PARAM_MODE: ReasoningParamMode = "responses";
 export const LIGHTWEIGHT_TASK_MODEL_ID = "GPT-5.3-Codex-Spark";
 export const GPT_54_PRO_MODEL_ID = "GPT-5.4-Pro";
 export const GPT_56_SOL_MODEL_ID = "GPT-5.6-Sol";
+export const GPT_6_ASTRA_MODEL_ID = "GPT-6-Astra";
 export const LEGACY_GPT_56_SOL_ULTRA_IDS = [
   "GPT-5.6-Sol-Ultra",
   "gpt-5.6-sol-ultra"
@@ -87,6 +88,21 @@ export const CHAT_MODELS: ChatModelConfig[] = [
     contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
     maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
     contextNote: "Sol",
+    source: "default",
+    enabled: true,
+    visibleInChat: true,
+    supportsReasoning: true
+  },
+  {
+    id: GPT_6_ASTRA_MODEL_ID,
+    label: "GPT-6 Astra",
+    upstreamId: "gpt-6-astra",
+    inputCentsPerMillionTokens: 1000,
+    cachedInputCentsPerMillionTokens: 100,
+    outputCentsPerMillionTokens: 5000,
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_LIMIT_TOKENS,
+    maxContextWindowTokens: MAX_CONTEXT_WINDOW_LIMIT_TOKENS,
+    contextNote: "Astra",
     source: "default",
     enabled: true,
     visibleInChat: true,
@@ -416,6 +432,7 @@ export function inferSupportsReasoning(modelId: string) {
 
   return (
     normalized.startsWith("gpt-5") ||
+    normalized.startsWith("gpt-6") ||
     normalized.startsWith("o1") ||
     normalized.startsWith("o3") ||
     normalized.startsWith("o4") ||
@@ -658,7 +675,7 @@ export function supportsMaxReasoning(model: ReasoningModelLike) {
       ? model
       : `${model?.id || ""} ${model?.label || ""} ${model?.upstreamId || ""}`;
 
-  return signature.toLowerCase().includes("gpt-5.6");
+  return /gpt-5\.6|gpt-6-astra/i.test(signature);
 }
 
 export function getCodexReasoningLevels(model: ReasoningModelLike): CodexReasoningLevel[] {

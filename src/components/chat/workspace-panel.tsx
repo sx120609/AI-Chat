@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useModalFocus } from "./hooks/use-modal-focus";
 import { Check, ChevronRight, Code2, Download, FileText, FolderOpen, Globe2, Loader2, PencilLine, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -42,7 +43,8 @@ function downloadArtifact(artifact: ArtifactEntry) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function WorkspacePanel({ messages, onClose, onRevise, selectedKey, onSelect }: {
+export function WorkspacePanel({ openRequest = 0, messages, onClose, onRevise, selectedKey, onSelect }: {
+  openRequest?: number;
   messages: MessageView[];
   onClose: () => void;
   onRevise: (prompt: string) => void;
@@ -53,17 +55,15 @@ export function WorkspacePanel({ messages, onClose, onRevise, selectedKey, onSel
   const selected = artifacts.find(item => `${item.messageId}:${item.id}` === selectedKey) || artifacts.at(-1);
   const [tab, setTab] = useState<"artifacts" | "activity" | "sources">("artifacts");
   const [sourceMode, setSourceMode] = useState(false);
+  useEffect(() => { setTab("artifacts"); setSourceMode(false); }, [selectedKey, openRequest]);
   const latest = messages.filter(message => message.role === "ASSISTANT").at(-1);
   const events = latest?.toolEvents || [];
   const sources = [...new Map(messages.flatMap(message => message.webSources || []).map(source => [source.url, source])).values()];
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", close);
-    return () => document.removeEventListener("keydown", close);
-  }, [onClose]);
+  const panelRef = useRef<HTMLElement>(null);
+  useModalFocus(true, panelRef, onClose, "(max-width: 1279px)");
 
   return (
-    <aside aria-label="任务工作区" className="workspace-panel fixed inset-0 z-50 flex min-h-0 flex-col border-l border-stone-200 bg-[#fafaf8] text-stone-800 xl:static xl:z-auto xl:w-[min(44vw,680px)] xl:shrink-0">
+    <aside ref={panelRef} tabIndex={-1} aria-label="任务工作区" className="workspace-panel fixed inset-0 z-50 flex min-h-0 flex-col border-l border-stone-200 bg-[#fafaf8] text-stone-800 xl:static xl:z-auto xl:w-[min(44vw,680px)] xl:shrink-0">
       <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-5 pt-[env(safe-area-inset-top)] xl:pt-0">
         <div className="flex items-center gap-2 text-sm font-semibold"><FolderOpen className="size-4" />任务工作区</div>
         <button aria-label="关闭工作区" className="rounded-lg p-2 hover:bg-stone-200" onClick={onClose}><X className="size-4" /></button>
@@ -75,24 +75,24 @@ export function WorkspacePanel({ messages, onClose, onRevise, selectedKey, onSel
       </div>
       {tab === "artifacts" ? (
         artifacts.length ? <>
-          <div className="max-h-40 shrink-0 overflow-y-auto border-b border-stone-200 p-3">
+          <div className="workspace-artifact-list max-h-40 shrink-0 overflow-y-auto border-b border-stone-200 p-3">
             {artifacts.map(artifact => <button key={`${artifact.messageId}:${artifact.id}`} onClick={() => { onSelect(`${artifact.messageId}:${artifact.id}`); setSourceMode(false); }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm ${selected === artifact ? 'bg-stone-200/65' : 'hover:bg-stone-100'}`}>
               <FileText className="size-4 shrink-0 text-stone-500" /><span className="min-w-0 flex-1 truncate">{artifact.filename}</span><span className="text-xs text-stone-500">v{artifact.version}</span><ChevronRight className="size-3" />
             </button>)}
           </div>
           {selected ? <>
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
-              <div className="min-w-0"><h2 className="max-w-64 truncate text-sm font-semibold">{selected.title}</h2><p className="mt-0.5 text-xs text-stone-500">{selected.filename} · 版本 {selected.version}</p></div>
-              <div className="flex gap-1">
+            <div className="workspace-artifact-header flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
+              <div className="workspace-artifact-title min-w-0"><h2 className="max-w-64 truncate text-sm font-semibold">{selected.title}</h2><p className="mt-0.5 text-xs text-stone-500">{selected.filename} · 版本 {selected.version}</p></div>
+              <div className="workspace-artifact-actions flex gap-1">
                 {selected.content !== undefined && <button aria-label={sourceMode ? "显示预览" : "查看源码"} className="rounded-lg p-2 hover:bg-stone-200" onClick={() => setSourceMode(!sourceMode)}><Code2 className="size-4" /></button>}
                 <button aria-label="继续修改成果" className="rounded-lg p-2 hover:bg-stone-200" onClick={() => { onRevise(`请继续修改成果「${selected.filename}」（版本 ${selected.version}）：\n`); onClose(); }}><PencilLine className="size-4" /></button>
                 <button aria-label="下载成果" className="rounded-lg p-2 hover:bg-stone-200" onClick={() => downloadArtifact(selected)}><Download className="size-4" /></button>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto bg-white p-5">
+            <div className="workspace-artifact-preview min-h-0 flex-1 overflow-auto bg-white p-5">
               {selected.imageData ? <img alt={selected.title} className="h-auto w-full rounded-lg" src={`data:${selected.mimeType};base64,${selected.imageData}`} /> : selected.content === undefined ? <div className="grid h-full place-content-center gap-4 text-center"><FileText className="mx-auto size-10 text-stone-400" /><p className="text-sm">文件已生成，可下载后打开。</p><button className="rounded-xl bg-stone-900 px-4 py-2 text-sm text-white" onClick={() => downloadArtifact(selected)}>下载 {selected.filename}</button></div>
                 : !sourceMode && (selected.mimeType === "text/html" || selected.mimeType === "image/svg+xml") ? <iframe title={selected.title} sandbox="allow-scripts" referrerPolicy="no-referrer" className="h-full min-h-96 w-full rounded-lg border border-stone-100 bg-white" srcDoc={`<!doctype html><meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">${selected.content}`} />
-                : !sourceMode && selected.mimeType === "text/markdown" ? <div className="claude-markdown break-words"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.content}</ReactMarkdown></div>
+                : !sourceMode && selected.mimeType === "text/markdown" ? <div className="claude-markdown break-words"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ table: ({ children }) => <div className="workspace-table-scroll"><table>{children}</table></div> }}>{selected.content}</ReactMarkdown></div>
                 : <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6">{selected.content}</pre>}
             </div>
           </> : null}

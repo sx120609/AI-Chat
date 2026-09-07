@@ -19,13 +19,13 @@ export function ToolsTab({ settingsForm, setSettingsForm }: ToolsTabProps) {
   return (
     <>
       <div className="ios-list lg:col-span-6">
-        <div className="ios-cell px-3 py-2 text-xs font-semibold">Responses 原生工作区</div>
+        <div className="ios-cell px-3 py-2 text-xs font-semibold">任务工具与上游能力</div>
         <div className="grid gap-4 p-3 lg:grid-cols-2">
-          {([['artifacts', '创建可下载成果'], ['codeInterpreter', '原生代码执行'], ['imageGeneration', '原生图片生成'], ['fileSearch', '共享知识库检索']] as const).map(([key, label]) => <label key={key} className="admin-check-row"><input type="checkbox" checked={native[key]} onChange={event => updateNative({ [key]: event.target.checked })} />{label}</label>)}
+          {([['artifacts', '创建可下载成果（本站保存）'], ['codeInterpreter', '上游代码执行（需验证支持）'], ['imageGeneration', '上游图片生成（需验证模型）'], ['fileSearch', '上游共享知识库（需验证支持）']] as const).map(([key, label]) => <label key={key} className="admin-check-row"><input type="checkbox" checked={native[key]} onChange={event => updateNative({ [key]: event.target.checked })} />{label}</label>)}
           <label className="block lg:col-span-2"><span className="mb-1 block text-xs">支持原生工具的模型 ID（逗号分隔，留空应用到全部模型）</span><input className="ios-input w-full" value={(settingsForm.responsesTools?.modelIds || []).join(",")} onChange={event => updateNative({ modelIds: event.target.value.split(/[,，]/).map(value => value.trim()) })} /></label>
           <label className="block lg:col-span-2"><span className="mb-1 block text-xs">共享知识库 Vector Store ID（逗号分隔）</span><input className="ios-input w-full" value={(settingsForm.responsesTools?.sharedVectorStoreIds || []).join(",")} onChange={event => updateNative({ sharedVectorStoreIds: event.target.value.split(/[,，]/).map(value => value.trim()) })} /></label>
           {([['codeSessionCostCents', '每个代码容器附加费用（美分）'], ['imageCostCents', '每次生图附加费用（美分）'], ['fileSearchCostCents', '每次知识库检索附加费用（美分）']] as const).map(([key, label]) => <label key={key}><span className="mb-1 block text-xs">{label}</span><input className="ios-input w-full" type="number" min="0" step="0.01" value={native[key]} onChange={event => updateNative({ [key]: Number(event.target.value) })} /></label>)}
-          <div className="admin-note lg:col-span-2">按实际网关和模型能力启用。成果工具使用 function calling；代码执行、图片生成和知识库由上游托管，开启前请配置附加费用。共享知识库会供所有有文件分析权限的用户检索，请仅填写可共享资料。旧图片入口仍使用原有图片服务。</div>
+          <div className="admin-note lg:col-span-2">这些开关是请求配置，不代表上游已支持。可下载成果由本站通过 function calling 保存；Sub2API 有图片生成适配，但仍受版本、账号和模型限制。代码执行及知识库需单独验证，代码成果下载还要求上游提供容器文件接口。附加费用是本站收费配置，不是上游报价。共享知识库会供所有有文件分析权限的用户检索，请仅填写可共享资料。旧图片入口仍使用原有图片服务。</div>
         </div>
       </div>
       <div className="ios-list lg:col-span-6">

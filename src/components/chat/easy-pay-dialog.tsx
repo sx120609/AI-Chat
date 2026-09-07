@@ -159,7 +159,7 @@ export function EasyPayDialog({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-stone-950/28 px-4 py-[calc(1rem+var(--app-safe-area-top,0px))] backdrop-blur-sm sm:p-6">
+    <div role="dialog" aria-modal="true" aria-label="充值" className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-stone-950/28 px-4 py-[calc(1rem+var(--app-safe-area-top,0px))] backdrop-blur-sm sm:p-6">
       <section className="app-reveal min-w-0 max-h-[calc(100dvh-2rem)] w-full max-w-[min(36rem,calc(100vw-2rem))] overflow-x-hidden overflow-y-auto rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] p-4 text-stone-950 shadow-[0_24px_90px_rgba(18,42,35,0.28)] sm:p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">

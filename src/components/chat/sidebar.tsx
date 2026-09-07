@@ -187,10 +187,52 @@ export function Sidebar({
   requestDeleteConversation,
   experience = "classic"
 }: SidebarProps) {
+  const [menuAbove, setMenuAbove] = useState(false);
   const [filter, setFilter] = useState<"all" | "running" | "pinned">("all");
   const groupedConversations = useMemo(() => groupConversations(conversations.filter(conversation => filter === "all" || (filter === "running" ? runningGenerationKeySet.has(conversation.id) : conversation.pinned))), [conversations, filter, runningGenerationKeySet]);
   const sidebarHeaderButtonClass =
     "app-action-button app-glass-control min-h-9 min-w-9 shrink-0 place-items-center rounded-xl text-[color:var(--app-ink-soft)] transition hover:text-[color:var(--claude-ink)] active:scale-95";
+
+  const menuConversation = conversations.find(conversation => conversation.id === openConversationMenuId);
+  const renderConversationActions = (conversation: ConversationSummary) => <>
+                        <button
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)]"
+                          onClick={() => void togglePinConversation(conversation)}
+                          type="button"
+                        >
+                          {conversation.pinned ? (
+                            <PinOff className="size-3.5" />
+                          ) : (
+                            <Pin className="size-3.5" />
+                          )}
+                          {conversation.pinned ? "取消固定" : "固定"}
+                        </button>
+                        <button
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)]"
+                          onClick={() => beginRenameConversation(conversation)}
+                          type="button"
+                        >
+                          <Pencil className="size-3.5" />
+                          重命名
+                        </button>
+                        <button
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)] disabled:opacity-50"
+                          disabled={sharingConversationId === conversation.id}
+                          onClick={() => void shareConversation(conversation)}
+                          type="button"
+                        >
+                          <Share2 className="size-3.5" />
+                          分享
+                        </button>
+                        <button
+                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-red-600 hover:bg-red-50"
+                          onClick={() => requestDeleteConversation(conversation)}
+                          type="button"
+                        >
+                          <Trash2 className="size-3.5" />
+                          删除
+                        </button>
+  </>;
 
   return (
     <>
@@ -410,11 +452,13 @@ export function Sidebar({
                         className={`app-action-button relative z-20 grid size-8 shrink-0 place-items-center rounded-lg text-stone-400 hover:bg-white/65 hover:text-stone-800 lg:size-7 ${
                           menuOpen ? "app-glass-control text-stone-800 opacity-100" : "lg:opacity-0 lg:group-hover:opacity-100"
                         }`}
-                        onClick={() =>
+                        onClick={(event) => {
+                          const boundary = event.currentTarget.closest(".chat-sidebar-scroll")?.getBoundingClientRect();
+                          setMenuAbove(Boolean(boundary && boundary.bottom - event.currentTarget.getBoundingClientRect().top < 180));
                           setOpenConversationMenuId(
                             openConversationMenuId === conversation.id ? null : conversation.id
-                          )
-                        }
+                          );
+                        }}
                         title="会话操作"
                         type="button"
                       >
@@ -424,46 +468,10 @@ export function Sidebar({
 
                     {menuOpen ? (
                       <div
-                        className="app-menu-enter app-glass-panel absolute right-10 top-1 z-40 w-36 overflow-hidden rounded-xl p-1 text-xs lg:right-9"
+                        className={`conversation-actions-menu hidden lg:block app-menu-enter app-glass-panel absolute right-10 z-40 w-36 overflow-hidden rounded-xl p-1 text-xs lg:right-9 ${menuAbove ? "bottom-1" : "top-1"}`}
                         data-conversation-menu
                       >
-                        <button
-                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)]"
-                          onClick={() => void togglePinConversation(conversation)}
-                          type="button"
-                        >
-                          {conversation.pinned ? (
-                            <PinOff className="size-3.5" />
-                          ) : (
-                            <Pin className="size-3.5" />
-                          )}
-                          {conversation.pinned ? "取消固定" : "固定"}
-                        </button>
-                        <button
-                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)]"
-                          onClick={() => beginRenameConversation(conversation)}
-                          type="button"
-                        >
-                          <Pencil className="size-3.5" />
-                          重命名
-                        </button>
-                        <button
-                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-stone-700 hover:bg-[color:var(--app-accent-soft)] disabled:opacity-50"
-                          disabled={sharingConversationId === conversation.id}
-                          onClick={() => void shareConversation(conversation)}
-                          type="button"
-                        >
-                          <Share2 className="size-3.5" />
-                          分享
-                        </button>
-                        <button
-                          className="app-action-button flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-red-600 hover:bg-red-50"
-                          onClick={() => requestDeleteConversation(conversation)}
-                          type="button"
-                        >
-                          <Trash2 className="size-3.5" />
-                          删除
-                        </button>
+                        {renderConversationActions(conversation)}
                       </div>
                     ) : null}
                   </div>
@@ -473,6 +481,11 @@ export function Sidebar({
           </section>
         ))}
       </div>
+
+      {menuConversation ? <div className="mobile-conversation-actions absolute inset-x-3 bottom-3 z-40 rounded-xl border border-stone-200 bg-white p-2 shadow-xl lg:hidden" data-conversation-menu>
+        <p className="truncate px-2 pb-2 text-xs font-semibold text-stone-500">{menuConversation.title}</p>
+        <div className="grid grid-cols-2 gap-1">{renderConversationActions(menuConversation)}</div>
+      </div> : null}
 
       <div className="chat-sidebar-footer m-3 hidden gap-2 lg:grid">
         <a

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
@@ -19,6 +19,7 @@ import {
 import { SiteConfirmDialog } from "@/components/site-dialog";
 import { IMAGE_SIZE_OPTIONS } from "@/lib/models";
 import { ChatShellProps, ShareNotice } from "./chat/types";
+import { useModalFocus } from "./chat/hooks/use-modal-focus";
 import { useChat } from "./chat/hooks/use-chat";
 import { Sidebar } from "./chat/sidebar";
 import { Header } from "./chat/header";
@@ -119,6 +120,7 @@ function ShareNoticeToast({
 export function ChatShell({ experience = "classic", ...props }: ChatShellComponentProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [artifactOpenRequest, setArtifactOpenRequest] = useState(0);
   const [selectedArtifactKey, setSelectedArtifactKey] = useState<string | null>(null);
   const {
     user,
@@ -244,6 +246,9 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
     securityModeDefault
   } = useChat(props);
 
+  const historyRef = useRef<HTMLDivElement>(null);
+  useModalFocus(mobileSidebarOpen, historyRef, () => setMobileSidebarOpen(false), "(max-width: 1023px)");
+
   useEffect(() => {
     if (experience !== "beta") {
       return;
@@ -259,17 +264,34 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
+    let baselineHeight = viewport.height;
+    let baselineWidth = viewport.width;
+    let focusFrame = 0;
+    let keyboardVisible = false;
     const sync = () => {
-      const open = window.innerHeight - viewport.height > 150;
+      const active = document.activeElement;
+      const editing = active instanceof HTMLTextAreaElement || (active instanceof HTMLInputElement && ["text", "search", "email", "password", "tel", "url", "number"].includes(active.type));
+      if ((!editing && !keyboardVisible) || Math.abs(viewport.width - baselineWidth) > 80) {
+        baselineHeight = viewport.height;
+        baselineWidth = viewport.width;
+      }
+      const open = (editing || keyboardVisible) && (window.innerHeight - viewport.height > 150 || baselineHeight - viewport.height > 150);
+      keyboardVisible = open;
       setKeyboardOpen(open);
       document.documentElement.dataset.chatKeyboardOpen = String(open);
       document.documentElement.style.setProperty("--chat-viewport-height", `${viewport.height}px`);
       document.documentElement.style.setProperty("--chat-viewport-top", `${viewport.offsetTop}px`);
     };
+    const syncFocus = () => { cancelAnimationFrame(focusFrame); focusFrame = requestAnimationFrame(sync); };
+    document.addEventListener("focusin", syncFocus);
+    document.addEventListener("focusout", syncFocus);
     viewport.addEventListener("resize", sync);
     viewport.addEventListener("scroll", sync);
     sync();
     return () => {
+      cancelAnimationFrame(focusFrame);
+      document.removeEventListener("focusin", syncFocus);
+      document.removeEventListener("focusout", syncFocus);
       viewport.removeEventListener("resize", sync);
       viewport.removeEventListener("scroll", sync);
       delete document.documentElement.dataset.chatKeyboardOpen;
@@ -325,7 +347,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
       </aside>
 
       {mobileSidebarOpen ? (
-        <div className="mobile-history-sheet fixed inset-0 z-50 lg:hidden">
+        <div ref={historyRef} role="dialog" aria-label="任务历史" tabIndex={-1} className="mobile-history-sheet fixed inset-0 z-50 lg:hidden">
           <button
             aria-label="关闭侧栏"
             className="app-backdrop-enter absolute inset-0 bg-black/20"
@@ -376,6 +398,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
       ) : null}
 
       <section
+        data-empty={messages.length === 0 && !conversationSwitching}
         className="chat-stage relative flex min-h-0 min-w-0 flex-1 flex-col"
         onDragEnter={handleFileDragEnter}
         onDragLeave={handleFileDragLeave}
@@ -395,6 +418,10 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
         ) : null}
 
         <Header
+          hasTask={messages.length > 0 || loading}
+          artifactCount={collectArtifacts(messages).length}
+          workspaceOpen={workspaceOpen}
+          onToggleWorkspace={() => setWorkspaceOpen(!workspaceOpen)}
           desktopSidebarOpen={desktopSidebarOpen}
           mobileSidebarOpen={mobileSidebarOpen}
           toggleSidebar={toggleSidebar}
@@ -423,13 +450,9 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
           startNewConversation={startNewConversation}
         />
 
-        <div className="task-status-strip flex shrink-0 items-center justify-between gap-3 px-4 pb-2 sm:px-6">
-          <p className="min-w-0 truncate text-xs text-stone-500">{loading ? temporaryChatEnabled ? "临时任务进行中" : "任务进行中 · 进展与成果实时保存" : "研究、分析、创作，在一个任务里完成"}</p>
-          <button type="button" onClick={() => setWorkspaceOpen(!workspaceOpen)} aria-expanded={workspaceOpen} className="shrink-0 rounded-full border border-stone-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-white">工作区{collectArtifacts(messages).length ? ` · ${collectArtifacts(messages).length} 个成果` : ""}</button>
-        </div>
         <MessageList
-          emptyState={<TaskHome conversations={conversations} runningKeys={runningGenerationKeySet} onPrompt={(prompt) => setComposerText(prompt, true)} onOpen={openConversation} onHistory={() => { if (window.innerWidth < 1024) setMobileSidebarOpen(true); else if (!desktopSidebarOpen) toggleSidebar(); }} />}
-          onOpenArtifact={(key) => { setSelectedArtifactKey(key); setWorkspaceOpen(true); }}
+          emptyState={<TaskHome />}
+          onOpenArtifact={(key) => { setSelectedArtifactKey(key); setArtifactOpenRequest(value => value + 1); setWorkspaceOpen(true); }}
           messages={messages}
           conversationSwitching={conversationSwitching}
           activeProject={activeProject}
@@ -572,7 +595,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
                 ref={fileInputRef}
                 type="file"
               />
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="chat-composer-tools flex shrink-0 items-center gap-1">
                 <button
                   className="app-action-button app-glass-control grid size-9 shrink-0 place-items-center rounded-full text-stone-600 transition disabled:opacity-50"
                   disabled={
@@ -685,13 +708,14 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
             </div>
           </div>
         </footer>
-        <nav className="mobile-task-nav" aria-label="移动端导航">
-          <button type="button" aria-current={!mobileSidebarOpen && !workspaceOpen ? "page" : undefined} onClick={() => { setWorkspaceOpen(false); setMobileSidebarOpen(false); }}><House size={20} /><span>任务</span></button>
-          <button type="button" aria-label="打开任务历史" onClick={() => setMobileSidebarOpen(true)}><History size={20} /><span>历史</span>{runningGenerationKeySet.size ? <i aria-label={`${runningGenerationKeySet.size} 个任务进行中`} /> : null}</button>
-          <button type="button" aria-label="打开任务成果" onClick={() => setWorkspaceOpen(true)}><FolderOpen size={20} /><span>成果{collectArtifacts(messages).length ? ` · ${collectArtifacts(messages).length}` : ""}</span></button>
-        </nav>
+
       </section>
-      {workspaceOpen ? <WorkspacePanel messages={messages} selectedKey={selectedArtifactKey} onSelect={setSelectedArtifactKey} onClose={() => setWorkspaceOpen(false)} onRevise={(prompt) => setComposerText(prompt, true)} /> : null}
+      {workspaceOpen ? <WorkspacePanel openRequest={artifactOpenRequest} messages={messages} selectedKey={selectedArtifactKey} onSelect={setSelectedArtifactKey} onClose={() => setWorkspaceOpen(false)} onRevise={(prompt) => setComposerText(prompt, true)} /> : null}
+      <nav className="mobile-task-nav" aria-label="移动端导航">
+        <button type="button" aria-current={!mobileSidebarOpen && !workspaceOpen ? "page" : undefined} onClick={() => { setWorkspaceOpen(false); setMobileSidebarOpen(false); setModelPickerOpen(false); }}><House size={20} /><span>任务</span></button>
+        <button type="button" aria-label="打开任务历史" aria-current={mobileSidebarOpen ? "page" : undefined} onClick={() => { setWorkspaceOpen(false); setMobileSidebarOpen(true); setModelPickerOpen(false); }}><History size={20} /><span>历史</span>{runningGenerationKeySet.size ? <i aria-label={`${runningGenerationKeySet.size} 个任务进行中`} /> : null}</button>
+        <button type="button" aria-label="打开任务成果" aria-current={workspaceOpen ? "page" : undefined} onClick={() => { setMobileSidebarOpen(false); setWorkspaceOpen(true); setModelPickerOpen(false); }}><FolderOpen size={20} /><span>成果{collectArtifacts(messages).length ? ` · ${collectArtifacts(messages).length}` : ""}</span></button>
+      </nav>
     </main>
 
     <SiteConfirmDialog

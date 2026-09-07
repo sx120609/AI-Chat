@@ -1,6 +1,7 @@
 "use client";
 
 import { KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from "react";
+import { useModalFocus } from "./hooks/use-modal-focus";
 import { createPortal } from "react-dom";
 import { Maximize2, Send, Square, X } from "lucide-react";
 import {
@@ -41,6 +42,8 @@ export const ComposerInputArea = memo(function ComposerInputArea({
   const [draft, setDraft] = useState(draftText);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false);
+  const fullscreenPanelRef = useRef<HTMLElement>(null);
+  useModalFocus(fullscreenOpen, fullscreenPanelRef, () => setFullscreenOpen(false));
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fullscreenTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const placeholder = sourceImageSelected
@@ -142,8 +145,8 @@ export const ComposerInputArea = memo(function ComposerInputArea({
 
   return (
     <>
-      <div className="flex min-h-9 w-full min-w-0 flex-1 items-center gap-1.5">
-        <div className="relative min-w-0 flex-1">
+      <div className="chat-composer-input flex min-h-9 w-full min-w-0 flex-1 items-center gap-1.5">
+        <div className={`chat-composer-text relative min-w-0 flex-1 ${fullscreenButtonVisible ? "chat-composer-can-expand" : ""}`}>
           {fullscreenButtonVisible ? (
             <button
               className="app-action-button app-glass-control absolute right-1.5 top-1 z-10 grid size-7 place-items-center rounded-full text-stone-500 hover:text-stone-900"
@@ -169,7 +172,7 @@ export const ComposerInputArea = memo(function ComposerInputArea({
           />
         </div>
         <button
-          className="app-action-button app-glass-primary grid size-9 shrink-0 place-items-center self-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70"
+          className="chat-composer-send app-action-button app-glass-primary grid size-9 shrink-0 place-items-center self-center rounded-full transition disabled:bg-stone-300 disabled:text-white/80 disabled:opacity-70"
           disabled={sendDisabled}
           onClick={() => void submitDraft()}
           title={loading ? "停止生成" : disabled ? "会话加载中" : "发送"}
@@ -181,7 +184,7 @@ export const ComposerInputArea = memo(function ComposerInputArea({
       {fullscreenOpen
         ? createPortal(
             <div className="chat-fullscreen-editor app-backdrop-enter fixed inset-0 z-[90] flex bg-[rgba(23,33,30,0.28)] p-3 backdrop-blur-md sm:p-6">
-              <section className="app-dialog-panel mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] shadow-[0_28px_100px_rgba(23,33,30,0.28)]">
+              <section ref={fullscreenPanelRef} role="dialog" aria-modal="true" aria-label="全屏输入" tabIndex={-1} className="app-dialog-panel mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] shadow-[0_28px_100px_rgba(23,33,30,0.28)]">
                 <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-stone-900">全屏输入</div>

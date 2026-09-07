@@ -1,6 +1,7 @@
 "use client";
 
-import { RefObject, useEffect, useState } from "react";
+import { RefObject, useEffect, useRef, useState } from "react";
+import { useModalFocus } from "./hooks/use-modal-focus";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
@@ -173,12 +174,14 @@ function ModelReasoningPicker({
   const modelLabel = activeModel?.label || modelValue || "选择模型";
   const activeReasoningLabel = getReasoningUiCopy(activeReasoningEffort.id).label;
   const [portalReady, setPortalReady] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const [useMobilePortal, setUseMobilePortal] = useState(false);
+  useModalFocus(open, pickerRef, () => onOpenChange(false), "(max-width: 1023px)", useMobilePortal);
 
   useEffect(() => {
     setPortalReady(true);
 
-    const mediaQuery = window.matchMedia("(max-width: 639px)");
+    const mediaQuery = window.matchMedia("(max-width: 1023px)");
     const syncPortalMode = () => setUseMobilePortal(mediaQuery.matches);
     syncPortalMode();
     mediaQuery.addEventListener("change", syncPortalMode);
@@ -190,12 +193,17 @@ function ModelReasoningPicker({
     <>
       <button
         aria-label="关闭模型选择"
-        className="app-backdrop-enter fixed inset-0 z-40 bg-black/10 sm:hidden"
+        className="model-picker-backdrop app-backdrop-enter fixed inset-0 z-[80] bg-black/20 lg:hidden"
         onClick={() => onOpenChange(false)}
         type="button"
       />
       <div
-        className="app-popover-enter app-glass-panel fixed bottom-2 left-2 right-2 z-50 flex max-h-[calc(100dvh_-_1rem)] min-h-0 flex-col overflow-hidden rounded-[1.35rem] p-2.5 ring-1 ring-white/70 sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[34rem] sm:w-[26rem] sm:rounded-[1.25rem] sm:p-2"
+        className="model-picker-panel app-popover-enter app-glass-panel fixed bottom-2 left-2 right-2 z-50 flex max-h-[calc(100dvh_-_1rem)] min-h-0 flex-col overflow-hidden rounded-[1.35rem] p-2.5 ring-1 ring-white/70 sm:absolute sm:bottom-auto sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[34rem] sm:w-[26rem] sm:rounded-[1.25rem] sm:p-2"
+        ref={pickerRef}
+        role="dialog"
+        aria-modal={useMobilePortal || undefined}
+        aria-label="模型与思考"
+        tabIndex={-1}
         data-model-picker-panel
       >
         <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-stone-300/70 sm:hidden" />
@@ -307,7 +315,7 @@ function ModelReasoningPicker({
   ) : null;
 
   return (
-    <div className="relative w-full sm:w-auto">
+    <div className="model-picker-trigger relative w-full sm:w-auto">
       <button
         aria-expanded={open}
         aria-label="选择模型和思考强度"
@@ -349,6 +357,10 @@ function ModelReasoningPicker({
 }
 
 type HeaderProps = {
+  hasTask: boolean;
+  artifactCount: number;
+  workspaceOpen: boolean;
+  onToggleWorkspace: () => void;
   desktopSidebarOpen: boolean;
   mobileSidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -378,6 +390,7 @@ type HeaderProps = {
 };
 
 export function Header({
+  hasTask, artifactCount, workspaceOpen, onToggleWorkspace,
   desktopSidebarOpen,
   mobileSidebarOpen,
   toggleSidebar,
@@ -426,7 +439,7 @@ export function Header({
         </button>
       ) : null}
       <div
-        className={`mx-auto max-w-5xl ${desktopSidebarOpen ? "" : "lg:pl-10"}`}
+        className={`mx-auto max-w-3xl ${desktopSidebarOpen ? "" : "lg:pl-10"}`}
         ref={headerControlsRef}
       >
         <div className="mobile-task-title"><div><span>{temporaryChatEnabled ? "临时任务" : activeProject?.name || "AI 工作台"}</span><h1>{activeConversation?.title || "开始一项新任务"}</h1></div><button type="button" aria-label="新建任务" onClick={startNewConversation}><MessageSquarePlus size={20} /></button></div>
@@ -444,7 +457,7 @@ export function Header({
           <div className="hidden min-w-0 flex-1 lg:block">
             <div className="flex min-w-0 items-center gap-1.5">
               <p className="truncate text-sm font-semibold text-stone-950">
-                {activeConversation?.title || "新聊天"}
+                {activeConversation?.title || "新任务"}
               </p>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs ios-muted">
@@ -519,6 +532,7 @@ export function Header({
                 open={modelPickerOpen}
                 reasoningValue={reasoningEffort}
               />
+              {hasTask ? <button type="button" aria-label="打开任务成果" aria-expanded={workspaceOpen} onClick={onToggleWorkspace} className="hidden h-10 shrink-0 items-center gap-1.5 rounded-xl border border-stone-200 px-3 text-xs font-medium text-stone-600 hover:bg-stone-100 lg:inline-flex"><FolderOpen size={15} />成果{artifactCount > 0 ? ` · ${artifactCount}` : ""}</button> : null}
             </div>
           </div>
 

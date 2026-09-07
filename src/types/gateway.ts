@@ -278,6 +278,7 @@ export type ConversationSummary = {
 };
 
 export type MessageView = {
+  response?: import("@/lib/responses-state").ResponseView;
   id: string;
   conversationId: string;
   role: MessageRole;
@@ -438,6 +439,7 @@ export type AiSettingsView = {
   systemPromptMode: SystemPromptMode;
   customSystemPrompt: string;
   modelSystemPrompts: Record<string, string>;
+  responsesTools?: import("@/lib/responses-tools").ResponsesTools;
   codeInterpreterEnabled: boolean;
   codeInterpreterSandbox: string;
   codeInterpreterAllowPackageInstall: boolean;

@@ -132,7 +132,7 @@ export function useChat({
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [streamStatus, setStreamStatus] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEventView[]>([]);
-  const [processTimelineExpanded, setProcessTimelineExpanded] = useState(true);
+  const [processTimelineExpanded, setProcessTimelineExpanded] = useState(false);
   const [processMessageId, setProcessMessageId] = useState<string | null>(null);
   const [processStartedAt, setProcessStartedAt] = useState<number | null>(null);
   const [processFinishedAt, setProcessFinishedAt] = useState<number | null>(null);
@@ -165,7 +165,7 @@ export function useChat({
     () => new Set(runningGenerationKeys),
     [runningGenerationKeys]
   );
-  const loading = runningGenerationKeySet.has(activeConversationKey);
+  const loading = runningGenerationKeySet.has(activeConversationKey) || messages.some(message => message.generationStatus === "running");
   const conversationSwitching = Boolean(
     activeConversationId && loadingConversationId === activeConversationId
   );
@@ -455,6 +455,7 @@ export function useChat({
 
   const refreshConversations = useCallback(
     async (preferredId?: string, loadFirst = false) => {
+      const initialLoadKey = activeConversationKeyRef.current;
       const requestSeq = conversationListRequestSeqRef.current + 1;
       conversationListRequestSeqRef.current = requestSeq;
       const params = new URLSearchParams();
@@ -481,7 +482,7 @@ export function useChat({
         setConversations(payload.conversations);
       });
 
-      const target = preferredId ?? (loadFirst ? payload.conversations[0]?.id : undefined);
+      const target = preferredId ?? (loadFirst && initialLoadKey === activeConversationKeyRef.current ? payload.conversations[0]?.id : undefined);
 
       if (target) {
         await loadConversation(target);
@@ -506,6 +507,37 @@ export function useChat({
   useEffect(() => {
     void refreshMe();
   }, [refreshMe]);
+
+  useEffect(() => {
+    if (!activeConversationId || !messages.some(message => message.generationStatus === "running") || abortControllersRef.current.has(activeConversationId)) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/conversations/${encodeURIComponent(activeConversationId)}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("任务状态暂时无法同步");
+        const payload = await response.json() as { conversation: { messages: MessageView[] } };
+        if (cancelled || activeConversationIdRef.current !== activeConversationId) return;
+        setMessages(payload.conversation.messages);
+        const latest = latestMessageProcess(payload.conversation.messages);
+        if (latest) {
+          setToolEvents(latest.toolEvents || []);
+          setStreamStatus(latest.streamStatus || "");
+          setProcessMessageId(latest.id);
+          setProcessStartedAt(latest.processStartedAt || null);
+          setProcessFinishedAt(latest.processFinishedAt || null);
+        }
+        if (!payload.conversation.messages.some(message => message.generationStatus === "running")) {
+          void refreshMe();
+          return;
+        }
+      } catch { /* Retry transient disconnects without replacing persisted progress. */ }
+      if (!cancelled) timer = setTimeout(() => void poll(), 2000);
+    };
+    timer = setTimeout(() => void poll(), 1000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [activeConversationId, messages, refreshMe]);
+
 
   useEffect(() => {
     void loadProjects();
@@ -539,6 +571,7 @@ export function useChat({
   }, [processFinishedAt, processStartedAt]);
 
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (messageScrollRef.current?.dataset.empty === "true") { messageScrollRef.current.scrollTop = 0; return; }
     scrollRef.current?.scrollIntoView({ behavior, block: "end" });
   }, []);
 
@@ -614,6 +647,7 @@ export function useChat({
   }
 
   function startNewConversation() {
+    initialConversationsLoadedRef.current = true;
     const nextConversationKey = createLocalConversationKey();
     autoScrollRef.current = true;
     conversationLoadRequestSeqRef.current += 1;
@@ -1049,7 +1083,7 @@ export function useChat({
     void uploadAttachments(event.dataTransfer.files);
   }
 
-  function stopGeneration() {
+  async function stopGeneration() {
     const now = Date.now();
     const conversationKey = activeConversationKeyRef.current;
     const controller = abortControllersRef.current.get(conversationKey);
@@ -1060,6 +1094,16 @@ export function useChat({
         : event
     );
 
+    const target = inFlightChat?.assistantMessage ?? messages.find(message => message.generationStatus === "running");
+    if (target && !isLocalMessage(target) && !temporaryChatEnabled) {
+      try {
+        const response = await fetch(`/api/messages/${encodeURIComponent(target.id)}/stop`, { method: "POST" });
+        if (!response.ok) throw new Error("停止任务失败，请重试。");
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "停止任务失败。");
+        return;
+      }
+    }
     controller?.abort();
     abortControllersRef.current.delete(conversationKey);
     markGenerationFinished(conversationKey);
@@ -1555,6 +1599,10 @@ export function useChat({
         }
       }
 
+      if (event.event === "workspace") {
+        updateChatAssistantMessage(message => ({ ...message, response: event.data.response as MessageView["response"] }));
+      }
+
       if (event.event === "reasoning") {
         const delta = String(event.data.delta ?? "");
 
@@ -1749,6 +1797,17 @@ export function useChat({
       return false;
     };
 
+    const recoverPersistedTask = async () => {
+      if (requestTemporary || !persistedConversationId) return false;
+      flushPendingOutput();
+      abortControllersRef.current.delete(conversationKey);
+      markGenerationFinished(conversationKey);
+      clearCurrentInFlightChat();
+      if (isViewingConversationKey(persistedConversationId)) await loadConversation(persistedConversationId);
+      await refreshConversations();
+      return true;
+    };
+
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -1779,6 +1838,7 @@ export function useChat({
       }
 
       if (!streamTerminated && !controller.signal.aborted) {
+        if (await recoverPersistedTask()) return;
         const now = Date.now();
         flushPendingOutput();
         updateChatAssistantMessage((item) => ({ ...item, pending: false }));
@@ -1823,6 +1883,8 @@ export function useChat({
         clearCurrentInFlightChat();
         return;
       }
+
+      if (await recoverPersistedTask()) return;
 
       clearStreamFlushTimer();
       pendingContentDelta = "";
@@ -1908,6 +1970,7 @@ export function useChat({
     }
     markGenerationFinished(conversationKey);
 
+    if (persistedConversationId && startingConversationId && persistedConversationId !== startingConversationId && isViewingConversationKey(persistedConversationId)) await loadConversation(persistedConversationId);
     await refreshConversations();
   }
 
@@ -2402,15 +2465,7 @@ export function useChat({
       return;
     }
 
-    setMessages((current) => {
-      const index = current.findIndex((message) => message.id === editingMessage.id);
-
-      if (index < 0) {
-        return current;
-      }
-
-      return [...current.slice(0, index), payload.message as MessageView];
-    });
+    await loadConversation(payload.message.conversationId);
     setEditingMessage(null);
 
     if (payload.message.mode === "IMAGE") {

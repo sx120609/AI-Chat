@@ -1,5 +1,6 @@
 import { Code2, Globe2 } from "lucide-react";
 import type { SettingsForm } from "./types";
+import { normalizeResponsesTools } from "@/lib/responses-tools";
 
 type ToolsTabProps = {
   settingsForm: SettingsForm;
@@ -9,12 +10,24 @@ type ToolsTabProps = {
 };
 
 export function ToolsTab({ settingsForm, setSettingsForm }: ToolsTabProps) {
+  const native = normalizeResponsesTools(settingsForm.responsesTools);
+  const updateNative = (patch: Partial<typeof native>) => handleUpdate({ responsesTools: { ...native, ...patch } });
   const handleUpdate = (patch: Partial<SettingsForm>) => {
     setSettingsForm((current) => ({ ...current, ...patch }));
   };
 
   return (
     <>
+      <div className="ios-list lg:col-span-6">
+        <div className="ios-cell px-3 py-2 text-xs font-semibold">Responses 原生工作区</div>
+        <div className="grid gap-4 p-3 lg:grid-cols-2">
+          {([['artifacts', '创建可下载成果'], ['codeInterpreter', '原生代码执行'], ['imageGeneration', '原生图片生成'], ['fileSearch', '共享知识库检索']] as const).map(([key, label]) => <label key={key} className="admin-check-row"><input type="checkbox" checked={native[key]} onChange={event => updateNative({ [key]: event.target.checked })} />{label}</label>)}
+          <label className="block lg:col-span-2"><span className="mb-1 block text-xs">支持原生工具的模型 ID（逗号分隔，留空应用到全部模型）</span><input className="ios-input w-full" value={(settingsForm.responsesTools?.modelIds || []).join(",")} onChange={event => updateNative({ modelIds: event.target.value.split(/[,，]/).map(value => value.trim()) })} /></label>
+          <label className="block lg:col-span-2"><span className="mb-1 block text-xs">共享知识库 Vector Store ID（逗号分隔）</span><input className="ios-input w-full" value={(settingsForm.responsesTools?.sharedVectorStoreIds || []).join(",")} onChange={event => updateNative({ sharedVectorStoreIds: event.target.value.split(/[,，]/).map(value => value.trim()) })} /></label>
+          {([['codeSessionCostCents', '每个代码容器附加费用（美分）'], ['imageCostCents', '每次生图附加费用（美分）'], ['fileSearchCostCents', '每次知识库检索附加费用（美分）']] as const).map(([key, label]) => <label key={key}><span className="mb-1 block text-xs">{label}</span><input className="ios-input w-full" type="number" min="0" step="0.01" value={native[key]} onChange={event => updateNative({ [key]: Number(event.target.value) })} /></label>)}
+          <div className="admin-note lg:col-span-2">按实际网关和模型能力启用。成果工具使用 function calling；代码执行、图片生成和知识库由上游托管，开启前请配置附加费用。共享知识库会供所有有文件分析权限的用户检索，请仅填写可共享资料。旧图片入口仍使用原有图片服务。</div>
+        </div>
+      </div>
       <div className="ios-list lg:col-span-6">
         <div className="ios-cell flex items-center gap-2 px-3 py-2">
           <Code2 className="size-4 text-[color:var(--claude-accent)]" />
@@ -67,7 +80,7 @@ export function ToolsTab({ settingsForm, setSettingsForm }: ToolsTabProps) {
             />
           </label>
           <div className="admin-note">
-            当前聊天不会自动调用代码解释器；附件会直接交给主模型，必要时仅使用内置文本解析作为兜底。
+            此处保留原有本地 Docker 配置；网页任务使用上方配置的 Responses 原生代码执行。附件仍支持直接输入及文本解析。
           </div>
         </div>
       </div>

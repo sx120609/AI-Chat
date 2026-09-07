@@ -1,0 +1,105 @@
+.mobile-task-title, .mobile-task-nav { display: none; }
+.task-home { width: 100%; max-width: 800px; margin: 3vh auto; color: #1e293b; }
+.task-home-entry { padding: 28px; border: 1px solid #eef0f4; border-radius: 18px; background: #fff; box-shadow: 0 2px 8px #0f172a03; }
+.task-home-heading { display: flex; align-items: center; gap: 12px; }
+.task-home-mark { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 13px; background: #eaf7f3; color: #148f7b; }
+.task-home-heading p { margin: 0 0 3px; font-size: 12px; color: #64748b; }
+.task-home-heading h1 { margin: 0; font-size: 25px; font-weight: 700; letter-spacing: -.5px; }
+.task-home-intro { margin: 16px 0 22px; font-size: 13px; line-height: 1.7; color: #64748b; }
+.task-quick-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.task-quick-grid button { display: flex; min-width: 0; min-height: 102px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 12px 4px; border: 1px solid #eef0f4; border-radius: 11px; background: #f8fafc; }
+.task-quick-grid svg { width: 22px; height: 22px; color: #148f7b; }
+.task-quick-grid strong { font-size: 13px; font-weight: 650; }
+.task-quick-grid span { color: #94a3b8; font-size: 10px; }
+.task-quick-grid button:hover { border-color: #148f7b; background: #effaf7; }
+.task-home-recent { margin-top: 16px; padding: 20px; border: 1px solid #eef0f4; border-radius: 15px; background: #f8fafc; }
+.task-home-recent > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.task-home-recent h2 { margin: 0; font-size: 17px; font-weight: 700; }
+.task-home-recent header p { margin: 4px 0 0; font-size: 11px; color: #94a3b8; }
+.task-home-recent header button { display: flex; align-items: center; min-height: 40px; gap: 3px; color: #148f7b; font-size: 12px; }
+.task-home-list { display: grid; gap: 7px; }
+.task-home-list > button { display: flex; align-items: center; gap: 10px; padding: 13px; min-width: 0; border: 1px solid #eef0f4; border-radius: 11px; background: #fff; text-align: left; }
+.task-home-list > button:hover { border-color: #b7dcd4; }
+.task-recent-icon { display: grid; width: 36px; height: 36px; flex-shrink: 0; place-items: center; border-radius: 10px; background: #eff8f5; color: #148f7b; }
+.task-recent-copy { display: block; min-width: 0; flex: 1; }
+.task-recent-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.task-recent-copy small { display: block; margin-top: 4px; font-size: 10px; color: #94a3b8; }
+.task-home-list > button > svg { color: #94a3b8; flex-shrink: 0; }
+.task-home-empty { display: grid; justify-items: center; gap: 9px; padding: 25px 10px; text-align: center; color: #94a3b8; }
+.task-home-empty p { font-size: 13px; color: #64748b; }
+.task-home-empty span { font-size: 11px; line-height: 1.8; }
+.task-home button:focus-visible, .mobile-task-nav button:focus-visible { outline: 2px solid #148f7b; outline-offset: 3px; }
+
+@media (max-width: 1023px) {
+  .workspace-shell { --claude-accent: #148f7b; --claude-accent-dark: #107562; --app-accent-soft: #eaf7f3; --app-ink-soft: #475569; --app-surface: #fff; --app-surface-solid: #fff; --ios-separator: #eef0f4; }
+  .workspace-shell.app-shell, .workspace-shell .chat-stage { background: #f8fafc; }
+  .workspace-shell .chat-topbar { padding: calc(12px + var(--app-safe-area-top, 0px)) 16px 10px; border-bottom: 1px solid #eef0f4; background: #fff; box-shadow: none; backdrop-filter: none; }
+  .mobile-task-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .mobile-task-title > div { min-width: 0; }
+  .mobile-task-title span { font-size: 10px; font-weight: 600; color: #148f7b; }
+  .mobile-task-title h1 { overflow: hidden; margin: 2px 0 0; font-size: 18px; line-height: 1.5; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-task-title > button { display: grid; width: 44px; height: 44px; flex-shrink: 0; place-items: center; border: 1px solid #eef0f4; border-radius: 12px; color: #148f7b; background: #f8fafc; }
+  .workspace-shell .chat-header-controls { display: flex; gap: 8px; }
+  .workspace-shell .chat-header-controls > button { display: none; }
+  .workspace-shell .chat-header-controls > div:last-of-type { flex: 1; padding: 0; }
+  .workspace-shell .app-chat-header-button { height: 36px; border: 1px solid #eef0f4; border-radius: 10px; background: #f8fafc; box-shadow: none; font-size: 12px; backdrop-filter: none; }
+  .workspace-shell .app-chat-header-button-active { border-color: #b7dcd4; background: #eaf7f3; color: #107562; }
+  .workspace-shell .mobile-project-picker { display: flex; height: 36px; max-width: 36%; padding: 0 8px; border: 1px solid #eef0f4; border-radius: 10px; background: #f8fafc; box-shadow: none; }
+  .workspace-shell .mobile-project-picker select { max-width: 100%; font-size: 12px !important; }
+  .workspace-shell .mobile-project-picker svg { display: none; }
+  .workspace-shell .task-status-strip { padding: 8px 16px 0; gap: 6px; }
+  .workspace-shell .task-status-strip p { font-size: 10px; color: #94a3b8; }
+  .workspace-shell .task-status-strip button { min-height: 34px; border-color: #eef0f4; border-radius: 9px; background: #fff; font-size: 11px; color: #148f7b; }
+  .workspace-shell .chat-message-list { padding: 10px 12px 16px; overscroll-behavior-y: contain; }
+  .workspace-shell .chat-message-stream { gap: 22px; }
+  .task-home { margin: 0; max-width: none; }
+  .task-home-entry { padding: 16px 12px 12px; border-radius: 15px; }
+  .task-home-heading { gap: 10px; }
+  .task-home-heading h1 { font-size: 20px; }
+  .task-home-heading p { font-size: 10px; }
+  .task-home-mark { width: 40px; height: 40px; border-radius: 11px; }
+  .task-home-intro { margin: 12px 0 15px; font-size: 11px; }
+  .task-quick-grid { gap: 6px; }
+  .task-quick-grid button { min-height: 76px; gap: 6px; padding: 9px 2px; border-radius: 11px; }
+  .task-quick-grid strong { font-size: 11px; }
+  .task-quick-grid span { display: none; }
+  .task-home-recent { margin-top: 12px; padding: 13px 10px; border-radius: 15px; }
+  .task-home-recent h2 { font-size: 16px; }
+  .task-home-recent header p { font-size: 10px; }
+  .task-home-list > button { padding: 11px 9px; }
+  .workspace-shell .chat-composer-dock { padding: 8px 12px; border-top: 1px solid #eef0f4; background: #fff; backdrop-filter: none; }
+  .workspace-shell .chat-composer-surface { flex-wrap: wrap; gap: 4px; border: 1px solid #e2e8f0; border-radius: 15px; background: #f8fafc; padding: 8px; box-shadow: none; }
+  .workspace-shell .chat-composer-surface > div:first-child { order: 2; }
+  .workspace-shell .chat-composer-surface > div:last-child { flex-basis: 100%; }
+  .workspace-shell .chat-composer-surface textarea { min-height: 42px; padding: 7px 4px; }
+  .workspace-shell .chat-composer-surface button { min-width: 40px; min-height: 40px; border-radius: 11px; box-shadow: none; }
+  .workspace-shell .chat-composer-surface .app-glass-primary { background: #148f7b; color: #fff; }
+  .workspace-shell .chat-composer-surface .app-glass-primary:disabled { background: #d4dfdc; }
+  .workspace-shell .chat-composer-surface .app-glass-control { border-color: #e2e8f0; background: #fff; }
+  .mobile-task-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex-shrink: 0; padding: 3px 12px calc(3px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #eef0f4; background: #fff; }
+  .mobile-task-nav button { position: relative; display: flex; min-height: 50px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #94a3b8; font-size: 10px; font-weight: 600; }
+  .mobile-task-nav button[aria-current] { color: #148f7b; }
+  .mobile-task-nav button[aria-current] svg { stroke-width: 2.3; }
+  .mobile-task-nav i { position: absolute; top: 6px; left: calc(50% + 10px); width: 6px; height: 6px; border-radius: 50%; background: #148f7b; }
+  .workspace-shell[data-keyboard-open="true"], html[data-chat-keyboard-open="true"] .chat-fullscreen-editor { position: fixed; top: var(--chat-viewport-top, 0px); bottom: auto; inset-inline: 0; height: var(--chat-viewport-height, 100dvh); }
+  .workspace-shell[data-keyboard-open="true"] .mobile-task-nav { display: none; }
+  .workspace-shell[data-keyboard-open="true"] .chat-composer-dock { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  .workspace-shell .mobile-history-sheet .chat-sidebar { background: #f8fafc; backdrop-filter: none; }
+  .mobile-history-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 2px 12px 8px; padding: 4px; border: 1px solid #eef0f4; border-radius: 11px; background: #fff; }
+  .mobile-history-tabs button { min-height: 36px; border-radius: 8px; color: #64748b; font-size: 12px; font-weight: 650; }
+  .mobile-history-tabs button[aria-pressed="true"] { background: #148f7b; color: #fff; }
+  .mobile-history-sheet .chat-sidebar-scroll { padding: 4px 12px 16px; }
+  .mobile-history-sheet .chat-conversation-row { margin-bottom: 6px; padding: 10px 11px; border: 1px solid #eef0f4; border-radius: 11px; background: #fff; box-shadow: none; }
+  .mobile-history-sheet [data-mobile-sidebar-actions] { margin: 14px 12px 10px; grid-template-columns: 100px minmax(0, 1fr); }
+  .mobile-history-sheet [data-mobile-sidebar-actions] > * { border: 1px solid #eef0f4; border-radius: 11px; background: #fff; box-shadow: none; backdrop-filter: none; font-size: 13px; }
+  .mobile-history-sheet [data-mobile-sidebar-actions] > button { background: #148f7b; color: #fff; }
+  .mobile-history-sheet [data-mobile-quota-card] { margin: 0 12px 8px; border: 1px solid #eef0f4; border-radius: 12px; background: #fff; box-shadow: none; backdrop-filter: none; }
+  .workspace-shell .workspace-panel { background: #f8fafc; border: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .workspace-shell .workspace-panel > div:first-child { height: auto; min-height: calc(60px + env(safe-area-inset-top, 0px)); padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; background: #fff; }
+  .workspace-shell .workspace-panel [role="tablist"] { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 12px; padding: 4px; border: 1px solid #eef0f4; border-radius: 11px; background: #fff; }
+  .workspace-shell .workspace-panel [role="tab"] { min-height: 38px; padding: 8px 4px; border-radius: 8px; font-size: 12px; }
+  .workspace-shell .workspace-panel [aria-selected="true"] { background: #148f7b; color: #fff; box-shadow: 0 3px 8px #148f7b22; }
+  .workspace-shell .workspace-panel button[aria-label] { min-width: 42px; min-height: 42px; }
+  .workspace-shell .workspace-panel .claude-markdown { font-size: 14px; }
+  .workspace-shell .workspace-panel pre, .workspace-shell .workspace-panel p { overflow-wrap: anywhere; }
+}

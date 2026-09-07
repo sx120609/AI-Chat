@@ -825,3 +825,50 @@ main article img:not([aria-hidden="true"]):not([data-image-viewer-ignore]) {
     transition-duration: 0.001ms !important;
   }
 }
+
+.workspace-shell.app-shell {
+  background: #f8f9f6;
+}
+
+.workspace-shell .chat-stage {
+  background: #fcfcfa;
+}
+
+.workspace-shell .chat-sidebar {
+  background: #f2f4f0;
+  box-shadow: none;
+  border-color: #e3e6df;
+}
+
+.workspace-shell .chat-composer-surface {
+  border-radius: 1.15rem;
+  border: 1px solid #dedfd9;
+  background: #fff;
+  box-shadow: 0 3px 16px #17211e08;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.workspace-panel .claude-markdown {
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.workspace-panel .claude-markdown h1 { font-size: 1.65rem; margin-bottom: 1.5rem; }
+.workspace-panel .claude-markdown h2 { font-size: 1.15rem; margin-top: 1.8rem; }
+.workspace-panel .claude-markdown h3 { font-size: 1rem; margin-top: 1.4rem; }
+.workspace-panel .claude-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: 1.25rem;
+}
+.workspace-panel .claude-markdown th,
+.workspace-panel .claude-markdown td {
+  border: 1px solid #e5e7e2;
+  padding: 0.55rem 0.8rem;
+  text-align: left;
+}
+.workspace-panel .claude-markdown th { background: #f5f6f2; font-weight: 600; }
+.workspace-panel .claude-markdown a { color: #135144; text-decoration: underline; }
+.workspace-panel button:focus-visible,
+.workspace-empty-state button:focus-visible { outline: 2px solid #135144; outline-offset: 3px; }

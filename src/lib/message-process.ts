@@ -1,3 +1,4 @@
+import { parseResponseState, responseView } from "./responses-state";
 export type MessageGenerationStatus = "running" | "done" | "error" | "stopped";
 
 export type PersistedToolEvent = {
@@ -87,11 +88,11 @@ export function normalizeToolEvents(value: unknown) {
   return value
     .map(normalizeToolEvent)
     .filter((event): event is PersistedToolEvent => Boolean(event))
-    .slice(0, 30);
+    .slice(-100);
 }
 
 export function stringifyToolEvents(events: PersistedToolEvent[]) {
-  return JSON.stringify(normalizeToolEvents(events)).slice(0, 12000);
+  return JSON.stringify(normalizeToolEvents(events));
 }
 
 export function parseToolEventsJson(value: string | null | undefined) {
@@ -156,11 +157,13 @@ export function messageProcessForClient(message: {
   processStartedAt?: Date | null;
   streamStatus?: string | null;
   toolEventsJson?: string | null;
+  responseStateJson?: string | null;
 }) {
   const generationStatus = normalizeGenerationStatus(message.generationStatus);
 
   return {
     generationStatus,
+    response: responseView(parseResponseState(message.responseStateJson)),
     pending: generationStatus === "running",
     processFinishedAt: epochMillisFromDate(message.processFinishedAt),
     processStartedAt: epochMillisFromDate(message.processStartedAt),

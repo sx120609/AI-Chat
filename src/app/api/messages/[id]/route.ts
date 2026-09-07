@@ -1,8 +1,8 @@
+import { branchAtUserMessage } from "@/lib/conversation-branch";
 import { NextRequest, NextResponse } from "next/server";
 import { attachmentToView, deleteAttachmentFiles } from "@/lib/attachments";
 import { getUserFromRequest } from "@/lib/auth";
 import { jsonError, readJson, requireActiveUser } from "@/lib/http";
-import { messagesAfter } from "@/lib/message-order";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -78,52 +78,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return jsonError("消息不能为空。", 400);
   }
 
-  const laterAttachments = await prisma.attachment.findMany({
-    where: {
-      message: {
-        conversationId: message.conversationId,
-        ...messagesAfter(message)
-      }
-    }
-  });
-
-  const updatedMessage = await prisma.$transaction(async (tx) => {
-    if (laterAttachments.length > 0) {
-      await tx.attachment.deleteMany({
-        where: {
-          id: {
-            in: laterAttachments.map((attachment) => attachment.id)
-          }
-        }
-      });
-    }
-
-    await tx.message.deleteMany({
-      where: {
-        conversationId: message.conversationId,
-        ...messagesAfter(message)
-      }
-    });
-
-    await tx.conversation.update({
-      where: { id: message.conversationId },
-      data: {
-        updatedAt: new Date()
-      }
-    });
-
-    return tx.message.update({
-      where: { id: message.id },
-      data: { content },
-      include: { attachments: true }
-    });
-  });
-
-  await deleteAttachmentFiles(laterAttachments);
+  const updatedMessage = await branchAtUserMessage(owned.user!.id, message.id, content);
 
   return NextResponse.json({
     message: {
-      ...updatedMessage,
+      id: updatedMessage.id,
+      conversationId: updatedMessage.conversationId,
+      role: updatedMessage.role,
+      content: updatedMessage.content,
+      mode: updatedMessage.mode,
+      model: updatedMessage.model,
       attachments: updatedMessage.attachments.map(attachmentToView),
       createdAt: updatedMessage.createdAt.toISOString()
     }

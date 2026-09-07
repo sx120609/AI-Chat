@@ -4,6 +4,9 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
+  House,
+  History,
+  FolderOpen,
   Clock3,
   Copy,
   ExternalLink,
@@ -19,6 +22,8 @@ import { ChatShellProps, ShareNotice } from "./chat/types";
 import { useChat } from "./chat/hooks/use-chat";
 import { Sidebar } from "./chat/sidebar";
 import { Header } from "./chat/header";
+import { WorkspacePanel, collectArtifacts } from "./chat/workspace-panel";
+import { TaskHome } from "./chat/task-home";
 import { MessageList } from "./chat/message-list";
 import { ComposerInputArea } from "./chat/composer-input";
 import { EasyPayDialog } from "./chat/easy-pay-dialog";
@@ -112,6 +117,9 @@ function ShareNoticeToast({
 }
 
 export function ChatShell({ experience = "classic", ...props }: ChatShellComponentProps) {
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [selectedArtifactKey, setSelectedArtifactKey] = useState<string | null>(null);
   const {
     user,
     siteSettings,
@@ -248,16 +256,39 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
     };
   }, [experience]);
 
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const sync = () => {
+      const open = window.innerHeight - viewport.height > 150;
+      setKeyboardOpen(open);
+      document.documentElement.dataset.chatKeyboardOpen = String(open);
+      document.documentElement.style.setProperty("--chat-viewport-height", `${viewport.height}px`);
+      document.documentElement.style.setProperty("--chat-viewport-top", `${viewport.offsetTop}px`);
+    };
+    viewport.addEventListener("resize", sync);
+    viewport.addEventListener("scroll", sync);
+    sync();
+    return () => {
+      viewport.removeEventListener("resize", sync);
+      viewport.removeEventListener("scroll", sync);
+      delete document.documentElement.dataset.chatKeyboardOpen;
+      document.documentElement.style.removeProperty("--chat-viewport-height");
+      document.documentElement.style.removeProperty("--chat-viewport-top");
+    };
+  }, []);
+
   return (
     <>
       <main
-        className={`ios-page app-shell app-route-enter flex text-stone-950 ${
+        className={`workspace-shell ios-page app-shell app-route-enter flex text-stone-950 ${
           experience === "beta" ? "beta-shell" : ""
         }`}
         data-experience={experience}
+        data-keyboard-open={keyboardOpen}
       >
       <aside
-        className={`chat-sidebar ios-glass app-glass-sidebar app-sidebar-sheet hidden h-full w-80 shrink-0 border-r border-white/40 ${
+        className={`chat-sidebar ios-glass app-glass-sidebar app-sidebar-sheet hidden h-full w-64 shrink-0 border-r border-white/40 ${
           desktopSidebarOpen ? "lg:flex lg:flex-col" : "lg:hidden"
         }`}
       >
@@ -294,7 +325,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
       </aside>
 
       {mobileSidebarOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="mobile-history-sheet fixed inset-0 z-50 lg:hidden">
           <button
             aria-label="关闭侧栏"
             className="app-backdrop-enter absolute inset-0 bg-black/20"
@@ -392,7 +423,13 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
           startNewConversation={startNewConversation}
         />
 
+        <div className="task-status-strip flex shrink-0 items-center justify-between gap-3 px-4 pb-2 sm:px-6">
+          <p className="min-w-0 truncate text-xs text-stone-500">{loading ? temporaryChatEnabled ? "临时任务进行中" : "任务进行中 · 进展与成果实时保存" : "研究、分析、创作，在一个任务里完成"}</p>
+          <button type="button" onClick={() => setWorkspaceOpen(!workspaceOpen)} aria-expanded={workspaceOpen} className="shrink-0 rounded-full border border-stone-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-white">工作区{collectArtifacts(messages).length ? ` · ${collectArtifacts(messages).length} 个成果` : ""}</button>
+        </div>
         <MessageList
+          emptyState={<TaskHome conversations={conversations} runningKeys={runningGenerationKeySet} onPrompt={(prompt) => setComposerText(prompt, true)} onOpen={openConversation} onHistory={() => { if (window.innerWidth < 1024) setMobileSidebarOpen(true); else if (!desktopSidebarOpen) toggleSidebar(); }} />}
+          onOpenArtifact={(key) => { setSelectedArtifactKey(key); setWorkspaceOpen(true); }}
           messages={messages}
           conversationSwitching={conversationSwitching}
           activeProject={activeProject}
@@ -463,7 +500,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
                 <span>{streamStatus}</span>
               </div>
             ) : null}
-            {error && error.trim() && !error.toLowerCase().includes("network error") && !error.toLowerCase().includes("gateway") ? (
+            {error && error.trim()  ? (
               <div
                 className="app-inline-alert mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
                 role="alert"
@@ -648,7 +685,13 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
             </div>
           </div>
         </footer>
+        <nav className="mobile-task-nav" aria-label="移动端导航">
+          <button type="button" aria-current={!mobileSidebarOpen && !workspaceOpen ? "page" : undefined} onClick={() => { setWorkspaceOpen(false); setMobileSidebarOpen(false); }}><House size={20} /><span>任务</span></button>
+          <button type="button" aria-label="打开任务历史" onClick={() => setMobileSidebarOpen(true)}><History size={20} /><span>历史</span>{runningGenerationKeySet.size ? <i aria-label={`${runningGenerationKeySet.size} 个任务进行中`} /> : null}</button>
+          <button type="button" aria-label="打开任务成果" onClick={() => setWorkspaceOpen(true)}><FolderOpen size={20} /><span>成果{collectArtifacts(messages).length ? ` · ${collectArtifacts(messages).length}` : ""}</span></button>
+        </nav>
       </section>
+      {workspaceOpen ? <WorkspacePanel messages={messages} selectedKey={selectedArtifactKey} onSelect={setSelectedArtifactKey} onClose={() => setWorkspaceOpen(false)} onRevise={(prompt) => setComposerText(prompt, true)} /> : null}
     </main>
 
     <SiteConfirmDialog

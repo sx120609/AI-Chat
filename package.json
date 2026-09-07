@@ -10,6 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:push": "prisma generate && prisma db push",
+    "db:responses-workspace": "tsx scripts/apply-responses-workspace-schema.ts",
+    "test": "tsx --import ./scripts/test-env.mjs --test src/lib/*.test.ts",
     "db:quota-wallets": "tsx scripts/apply-quota-wallets-schema.ts",
     "db:migrate:sqlite-to-pg": "tsx scripts/migrate-sqlite-to-postgres.ts",
     "db:seed": "tsx prisma/seed.ts",

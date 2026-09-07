@@ -1,3 +1,8 @@
+import { branchAtUserMessage } from "@/lib/conversation-branch";
+import { persistWorkspaceArtifact } from "@/lib/workspace-artifacts";
+import { toolsForModel } from "@/lib/responses-tools";
+import { runWorkspace } from "@/lib/workspace-runner";
+import { emptyResponseState, parseResponseState, responseView, WORKSPACE_INSTRUCTIONS, type ResponseState } from "@/lib/responses-state";
 import { randomUUID } from "crypto";
 import { NextRequest } from "next/server";
 import {
@@ -56,7 +61,6 @@ import { planMessageTools } from "@/lib/tool-router";
 import { compactTitle, estimateTokens } from "@/lib/tokens";
 import {
   assertUpstreamConfigured,
-  createResponseStream,
   generateImage,
   getAiRuntimeSettings,
   resolveUpstreamSettingsForModel,
@@ -69,8 +73,6 @@ import {
   calculateWebSearchCostCents
 } from "@/lib/web-search-billing";
 import {
-  extractWebSearchCallIds,
-  extractWebSearchSources,
   mergeWebSearchSources,
   type WebSearchResult,
   type WebSearchSource
@@ -103,8 +105,6 @@ type ChatBody = {
 };
 
 const encoder = new TextEncoder();
-// Codex 类模型高推理档位可能长时间不输出可见内容，看门狗放宽到 5 分钟
-const IDLE_TIMEOUT_MS = 300_000;
 const DRAFT_PERSIST_INTERVAL_MS = 1000;
 const SSE_KEEPALIVE_INTERVAL_MS = 15_000;
 const MAX_DIRECT_FILE_INPUT_BYTES = 50 * 1024 * 1024;
@@ -113,7 +113,6 @@ const MODEL_THINKING_STATUS = "思考中，正在组织回答...";
 const MODEL_STREAMING_DETAIL = "正在组织回答并输出内容";
 const MODEL_STREAMING_STATUS = "正在组织回答...";
 
-class UpstreamStreamError extends Error {}
 
 type ChatAttachment = {
   id: string;
@@ -160,99 +159,6 @@ function startSseKeepAlive(controller: ReadableStreamDefaultController<Uint8Arra
   }, SSE_KEEPALIVE_INTERVAL_MS);
 
   return () => clearInterval(timer);
-}
-
-type StreamChoice = {
-  delta?: {
-    content?: string;
-    reasoning_content?: string;
-    reasoning?: unknown;
-  };
-  message?: { content?: string };
-  text?: string;
-};
-
-function parseDelta(payload: unknown) {
-  const json = payload as {
-    choices?: StreamChoice[];
-    delta?: unknown;
-    output_text?: unknown;
-    text?: unknown;
-    type?: unknown;
-  };
-  const type = typeof json.type === "string" ? json.type : "";
-
-  if (type === "response.output_text.delta" && typeof json.delta === "string") {
-    return json.delta;
-  }
-
-  if (!type) {
-    if (typeof json.output_text === "string") {
-      return json.output_text;
-    }
-
-    if (typeof json.text === "string") {
-      return json.text;
-    }
-  }
-
-  return (
-    json.choices
-      ?.map((choice) => choice.delta?.content ?? choice.message?.content ?? choice.text ?? "")
-      .join("") ?? ""
-  );
-}
-
-// Sub2API / New API 等网关会把思考过程放在 delta.reasoning_content（或 delta.reasoning）里
-function parseReasoningDelta(payload: unknown) {
-  const json = payload as {
-    choices?: StreamChoice[];
-    delta?: unknown;
-    text?: unknown;
-    type?: unknown;
-  };
-  const type = typeof json.type === "string" ? json.type : "";
-
-  if (type.includes("reasoning") && type.endsWith(".delta")) {
-    if (typeof json.delta === "string") {
-      return json.delta;
-    }
-
-    if (typeof json.text === "string") {
-      return json.text;
-    }
-  }
-
-  return (
-    json.choices
-      ?.map((choice) => {
-        const delta = choice.delta;
-
-        if (!delta) {
-          return "";
-        }
-
-        if (typeof delta.reasoning_content === "string") {
-          return delta.reasoning_content;
-        }
-
-        if (typeof delta.reasoning === "string") {
-          return delta.reasoning;
-        }
-
-        return "";
-      })
-      .join("") ?? ""
-  );
-}
-
-function parseUsage(payload: unknown): UpstreamUsage | undefined {
-  const json = payload as {
-    response?: { usage?: UpstreamUsage | null } | null;
-    usage?: UpstreamUsage | null;
-  };
-
-  return json.usage ?? json.response?.usage ?? undefined;
 }
 
 function numberFromUsage(value: unknown) {
@@ -592,31 +498,9 @@ async function buildUserContentWithRawFiles(
   ];
 }
 
-function parseStreamError(payload: unknown) {
-  const json = payload as {
-    error?: { message?: string } | string;
-    message?: unknown;
-    response?: { error?: { message?: string } | string | null } | null;
-    type?: unknown;
-  };
-  const type = typeof json.type === "string" ? json.type : "";
-  const errorField = json.error ?? json.response?.error;
-
-  if (!errorField) {
-    if (type === "error" && typeof json.message === "string") {
-      return json.message;
-    }
-
-    return "";
-  }
-
-  return typeof errorField === "string"
-    ? errorField
-    : errorField.message || "上游在流式响应中返回了错误。";
-}
-
 function messageForClient<
   T extends {
+    responseStateJson?: string | null;
     toolEventsJson?: string | null;
     upstreamUsageJson?: string | null;
     webSourcesJson?: string | null;
@@ -626,6 +510,7 @@ function messageForClient<
 ) {
   const view = { ...message };
 
+  delete view.responseStateJson;
   delete view.toolEventsJson;
   delete view.upstreamUsageJson;
   delete view.webSourcesJson;
@@ -634,6 +519,7 @@ function messageForClient<
 }
 
 function temporaryMessageForClient(options: {
+  response?: ReturnType<typeof responseView>;
   attachments?: ReturnType<typeof attachmentToView>[];
   completionTokens?: number;
   content: string;
@@ -659,6 +545,7 @@ function temporaryMessageForClient(options: {
   return {
     id: `temporary-${options.role.toLowerCase()}-${randomUUID()}`,
     conversationId: "temporary",
+    response: options.response,
     role: options.role,
     content: options.content,
     reasoningContent: options.reasoningContent ?? null,
@@ -715,129 +602,6 @@ async function cleanupTemporaryAttachments(attachments: ChatAttachment[], enable
   await deleteAttachmentFiles(attachments).catch(() => undefined);
 }
 
-async function readWithIdleTimeout(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs: number
-) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(
-        new UpstreamStreamError(
-          `上游超过 ${Math.round(timeoutMs / 60_000)} 分钟没有返回新数据，连接已中断。`
-        )
-      );
-    }, timeoutMs);
-  });
-
-  try {
-    return await Promise.race([reader.read(), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function pipeOpenAiSse(
-  body: ReadableStream<Uint8Array>,
-  handlers: {
-    onDelta: (delta: string) => void;
-    onReasoning: (delta: string) => void;
-    onWebSearchCalls?: (count: number) => void;
-    onWebSources?: (sources: WebSearchSource[]) => void;
-  }
-) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let usage: UpstreamUsage | undefined;
-  const seenWebSearchCallIds = new Set<string>();
-
-  const processBlock = (block: string) => {
-    const lines = block
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith("data:"));
-
-    for (const line of lines) {
-      const data = line.slice(5).trim();
-
-      if (!data || data === "[DONE]") {
-        continue;
-      }
-
-      let payload: unknown;
-
-      try {
-        payload = JSON.parse(data) as unknown;
-      } catch {
-        continue;
-      }
-
-      const streamError = parseStreamError(payload);
-
-      if (streamError) {
-        throw new UpstreamStreamError(`上游 API 错误：${streamError}`);
-      }
-
-      const delta = parseDelta(payload);
-      const reasoningDelta = parseReasoningDelta(payload);
-      const nextUsage = parseUsage(payload);
-      const nextWebSearchCallIds = extractWebSearchCallIds(payload).filter(
-        (id) => !seenWebSearchCallIds.has(id)
-      );
-      const nextWebSources = extractWebSearchSources(payload);
-
-      if (delta) {
-        handlers.onDelta(delta);
-      }
-
-      if (reasoningDelta) {
-        handlers.onReasoning(reasoningDelta);
-      }
-
-      if (nextUsage) {
-        usage = nextUsage;
-      }
-
-      if (nextWebSearchCallIds.length) {
-        nextWebSearchCallIds.forEach((id) => seenWebSearchCallIds.add(id));
-        handlers.onWebSearchCalls?.(nextWebSearchCallIds.length);
-      }
-
-      if (nextWebSources.length) {
-        handlers.onWebSources?.(nextWebSources);
-      }
-    }
-  };
-
-  try {
-    while (true) {
-      const { done, value } = await readWithIdleTimeout(reader, IDLE_TIMEOUT_MS);
-
-      if (done) {
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const blocks = buffer.split(/\r?\n\r?\n/);
-      buffer = blocks.pop() ?? "";
-
-      for (const block of blocks) {
-        processBlock(block);
-      }
-    }
-
-    if (buffer.trim()) {
-      processBlock(buffer);
-    }
-  } catch (error) {
-    await reader.cancel().catch(() => undefined);
-    throw error;
-  }
-
-  return usage;
-}
-
 async function streamMockAnswer(
   prompt: string,
   onDelta: (delta: string) => void,
@@ -892,10 +656,10 @@ function buildToolEvents(options: {
   ].filter(Boolean);
 
   events.push({
-    detail: routeParts.length ? `已启用：${routeParts.join("、")}` : "未启用额外工具，直接对话",
+    detail: routeParts.length ? `已启用：${routeParts.join("、")}` : "已整理任务上下文，模型将按需调用可用工具",
     finishedAt: options.routerFinishedAt,
     id: "router",
-    label: "工具状态",
+    label: "任务准备",
     startedAt: options.routerStartedAt,
     status: "done",
     type: "router"
@@ -1015,6 +779,11 @@ export async function POST(request: NextRequest) {
     : normalizeReasoningEffortForModel(body.reasoningEffort, model);
   const personalizationSettings = parsePersonalizationSettings(user.aiStylePrompt);
   const securityMode = personalizationSettings.toolPreferences.securityMode;
+  const nativeToolsConfig = toolsForModel(aiSettings.responsesTools, model.id, model.upstreamId);
+  nativeToolsConfig.imageGeneration &&= personalizationSettings.toolPreferences.imageGenerationEnabled && !securityMode;
+  nativeToolsConfig.codeInterpreter &&= personalizationSettings.toolPreferences.fileAnalysisEnabled && !securityMode;
+  nativeToolsConfig.fileSearch &&= personalizationSettings.toolPreferences.fileAnalysisEnabled && !securityMode;
+  nativeToolsConfig.artifacts &&= !securityMode;
   const fileAccessEnabled = personalizationSettings.toolPreferences.fileAnalysisEnabled;
   const webSearchRuntimeEnabled = !securityMode;
   const requestedAttachmentIds = uniqueAttachmentIds(body.attachmentIds);
@@ -1039,7 +808,7 @@ export async function POST(request: NextRequest) {
     return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
-  const reusedUserMessage = body.reuseUserMessageId
+  let reusedUserMessage = body.reuseUserMessageId
     ? await prisma.message.findFirst({
         where: {
           id: body.reuseUserMessageId,
@@ -1089,7 +858,7 @@ export async function POST(request: NextRequest) {
     time: body.clientTime,
     timeZone: body.clientTimeZone
   });
-  const existingConversation = reusedUserMessage
+  let existingConversation = reusedUserMessage
     ? reusedUserMessage.conversation
     : !temporaryChat && body.conversationId
     ? await prisma.conversation.findFirst({
@@ -1116,6 +885,11 @@ export async function POST(request: NextRequest) {
 
   if (((!temporaryChat && body.conversationId) || body.reuseUserMessageId) && !existingConversation) {
     return jsonError("会话不存在。", 404);
+  }
+
+  if (reusedUserMessage && await prisma.message.count({ where: { conversationId: reusedUserMessage.conversationId, ...messagesAfter(reusedUserMessage) } })) {
+    reusedUserMessage = await branchAtUserMessage(user.id, reusedUserMessage.id);
+    existingConversation = reusedUserMessage.conversation;
   }
 
   const effectiveProject = existingConversation?.project ?? requestedProject;
@@ -1168,40 +942,6 @@ export async function POST(request: NextRequest) {
     return jsonError("文件分析已在个人中心关闭。", 403);
   }
 
-  if (reusedUserMessage) {
-    const laterAttachments = await prisma.attachment.findMany({
-      where: {
-        message: {
-          conversationId: reusedUserMessage.conversationId,
-          ...messagesAfter(reusedUserMessage)
-        }
-      }
-    });
-
-    if (laterAttachments.length > 0) {
-      await prisma.attachment.deleteMany({
-        where: {
-          id: {
-            in: laterAttachments.map((attachment) => attachment.id)
-          }
-        }
-      });
-      await deleteAttachmentFiles(laterAttachments);
-    }
-
-    await prisma.message.deleteMany({
-      where: {
-        conversationId: reusedUserMessage.conversationId,
-        ...messagesAfter(reusedUserMessage)
-      }
-    });
-
-    await prisma.conversation.update({
-      where: { id: reusedUserMessage.conversationId },
-      data: { updatedAt: new Date() }
-    });
-  }
-
   const toolRoutePlan = await planMessageTools({
     attachmentCount: effectiveAttachments.length,
     forceSearch: webSearchRuntimeEnabled && body.useWebSearch === true,
@@ -1214,6 +954,8 @@ export async function POST(request: NextRequest) {
     signal: request.signal,
     sourceImageSelected: Boolean(body.sourceImageMessageId)
   });
+
+  if (nativeToolsConfig.imageGeneration && !body.imageToolRequested && !body.sourceImageMessageId && reusedUserMessage?.mode !== "IMAGE") toolRoutePlan.tool = "chat";
 
   if (toolRoutePlan.tool === "image") {
     if (securityMode) {
@@ -1283,7 +1025,7 @@ export async function POST(request: NextRequest) {
             : "AI 路由选择 image2",
           finishedAt: imageRouterFinishedAt,
           id: "router",
-          label: "工具状态",
+          label: "任务准备",
           startedAt: routerStartedAt,
           status: "done",
           type: "router"
@@ -1528,7 +1270,7 @@ export async function POST(request: NextRequest) {
           : "AI 路由选择 image2",
         finishedAt: imageRouterFinishedAt,
         id: "router",
-        label: "工具状态",
+        label: "任务准备",
         startedAt: routerStartedAt,
         status: "done",
         type: "router"
@@ -1747,7 +1489,8 @@ export async function POST(request: NextRequest) {
             createdAt: message.createdAt,
             id: message.id,
             role: message.role as "USER" | "ASSISTANT",
-            content: contentWithAttachmentContext(message.content, messageAttachments)
+            content: contentWithAttachmentContext(message.content, messageAttachments),
+            ...(message.role === "ASSISTANT" && message.model === model.id && message.generationStatus === "done" ? { responseItems: parseResponseState(message.responseStateJson).items, responseScope: parseResponseState(message.responseStateJson).scope } : {})
           };
         })
       );
@@ -1789,6 +1532,7 @@ export async function POST(request: NextRequest) {
     : "";
   const systemPrompt = [
     baseSystemPrompt,
+    nativeToolsConfig.artifacts ? WORKSPACE_INSTRUCTIONS : "",
     projectPrompt ? `项目上下文：\n${projectPrompt}` : "",
     userStylePrompt ? `用户偏好的回答风格：\n${userStylePrompt}` : "",
     savedMemoryPrompt,
@@ -1799,7 +1543,7 @@ export async function POST(request: NextRequest) {
   const webSearchStartedAt = Date.now();
   const webSearchPlan = {
     query: toolRoutePlan.query,
-    shouldSearch: webSearchRuntimeEnabled && toolRoutePlan.shouldSearch
+    shouldSearch: webSearchRuntimeEnabled && aiSettings.webSearchEnabled
   };
   const webSearchResult: WebSearchResult | null = webSearchPlan.shouldSearch
     ? { query: webSearchPlan.query || content, sources: [] }
@@ -1807,10 +1551,11 @@ export async function POST(request: NextRequest) {
   const webSearchFinishedAt = webSearchResult ? undefined : Date.now();
   let webSearchSources: WebSearchSource[] = [];
   let webSearchCallCount = 0;
+  let nativeToolCostCents = 0;
   const currentWebSearchCostCents = () =>
     calculateWebSearchCostCents(
       webSearchResult && !aiSettings.mockResponses
-        ? Math.max(1, webSearchCallCount)
+        ? webSearchCallCount
         : 0,
       aiSettings.webSearchCostCents
     );
@@ -1884,7 +1629,7 @@ export async function POST(request: NextRequest) {
       memoryResult: null,
       routerFinishedAt,
       routerStartedAt,
-      webSearchResult,
+      webSearchResult: null,
       webSearchFinishedAt,
       webSearchStartedAt
     });
@@ -1923,7 +1668,8 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const stopKeepAlive = startSseKeepAlive(controller);
-        let assistantContent = "";
+        let nativeState: ResponseState = emptyResponseState();
+      let assistantContent = "";
         let reasoningContent = "";
         let streamedReasoningContent = "";
         let processToolEvents: PersistedToolEvent[] = initialProcessToolEvents;
@@ -1991,7 +1737,7 @@ export async function POST(request: NextRequest) {
           );
           const tokenUsage = shouldRecordUsage
             ? resolveTokenUsage({
-                additionalCostCents: currentWebSearchCostCents(),
+                additionalCostCents: currentWebSearchCostCents() + nativeToolCostCents,
                 completionTokensEstimate: Math.max(
                   1,
                   estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
@@ -2026,6 +1772,7 @@ export async function POST(request: NextRequest) {
           }
 
           return temporaryMessageForClient({
+            response: responseView(nativeState),
             content: contentForHistory,
             completionTokens: tokenUsage?.completionTokens,
             estimatedCostCents: tokenUsage?.estimatedCostCents,
@@ -2066,19 +1813,22 @@ export async function POST(request: NextRequest) {
               sse(controller, "delta", { delta });
             }, streamAbortController.signal);
           } else {
-            const upstreamBody = await createResponseStream(
-              model.id,
-              upstreamMessages,
-              aiSettings,
-              {
-                fallbackMessages: buildFallbackUpstreamMessages,
-                reasoningEffort,
-                signal: streamAbortController.signal,
-                webSearch: Boolean(webSearchResult)
-              }
-            );
-            upstreamUsage = await pipeOpenAiSse(upstreamBody, {
-              onDelta: (delta) => {
+            const workspaceResult = await runWorkspace({
+              model: model.id, messages: upstreamMessages, settings: aiSettings,
+              reasoningEffort, signal: streamAbortController.signal,
+              webSearch: Boolean(webSearchResult), allowArtifacts: nativeToolsConfig.artifacts,
+              allowCode: nativeToolsConfig.codeInterpreter, nativeTools: nativeToolsConfig,
+              onToolCost: (cost) => { nativeToolCostCents += cost; },
+              fallbackMessages: buildFallbackUpstreamMessages,
+              onState: (state) => {
+                nativeState = state;
+                sse(controller, "workspace", { response: responseView(state) });
+              },
+              onTool: (event) => {
+                upsertProcessToolEvent(event);
+                sse(controller, "tool", event);
+              },
+              onText: (delta) => {
                 assistantContent += delta;
                 markModelOutputStarted(MODEL_STREAMING_DETAIL);
                 sse(controller, "delta", { delta });
@@ -2088,10 +1838,10 @@ export async function POST(request: NextRequest) {
                 markModelOutputStarted("正在思考并整理思路");
                 emitReasoningDelta();
               },
-              onWebSearchCalls: (count) => {
+              onSearchCalls: (count) => {
                 webSearchCallCount += count;
               },
-              onWebSources: (sources) => {
+              onSources: (sources) => {
                 webSearchCallCount = Math.max(1, webSearchCallCount);
                 webSearchSources = mergeWebSearchSources(
                   webSearchSources,
@@ -2100,10 +1850,11 @@ export async function POST(request: NextRequest) {
                 );
               }
             });
+            upstreamUsage = workspaceResult.usage;
           }
 
           const finishedAt = Date.now();
-          if (webSearchResult) {
+          if (webSearchResult && webSearchCallCount > 0) {
             const event = completedWebSearchToolEvent(
               webSearchResult,
               webSearchSources,
@@ -2277,7 +2028,7 @@ export async function POST(request: NextRequest) {
     memoryResult,
     routerFinishedAt,
     routerStartedAt,
-    webSearchResult,
+    webSearchResult: null,
     webSearchFinishedAt,
     webSearchStartedAt
   });
@@ -2307,21 +2058,25 @@ export async function POST(request: NextRequest) {
       generationStatus: "running",
       streamStatus: initialStreamStatus,
       toolEventsJson: stringifyToolEvents(initialProcessToolEvents),
-      processStartedAt: new Date(routerStartedAt)
+      processStartedAt: new Date(routerStartedAt),
+      runHeartbeatAt: new Date()
     }
   });
   const streamAbortController = new AbortController();
-  const abortStream = () => streamAbortController.abort();
-
-  if (request.signal.aborted) {
-    abortStream();
-  } else {
-    request.signal.addEventListener("abort", abortStream, { once: true });
-  }
+  rawFileUploadOptions.signal = streamAbortController.signal;
+  const stopPoll = setInterval(() => {
+    void prisma.message.findUnique({ where: { id: assistantDraftMessage.id }, select: { stopRequested: true } })
+      .then(async message => {
+        if (!message || message.stopRequested) streamAbortController.abort();
+        else await prisma.message.updateMany({ where: { id: assistantDraftMessage.id, generationStatus: "running" }, data: { runHeartbeatAt: new Date() } });
+      }).catch(() => streamAbortController.abort());
+  }, 1500);
+  const maxRunTimer = setTimeout(() => streamAbortController.abort(new Error("任务超过运行时限，请继续任务。")), 30 * 60_000);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const stopKeepAlive = startSseKeepAlive(controller);
+      let nativeState: ResponseState = emptyResponseState();
       let assistantContent = "";
       let reasoningContent = "";
       let streamedReasoningContent = "";
@@ -2335,6 +2090,7 @@ export async function POST(request: NextRequest) {
       const assistantMessageForResponse = (message: typeof assistantDraftMessage) => ({
         ...messageForClient(message),
         ...messageProcessForClient(message),
+        response: responseView(nativeState),
         webSources: webSearchSources,
         createdAt: message.createdAt.toISOString()
       });
@@ -2352,7 +2108,9 @@ export async function POST(request: NextRequest) {
               generationStatus: "running",
               streamStatus: currentStreamStatus,
               toolEventsJson: stringifyToolEvents(processToolEvents),
-              webSourcesJson: JSON.stringify(webSearchSources)
+              webSourcesJson: JSON.stringify(webSearchSources),
+              responseStateJson: JSON.stringify(nativeState),
+              runHeartbeatAt: new Date()
             }
           })
           .catch(() => undefined);
@@ -2444,7 +2202,7 @@ export async function POST(request: NextRequest) {
         );
         const tokenUsage = shouldRecordUsage
           ? resolveTokenUsage({
-              additionalCostCents: currentWebSearchCostCents(),
+              additionalCostCents: currentWebSearchCostCents() + nativeToolCostCents,
               completionTokensEstimate: Math.max(
                 1,
                 estimateTokens(visibleAssistantContent) + estimateTokens(reasoningContent)
@@ -2464,6 +2222,8 @@ export async function POST(request: NextRequest) {
             streamStatus: options.streamStatus,
             toolEventsJson: stringifyToolEvents(processToolEvents),
             webSourcesJson: JSON.stringify(webSearchSources),
+            responseStateJson: JSON.stringify(nativeState),
+            runHeartbeatAt: new Date(),
             processFinishedAt: new Date(finishedAt),
             ...(tokenUsage
               ? {
@@ -2542,19 +2302,24 @@ export async function POST(request: NextRequest) {
             sse(controller, "delta", { delta });
           }, streamAbortController.signal);
         } else {
-          const upstreamBody = await createResponseStream(
-            model.id,
-            upstreamMessages,
-            aiSettings,
-            {
+          const workspaceResult = await runWorkspace({
+              model: model.id, messages: upstreamMessages, settings: aiSettings,
+              reasoningEffort, signal: streamAbortController.signal,
+              webSearch: Boolean(webSearchResult), allowArtifacts: nativeToolsConfig.artifacts,
+              allowCode: nativeToolsConfig.codeInterpreter, nativeTools: nativeToolsConfig,
+              onToolCost: (cost) => { nativeToolCostCents += cost; },
               fallbackMessages: buildFallbackUpstreamMessages,
-              reasoningEffort,
-              signal: streamAbortController.signal,
-              webSearch: Boolean(webSearchResult)
-            }
-          );
-          upstreamUsage = await pipeOpenAiSse(upstreamBody, {
-            onDelta: (delta) => {
+              onArtifact: (artifact) => persistWorkspaceArtifact(artifact, { userId: user.id, conversationId: conversation.id, messageId: assistantDraftMessage.id, projectId: effectiveProjectId }, modelUpstreamSettings, streamAbortController.signal),
+              onState: (state) => {
+                nativeState = state;
+                sse(controller, "workspace", { response: responseView(state) });
+                queueDraftPersist(true);
+              },
+              onTool: (event) => {
+                upsertProcessToolEvent(event);
+                sse(controller, "tool", event);
+              },
+              onText: (delta) => {
               assistantContent += delta;
               markModelOutputStarted(MODEL_STREAMING_DETAIL, MODEL_STREAMING_STATUS);
               queueDraftPersist();
@@ -2566,10 +2331,10 @@ export async function POST(request: NextRequest) {
               emitReasoningDelta();
               queueDraftPersist();
             },
-            onWebSearchCalls: (count) => {
+            onSearchCalls: (count) => {
               webSearchCallCount += count;
             },
-            onWebSources: (sources) => {
+            onSources: (sources) => {
               webSearchCallCount = Math.max(1, webSearchCallCount);
               webSearchSources = mergeWebSearchSources(
                 webSearchSources,
@@ -2579,10 +2344,11 @@ export async function POST(request: NextRequest) {
               queueDraftPersist();
             }
           });
+          upstreamUsage = workspaceResult.usage;
         }
 
         const finishedAt = Date.now();
-        if (webSearchResult) {
+        if (webSearchResult && webSearchCallCount > 0) {
           const event = completedWebSearchToolEvent(
             webSearchResult,
             webSearchSources,
@@ -2656,8 +2422,8 @@ export async function POST(request: NextRequest) {
         const errorMessage = error instanceof Error ? error.message : "上游调用失败。";
         const streamStatus = aborted
           ? assistantContent || reasoningContent
-            ? "连接已中断，已保存部分内容。"
-            : "连接已中断，未收到模型输出。"
+            ? "任务已停止，已保存部分内容。"
+            : "任务已停止，未收到模型输出。"
           : "上游调用失败。";
         upsertProcessToolEvent(
           {
@@ -2675,6 +2441,7 @@ export async function POST(request: NextRequest) {
           errorMessage: assistantContent || reasoningContent ? undefined : errorMessage,
           finishedAt,
           status: aborted ? "stopped" : "error",
+          upstreamUsage: (error as { workspaceUsage?: UpstreamUsage }).workspaceUsage,
           streamStatus
         }).catch(() => null);
 
@@ -2686,16 +2453,14 @@ export async function POST(request: NextRequest) {
         }
       } finally {
         stopKeepAlive();
-        request.signal.removeEventListener("abort", abortStream);
+        clearInterval(stopPoll);
+        clearTimeout(maxRunTimer);
         try {
           controller.close();
         } catch {
           // The browser may have already gone away; persistence above is the source of truth.
         }
       }
-    },
-    cancel() {
-      abortStream();
     }
   });
 

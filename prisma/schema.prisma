@@ -248,6 +248,9 @@ model Message {
   generationStatus   String         @default("done")
   streamStatus       String?
   toolEventsJson     String         @default("[]")
+  responseStateJson  String         @default("{}")
+  runHeartbeatAt     DateTime?
+  stopRequested      Boolean        @default(false)
   processStartedAt   DateTime?
   processFinishedAt  DateTime?
   model              String?
@@ -353,6 +356,7 @@ model AiSettings {
   customSystemPrompt    String   @default("")
   modelSystemPromptsJson String  @default("{}")
   codeInterpreterEnabled Boolean @default(false)
+  responsesToolsJson    String @default("{}")
   codeInterpreterSandbox String  @default("docker")
   codeInterpreterAllowPackageInstall Boolean @default(false)
   codeInterpreterPipIndexUrl String @default("https://pypi.org/simple")

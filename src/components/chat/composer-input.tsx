@@ -49,7 +49,7 @@ export const ComposerInputArea = memo(function ComposerInputArea({
       ? "描述要生成的图片"
       : webSearchEnabledForMessage
         ? "输入需要联网查询的问题"
-        : "问问 AI";
+        : "描述任务，或上传资料开始";
   const sendDisabled =
     disabled ||
     (!loading && !draft.trim() && pendingAttachmentCount === 0 && !sourceImageSelected) ||
@@ -119,7 +119,8 @@ export const ComposerInputArea = memo(function ComposerInputArea({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.key === "Enter" && !event.shiftKey && !window.matchMedia("(pointer: coarse)").matches) {
       event.preventDefault();
       void submitDraft();
     }
@@ -132,6 +133,7 @@ export const ComposerInputArea = memo(function ComposerInputArea({
       return;
     }
 
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       void submitDraft();
@@ -178,7 +180,7 @@ export const ComposerInputArea = memo(function ComposerInputArea({
       </div>
       {fullscreenOpen
         ? createPortal(
-            <div className="app-backdrop-enter fixed inset-0 z-[90] flex bg-[rgba(23,33,30,0.28)] p-3 backdrop-blur-md sm:p-6">
+            <div className="chat-fullscreen-editor app-backdrop-enter fixed inset-0 z-[90] flex bg-[rgba(23,33,30,0.28)] p-3 backdrop-blur-md sm:p-6">
               <section className="app-dialog-panel mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/55 bg-[color:var(--app-surface-solid)] shadow-[0_28px_100px_rgba(23,33,30,0.28)]">
                 <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--ios-separator)] px-4 py-3">
                   <div className="min-w-0">

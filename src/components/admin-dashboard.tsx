@@ -243,6 +243,7 @@ export function AdminDashboard({ currentUser }: AdminDashboardProps) {
       systemPromptMode: nextSettings.systemPromptMode,
       customSystemPrompt: nextSettings.customSystemPrompt,
       modelSystemPrompts: nextSettings.modelSystemPrompts,
+      responsesTools: nextSettings.responsesTools,
       codeInterpreterEnabled: nextSettings.codeInterpreterEnabled,
       codeInterpreterSandbox: nextSettings.codeInterpreterSandbox,
       codeInterpreterAllowPackageInstall: nextSettings.codeInterpreterAllowPackageInstall,

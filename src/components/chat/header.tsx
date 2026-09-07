@@ -429,7 +429,8 @@ export function Header({
         className={`mx-auto max-w-5xl ${desktopSidebarOpen ? "" : "lg:pl-10"}`}
         ref={headerControlsRef}
       >
-        <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 lg:flex lg:items-center lg:justify-between">
+        <div className="mobile-task-title"><div><span>{temporaryChatEnabled ? "临时任务" : activeProject?.name || "AI 工作台"}</span><h1>{activeConversation?.title || "开始一项新任务"}</h1></div><button type="button" aria-label="新建任务" onClick={startNewConversation}><MessageSquarePlus size={20} /></button></div>
+        <div className="chat-header-controls grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 lg:flex lg:items-center lg:justify-between">
           <button
             aria-expanded={mobileSidebarOpen || desktopSidebarOpen}
             className={`${chatHeaderIconButtonClass} lg:hidden`}
@@ -463,7 +464,7 @@ export function Header({
           <div className="min-w-0 justify-self-stretch pr-1 lg:block lg:shrink-0 lg:justify-self-auto lg:pr-0">
             <div className="flex w-full min-w-0 items-center gap-2 lg:w-auto">
               {projects.length > 0 ? (
-                <label className="app-glass-control hidden h-10 min-w-0 items-center gap-2 rounded-2xl px-3 text-xs font-semibold text-stone-700 sm:flex">
+                <label className="mobile-project-picker app-glass-control hidden h-10 min-w-0 items-center gap-2 rounded-2xl px-3 text-xs font-semibold text-stone-700 sm:flex">
                   <FolderOpen className="size-4 shrink-0 text-[color:var(--claude-accent)]" />
                   <select
                     className="max-w-36 min-w-0 bg-transparent outline-none lg:max-w-48"

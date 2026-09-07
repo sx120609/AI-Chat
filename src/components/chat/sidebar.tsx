@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   LogOut,
   Menu,
@@ -187,7 +187,8 @@ export function Sidebar({
   requestDeleteConversation,
   experience = "classic"
 }: SidebarProps) {
-  const groupedConversations = useMemo(() => groupConversations(conversations), [conversations]);
+  const [filter, setFilter] = useState<"all" | "running" | "pinned">("all");
+  const groupedConversations = useMemo(() => groupConversations(conversations.filter(conversation => filter === "all" || (filter === "running" ? runningGenerationKeySet.has(conversation.id) : conversation.pinned))), [conversations, filter, runningGenerationKeySet]);
   const sidebarHeaderButtonClass =
     "app-action-button app-glass-control min-h-9 min-w-9 shrink-0 place-items-center rounded-xl text-[color:var(--app-ink-soft)] transition hover:text-[color:var(--claude-ink)] active:scale-95";
 
@@ -242,17 +243,17 @@ export function Sidebar({
             type="button"
           >
             <MessageSquarePlus className="size-4" />
-            新聊天
+            新任务
           </button>
         </div>
         <div className="mt-3 hidden lg:block">
           <label className="app-glass-control flex h-9 items-center gap-2 rounded-xl px-2.5 text-sm text-stone-700 max-lg:h-11 max-lg:rounded-2xl max-lg:px-3.5">
             <Search className="size-4 shrink-0 text-stone-400" />
             <input
-              aria-label="搜索聊天"
+              aria-label="搜索任务"
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 max-lg:text-[15px]"
               onChange={(event) => setConversationSearch(event.target.value)}
-              placeholder="搜索聊天"
+              placeholder="搜索任务"
               value={conversationSearch}
             />
             {conversationSearch ? (
@@ -274,15 +275,15 @@ export function Sidebar({
             type="button"
           >
             <MessageSquarePlus className="size-4 shrink-0" />
-            <span className="min-w-0 truncate">新聊天</span>
+            <span className="min-w-0 truncate">新任务</span>
           </button>
           <label className="app-glass-control flex h-11 min-w-0 items-center gap-2 rounded-2xl px-3.5 text-[15px] font-semibold text-stone-700">
             <Search className="size-4 shrink-0 text-stone-400" />
             <input
-              aria-label="搜索聊天"
+              aria-label="搜索任务"
               className="min-w-0 flex-1 bg-transparent text-[15px] font-semibold outline-none placeholder:text-stone-400"
               onChange={(event) => setConversationSearch(event.target.value)}
-              placeholder="搜索聊天"
+              placeholder="搜索任务"
               value={conversationSearch}
             />
             {conversationSearch ? (
@@ -319,10 +320,13 @@ export function Sidebar({
         />
       </div>
 
+      <div className="mobile-history-tabs lg:hidden" aria-label="筛选任务">
+        {([['all', '全部'], ['running', '进行中'], ['pinned', '已置顶']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}
+      </div>
       <div className="chat-sidebar-scroll min-h-0 flex-1 overflow-y-auto px-2 py-2 max-lg:px-5 max-lg:pb-20 max-lg:pt-1">
         {groupedConversations.length === 0 ? (
           <div className="px-3 py-8 text-center text-xs leading-5 ios-muted">
-            {conversationSearch.trim() ? "没有找到匹配的聊天。" : "暂无会话。"}
+            {conversationSearch.trim() ? "没有找到匹配的聊天。" : "暂无任务。"}
           </div>
         ) : null}
 

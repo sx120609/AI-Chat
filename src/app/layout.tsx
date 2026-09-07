@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+import "./mobile-workspace.css";
 import { GlobalImageViewer } from "@/components/global-image-viewer";
 import { getSiteSettings } from "@/lib/site-settings";
 

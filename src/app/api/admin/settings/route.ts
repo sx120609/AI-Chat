@@ -1,3 +1,4 @@
+import { normalizeResponsesTools, type ResponsesTools } from "@/lib/responses-tools";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import {
@@ -82,6 +83,7 @@ type SettingsBody = {
   systemPromptMode?: string;
   customSystemPrompt?: string;
   modelSystemPrompts?: Record<string, string>;
+  responsesTools?: ResponsesTools;
   codeInterpreterEnabled?: boolean;
   codeInterpreterSandbox?: string;
   codeInterpreterAllowPackageInstall?: boolean;
@@ -160,6 +162,7 @@ function serializeSettings(settings: {
   systemPromptMode: string;
   customSystemPrompt: string;
   modelSystemPromptsJson: string;
+  responsesToolsJson?: string;
   codeInterpreterEnabled: boolean;
   codeInterpreterSandbox: string;
   codeInterpreterAllowPackageInstall: boolean;
@@ -246,6 +249,7 @@ function serializeSettings(settings: {
     systemPromptMode: normalizeSystemPromptMode(settings.systemPromptMode),
     customSystemPrompt: settings.customSystemPrompt || "",
     modelSystemPrompts: parseModelSystemPrompts(settings.modelSystemPromptsJson),
+    responsesTools: normalizeResponsesTools(settings.responsesToolsJson),
     codeInterpreterEnabled: settings.codeInterpreterEnabled,
     codeInterpreterSandbox: settings.codeInterpreterSandbox || "docker",
     codeInterpreterAllowPackageInstall: settings.codeInterpreterAllowPackageInstall,
@@ -710,7 +714,8 @@ export async function PATCH(request: NextRequest) {
     systemPromptMode: string;
     customSystemPrompt: string;
     modelSystemPromptsJson: string;
-    codeInterpreterEnabled: boolean;
+    responsesToolsJson?: string;
+  codeInterpreterEnabled: boolean;
     codeInterpreterSandbox: string;
     codeInterpreterAllowPackageInstall: boolean;
     codeInterpreterPipIndexUrl: string;
@@ -771,6 +776,7 @@ export async function PATCH(request: NextRequest) {
     systemPromptMode: normalizeSystemPromptMode(body.systemPromptMode),
     customSystemPrompt: body.customSystemPrompt?.trim() || "",
     modelSystemPromptsJson: "{}",
+    responsesToolsJson: JSON.stringify(normalizeResponsesTools(body.responsesTools ?? existingSettings?.responsesToolsJson)),
     codeInterpreterEnabled: Boolean(body.codeInterpreterEnabled),
     codeInterpreterSandbox,
     codeInterpreterAllowPackageInstall: Boolean(body.codeInterpreterAllowPackageInstall),

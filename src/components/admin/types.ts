@@ -54,6 +54,7 @@ export type SettingsForm = {
   systemPromptMode: SystemPromptMode;
   customSystemPrompt: string;
   modelSystemPrompts: Record<string, string>;
+  responsesTools?: import("@/lib/responses-tools").ResponsesTools;
   codeInterpreterEnabled: boolean;
   codeInterpreterSandbox: string;
   codeInterpreterAllowPackageInstall: boolean;

@@ -53,6 +53,7 @@ function serializeConversation<
 
 function messageForClient<
   T extends {
+    responseStateJson?: string | null;
     toolEventsJson?: string | null;
     upstreamUsageJson?: string | null;
     webSourcesJson?: string | null;
@@ -62,6 +63,7 @@ function messageForClient<
 ) {
   const view = { ...message };
 
+  delete view.responseStateJson;
   delete view.toolEventsJson;
   delete view.upstreamUsageJson;
   delete view.webSourcesJson;
@@ -82,6 +84,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   const { id } = await context.params;
+  await prisma.message.updateMany({
+    where: { conversationId: id, conversation: { userId: user.id }, generationStatus: "running", runHeartbeatAt: { lt: new Date(Date.now() - 120_000) } },
+    data: { generationStatus: "error", streamStatus: "任务运行进程已中断，已保留成果。可以重试或继续。", processFinishedAt: new Date() }
+  });
   const includeContext = new URL(request.url).searchParams.get("context") === "1";
   const conversation = await prisma.conversation.findFirst({
     where: {
@@ -113,6 +119,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
           generationStatus: true,
           streamStatus: true,
           toolEventsJson: true,
+          responseStateJson: true,
           processStartedAt: true,
           processFinishedAt: true,
           model: true,

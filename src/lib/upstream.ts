@@ -29,10 +29,15 @@ import {
 import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { prisma } from "@/lib/prisma";
 import type { ChatContentPart, ChatMessageContent } from "@/lib/tokens";
+import { createHash } from "crypto";
+import { replayResponseItems, type ResponseItem } from "./responses-state";
+import { normalizeResponsesTools, type ResponsesTools } from "./responses-tools";
 
 export type UpstreamMessage = {
   role: "system" | "user" | "assistant";
   content: ChatMessageContent;
+  responseItems?: ResponseItem[];
+  responseScope?: string;
 };
 
 export type UpstreamUsage = {
@@ -91,6 +96,7 @@ export type AiRuntimeSettings = {
   customSystemPrompt: string;
   modelSystemPrompts: Record<string, string>;
   codeInterpreterEnabled: boolean;
+  responsesTools?: ResponsesTools;
   codeInterpreterSandbox: string;
   codeInterpreterAllowPackageInstall: boolean;
   codeInterpreterPipIndexUrl: string;
@@ -149,6 +155,7 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
     modelSystemPrompts: parseModelSystemPrompts(settings?.modelSystemPromptsJson),
     codeInterpreterEnabled:
       settings?.codeInterpreterEnabled ?? process.env.CODE_INTERPRETER_ENABLED === "true",
+    responsesTools: normalizeResponsesTools(settings?.responsesToolsJson),
     codeInterpreterSandbox:
       settings?.codeInterpreterSandbox || process.env.CODE_INTERPRETER_SANDBOX || "docker",
     codeInterpreterAllowPackageInstall:
@@ -360,6 +367,10 @@ async function openAiCompatibleBody(response: Response) {
       );
     }
 
+    const native = payload as { object?: string; output?: unknown[]; status?: string };
+    if (native.object === "response" || Array.isArray(native.output)) {
+      return openAiSseFromPayload({ type: `response.${native.status || "completed"}`, response: native });
+    }
     return openAiSseFromPayload(normalizeNonStreamingPayload(payload));
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("上游 API 错误")) {
@@ -568,14 +579,19 @@ function responseInputPart(part: ChatContentPart) {
   return filePart;
 }
 
-function messagesToResponseInput(messages: UpstreamMessage[]) {
-  return messages.map((message) => ({
+function messagesToResponseInput(messages: UpstreamMessage[], scope?: string) {
+  return messages.flatMap((message): Record<string, unknown>[] => message.responseItems?.length && message.responseScope === scope ? replayResponseItems(message.responseItems) : [{
     role: message.role,
     content:
       typeof message.content === "string"
         ? message.content
         : message.content.map(responseInputPart)
-  }));
+  }]);
+}
+
+export function responseScope(settings: AiRuntimeSettings, model: ChatModelConfig) {
+  const upstream = resolveUpstreamSettingsForModel(settings, model);
+  return createHash("sha256").update(`${upstream.apiBaseUrl}\n${upstream.orgId}\n${upstream.apiKey}\n${model.upstreamId}`).digest("hex");
 }
 
 export function responseBodyVariants(options: {
@@ -585,6 +601,9 @@ export function responseBodyVariants(options: {
   settings: AiRuntimeSettings;
   stream: boolean;
   webSearch?: boolean;
+  nativeTools?: Record<string, unknown>[];
+  continuationItems?: ResponseItem[];
+  nativeState?: boolean;
 }) {
   const systemMessages = options.messages.filter(
     (message) => message.role === "system" && typeof message.content === "string"
@@ -593,22 +612,23 @@ export function responseBodyVariants(options: {
   const baseBody: Record<string, unknown> = {
     model: options.model.upstreamId,
     ...(instructions ? { instructions } : {}),
-    input: messagesToResponseInput(
-      options.messages.filter((message) => !systemMessages.includes(message))
-    ),
+    input: [...messagesToResponseInput(
+      options.messages.filter((message) => !systemMessages.includes(message)), responseScope(options.settings, options.model)
+    ), ...(options.continuationItems || [])],
     stream: options.stream,
-    ...(options.webSearch ? { tools: [{ type: "web_search" }] } : {})
+    ...((options.webSearch || options.nativeTools?.length) ? { tools: [...(options.webSearch ? [{ type: "web_search" }] : []), ...(options.nativeTools || [])] } : {}),
+    store: false
   };
   const fullBody: Record<string, unknown> = {
     ...baseBody,
     store: false,
-    ...(options.webSearch
-      ? { include: ["web_search_call.action.sources"] }
+    ...((options.webSearch || options.nativeState)
+      ? { include: [...(options.webSearch ? ["web_search_call.action.sources"] : []), ...(options.nativeState ? ["reasoning.encrypted_content"] : [])] }
       : {})
   };
 
   if (options.model.supportsReasoning && options.settings.reasoningParamMode !== "disabled") {
-    fullBody.reasoning = { effort: options.reasoningEffort };
+    fullBody.reasoning = { effort: options.reasoningEffort, ...(options.nativeState ? { summary: "auto" } : {}) };
   }
 
   const variants = [fullBody];
@@ -675,6 +695,9 @@ export async function createResponseStream(
     reasoningEffort?: ReasoningEffort;
     signal?: AbortSignal;
     webSearch?: boolean;
+    nativeTools?: Record<string, unknown>[];
+    continuationItems?: ResponseItem[];
+    nativeState?: boolean;
   }
 ) {
   const selectedModel = getChatModel(model, settings.chatModels);
@@ -699,7 +722,10 @@ export async function createResponseStream(
     reasoningEffort,
     settings: upstreamSettings,
     stream: true,
-    webSearch: options?.webSearch
+    webSearch: options?.webSearch,
+    nativeTools: options?.nativeTools,
+    continuationItems: options?.continuationItems,
+    nativeState: options?.nativeState
   });
 
   let lastUnsupportedParamError = "";
@@ -750,7 +776,10 @@ export async function createResponseStream(
       reasoningEffort,
       settings: upstreamSettings,
       stream: true,
-      webSearch: options?.webSearch
+      webSearch: options?.webSearch,
+      nativeTools: options?.nativeTools,
+      continuationItems: options?.continuationItems,
+      nativeState: options?.nativeState
     })) {
       const response = await fetchWithHeadersTimeout(
         url,

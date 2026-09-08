@@ -211,7 +211,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
 
     // Functions
     logout,
-    startNewConversation,
+    startNewConversation: startNewConversationInternal,
     changeActiveProject,
     beginRenameConversation,
     cancelRenameConversation,
@@ -221,7 +221,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
     copyShareNoticeUrl,
     requestDeleteConversation,
     deleteConversation,
-    openConversation,
+    openConversation: openConversationInternal,
     toggleSidebar,
     uploadAttachments,
     removePendingAttachment,
@@ -245,6 +245,10 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
     setComposerText,
     securityModeDefault
   } = useChat(props);
+
+  const resetWorkspace = () => { setWorkspaceOpen(false); setSelectedArtifactKey(null); setModelPickerOpen(false); };
+  const startNewConversation = () => { resetWorkspace(); startNewConversationInternal(); };
+  const openConversation = (id: string) => { resetWorkspace(); return openConversationInternal(id); };
 
   const historyRef = useRef<HTMLDivElement>(null);
   useModalFocus(mobileSidebarOpen, historyRef, () => setMobileSidebarOpen(false), "(max-width: 1023px)");
@@ -513,7 +517,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
                 startedAt={processStartedAt}
                 status={streamStatus}
               />
-            ) : streamStatus ? (
+            ) : loading && streamStatus ? (
               <div
                 aria-live="polite"
                 className="app-status-pill app-glass-control mb-3 flex items-center gap-2 rounded-full px-3 py-1 text-xs text-stone-600"

@@ -20,7 +20,7 @@ export function collectArtifacts(messages: MessageView[]): ArtifactEntry[] {
 
 const PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'";
 
-function downloadArtifact(artifact: ArtifactEntry) {
+async function downloadArtifact(artifact: ArtifactEntry) {
   if (artifact.imageData) {
     const bytes = Uint8Array.from(atob(artifact.imageData), character => character.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: artifact.mimeType }));
@@ -30,9 +30,14 @@ function downloadArtifact(artifact: ArtifactEntry) {
     return;
   }
   if (artifact.content === undefined) {
+    const response = await fetch(`/api/messages/${encodeURIComponent(artifact.messageId)}/artifacts/${encodeURIComponent(artifact.id)}`, { signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) throw new Error("文件下载失败，请稍后重试或联系管理员检查文件服务。");
+    const url = URL.createObjectURL(await response.blob());
     const link = document.createElement("a");
-    link.href = `/api/messages/${encodeURIComponent(artifact.messageId)}/artifacts/${encodeURIComponent(artifact.id)}`;
+    link.href = url;
+    link.download = artifact.filename;
     link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     return;
   }
   const url = URL.createObjectURL(new Blob([artifact.content], { type: artifact.mimeType }));
@@ -55,7 +60,17 @@ export function WorkspacePanel({ openRequest = 0, messages, onClose, onRevise, s
   const selected = artifacts.find(item => `${item.messageId}:${item.id}` === selectedKey) || artifacts.at(-1);
   const [tab, setTab] = useState<"artifacts" | "activity" | "sources">("artifacts");
   const [sourceMode, setSourceMode] = useState(false);
-  useEffect(() => { setTab("artifacts"); setSourceMode(false); }, [selectedKey, openRequest]);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+  const download = async (artifact: ArtifactEntry) => {
+    if (downloading) return;
+    setDownloading(true);
+    setDownloadError("");
+    try { await downloadArtifact(artifact); }
+    catch { setDownloadError("文件下载失败，请稍后重试或联系管理员检查文件服务。"); }
+    finally { setDownloading(false); }
+  };
+  useEffect(() => { setTab("artifacts"); setSourceMode(false); setDownloadError(""); }, [selectedKey, openRequest]);
   const latest = messages.filter(message => message.role === "ASSISTANT").at(-1);
   const events = latest?.toolEvents || [];
   const sources = [...new Map(messages.flatMap(message => message.webSources || []).map(source => [source.url, source])).values()];
@@ -73,6 +88,7 @@ export function WorkspacePanel({ openRequest = 0, messages, onClose, onRevise, s
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`rounded-lg px-3 py-2 text-xs font-medium ${tab === id ? 'bg-white shadow-sm text-stone-950' : 'text-stone-500 hover:text-stone-900'}`}>{label}</button>
         ))}
       </div>
+      {downloadError ? <p role="alert" className="shrink-0 border-b border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{downloadError}</p> : null}
       {tab === "artifacts" ? (
         artifacts.length ? <>
           <div className="workspace-artifact-list max-h-40 shrink-0 overflow-y-auto border-b border-stone-200 p-3">
@@ -86,11 +102,11 @@ export function WorkspacePanel({ openRequest = 0, messages, onClose, onRevise, s
               <div className="workspace-artifact-actions flex gap-1">
                 {selected.content !== undefined && <button aria-label={sourceMode ? "显示预览" : "查看源码"} className="rounded-lg p-2 hover:bg-stone-200" onClick={() => setSourceMode(!sourceMode)}><Code2 className="size-4" /></button>}
                 <button aria-label="继续修改成果" className="rounded-lg p-2 hover:bg-stone-200" onClick={() => { onRevise(`请继续修改成果「${selected.filename}」（版本 ${selected.version}）：\n`); onClose(); }}><PencilLine className="size-4" /></button>
-                <button aria-label="下载成果" className="rounded-lg p-2 hover:bg-stone-200" onClick={() => downloadArtifact(selected)}><Download className="size-4" /></button>
+                <button aria-label="下载成果" className="rounded-lg p-2 hover:bg-stone-200" disabled={downloading} onClick={() => void download(selected)}>{downloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}</button>
               </div>
             </div>
             <div className="workspace-artifact-preview min-h-0 flex-1 overflow-auto bg-white p-5">
-              {selected.imageData ? <img alt={selected.title} className="h-auto w-full rounded-lg" src={`data:${selected.mimeType};base64,${selected.imageData}`} /> : selected.content === undefined ? <div className="grid h-full place-content-center gap-4 text-center"><FileText className="mx-auto size-10 text-stone-400" /><p className="text-sm">文件已生成，可下载后打开。</p><button className="rounded-xl bg-stone-900 px-4 py-2 text-sm text-white" onClick={() => downloadArtifact(selected)}>下载 {selected.filename}</button></div>
+              {selected.imageData ? <img alt={selected.title} className="h-auto w-full rounded-lg" src={`data:${selected.mimeType};base64,${selected.imageData}`} /> : selected.content === undefined ? <div className="grid h-full place-content-center gap-4 text-center"><FileText className="mx-auto size-10 text-stone-400" /><p className="text-sm">文件已生成，可下载后打开。</p><button className="rounded-xl bg-stone-900 px-4 py-2 text-sm text-white" disabled={downloading} onClick={() => void download(selected)}>下载 {selected.filename}</button></div>
                 : !sourceMode && (selected.mimeType === "text/html" || selected.mimeType === "image/svg+xml") ? <iframe title={selected.title} sandbox="allow-scripts" referrerPolicy="no-referrer" className="h-full min-h-96 w-full rounded-lg border border-stone-100 bg-white" srcDoc={`<!doctype html><meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">${selected.content}`} />
                 : !sourceMode && selected.mimeType === "text/markdown" ? <div className="claude-markdown break-words"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ table: ({ children }) => <div className="workspace-table-scroll"><table>{children}</table></div> }}>{selected.content}</ReactMarkdown></div>
                 : <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6">{selected.content}</pre>}

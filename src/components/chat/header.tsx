@@ -339,8 +339,8 @@ function ModelReasoningPicker({
             <span className="sm:hidden">{modelLabel}</span>
             <span className="hidden sm:inline">{modelLabel}</span>
           </span>
-          <span className="hidden text-stone-300 sm:inline">/</span>
-          <span className="hidden shrink-0 text-stone-500 sm:inline">
+          <span className="model-reasoning-detail hidden text-stone-300 sm:inline">/</span>
+          <span className="model-reasoning-detail hidden shrink-0 text-stone-500 sm:inline">
             思考 {activeReasoningLabel}
           </span>
         </span>
@@ -454,7 +454,7 @@ export function Header({
             <Menu className="size-5" />
           </button>
 
-          <div className="hidden min-w-0 flex-1 lg:block">
+          <div className="chat-header-summary hidden min-w-0 flex-1 lg:block">
             <div className="flex min-w-0 items-center gap-1.5">
               <p className="truncate text-sm font-semibold text-stone-950">
                 {activeConversation?.title || "新任务"}
@@ -474,7 +474,7 @@ export function Header({
             </div>
           </div>
 
-          <div className="min-w-0 justify-self-stretch pr-1 lg:block lg:shrink-0 lg:justify-self-auto lg:pr-0">
+          <div className="chat-header-actions min-w-0 justify-self-stretch pr-1 lg:block lg:shrink-0 lg:justify-self-auto lg:pr-0">
             <div className="flex w-full min-w-0 items-center gap-2 lg:w-auto">
               {projects.length > 0 ? (
                 <label className="mobile-project-picker app-glass-control hidden h-10 min-w-0 items-center gap-2 rounded-2xl px-3 text-xs font-semibold text-stone-700 sm:flex">

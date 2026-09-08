@@ -718,7 +718,7 @@ export function ChatShell({ experience = "classic", ...props }: ChatShellCompone
       <nav className="mobile-task-nav" aria-label="移动端导航">
         <button type="button" aria-current={!mobileSidebarOpen && !workspaceOpen ? "page" : undefined} onClick={() => { setWorkspaceOpen(false); setMobileSidebarOpen(false); setModelPickerOpen(false); }}><House size={20} /><span>任务</span></button>
         <button type="button" aria-label="打开任务历史" aria-current={mobileSidebarOpen ? "page" : undefined} onClick={() => { setWorkspaceOpen(false); setMobileSidebarOpen(true); setModelPickerOpen(false); }}><History size={20} /><span>历史</span>{runningGenerationKeySet.size ? <i aria-label={`${runningGenerationKeySet.size} 个任务进行中`} /> : null}</button>
-        <button type="button" aria-label="打开任务成果" aria-current={workspaceOpen ? "page" : undefined} onClick={() => { setMobileSidebarOpen(false); setWorkspaceOpen(true); setModelPickerOpen(false); }}><FolderOpen size={20} /><span>成果{collectArtifacts(messages).length ? ` · ${collectArtifacts(messages).length}` : ""}</span></button>
+        <button type="button" aria-label="打开任务成果" aria-current={workspaceOpen ? "page" : undefined} onClick={() => { setMobileSidebarOpen(false); setSelectedArtifactKey(null); setWorkspaceOpen(true); setModelPickerOpen(false); }}><FolderOpen size={20} /><span>成果{collectArtifacts(messages).length ? ` · ${collectArtifacts(messages).length}` : ""}</span></button>
       </nav>
     </main>
 
